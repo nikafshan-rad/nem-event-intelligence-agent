@@ -1,0 +1,62 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.12", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      # Publisher files are fetched from AEMO/NASA by `make data`/`make index` (not committed; docs/decisions.md D2).
+      # The cache keeps verified copies so later runs survive NEMWeb Current's rolling retention of market notices.
+      - name: Cache verified publisher files and the embedding model
+        uses: actions/cache@v4
+        with:
+          path: |
+            data/raw
+            data/models
+          key: nem-raw-${{ hashFiles('data/source_selection.json') }}
+          restore-keys: nem-raw-
+      - name: Install (pinned)
+        run: make setup SYSTEM_PY=python
+      - name: Lint
+        run: make lint
+      - name: Type check
+        run: make typecheck
+      - name: Fetch real data and build the store (no secrets needed)
+        run: make data
+      - name: Build the document index
+        run: make index
+      - name: Tests (unit, integration, real-data, synthetic safety fixtures)
+        run: make test
+      - name: Offline evaluation (replay; hosted-model evaluation is not run in CI)
+        run: make eval
+      - name: Safety suite (SYNTHETIC adversarial fixtures + approval boundary)
+        run: make safety
+      - name: Upload evaluation artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-py${{ matrix.python }}
+          path: |
+            artifacts/eval/
+            artifacts/g5_safety_summary.json
+          if-no-files-found: warn

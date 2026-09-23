@@ -1,0 +1,10 @@
+.venv/bin/python scripts/verify_selection.py data/source_selection.json --allow-cached --allow-rolled-off --report artifacts/g0_verify.json
+checks: 715 passed, 0 failed, 0 warnings
+self-test REJECTED (good): invented URL :: live invented_archive: https://nemweb.com.au/Reports/ARCHIVE/Operational_Demand/FORECAST_HH/PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_20190101.zip -> HTTP 404  HTTP
+self-test REJECTED (good): missing URL :: schema: 1 validation error(s): sources.0.url: String should have at least 12 characters
+self-test REJECTED (good): non-publisher URL :: schema: 1 validation error(s): sources.0.url: Value error, URL 'https://example.com/fake.zip' is not under an allowlisted publisher prefix
+self-test REJECTED (good): incompatible definition/interval (TOTALDEMAND 5-min vs operational demand 30-min) :: comparison opdemand_poe50_vs_actual: definition mismatch 'OPERATIONAL_DEMAND' vs 'DISPATCH_TOTALDEMAND'; interval mismatch 30 vs 5 min
+self-test REJECTED (good): interval relabelled to 5 min :: comparison opdemand_poe50_vs_actual: interval mismatch 30 vs 5 min; OPDEM_ACTUAL_HH.OPERATIONAL_DEMAND: declared 5 min/MW but OPERATIONAL_DEMAND is 30 min/MW
+self-test REJECTED (good): empty checksum :: schema: 1 validation error(s): sources.0.sha256: String should match pattern '^[0-9a-f]{64}$'
+self-test REJECTED (good): checksum mismatch :: sha256 opdem_actual_hh_20260726: local bytes hash df495278ed8322b9 != recorded 0000000000000000
+G0 VERIFY: PASS

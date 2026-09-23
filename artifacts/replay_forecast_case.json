@@ -1,0 +1,389 @@
+{
+  "report": {
+    "schema_version": "1",
+    "question": "What did AEMO's issued operational demand forecasts say for SA1 on 2026-07-31, and how did they compare with actual operational demand?",
+    "mode": "replay",
+    "intent": "forecast_review",
+    "region": "SA1",
+    "as_of": null,
+    "event_window": {
+      "start_utc": "2026-07-30T04:30:00Z",
+      "end_utc": "2026-07-31T05:00:00Z",
+      "start_local": "2026-07-30 14:00 ACST (UTC+0930)",
+      "end_local": "2026-07-31 14:30 ACST (UTC+0930)",
+      "timezone": "Australia/Adelaide"
+    },
+    "headline": "SA1 operational demand: over 24 half-hour(s) with published actuals, the latest AEMO POE50 run available before each half-hour had a mean absolute error of 33 MW and a mean error of +5 MW (positive = forecast above actual).",
+    "summary": [
+      "The largest miss was for the half-hour ending 2026-07-31 01:00 ACST (UTC+0930): +66 MW (+4.2% of actual).",
+      "Using only runs issued at least a day ahead (the day-ahead view), the mean absolute error was 34 MW.",
+      "Definitions used: [s02] \u201cExceedance Forecasts The 10% and 90% POE forecasts are derived from the 50% POE forecast.\u201d [s03] \u201cOften referred to as the most probable forecast 10% POE Forecast value with a 10% probability of exceedance. 90% POE Forecast value with a 90% probability of exceedance.\u201d"
+    ],
+    "observations": [
+      {
+        "metric": "mae_mw",
+        "value": 32.88,
+        "unit": "MW",
+        "valid_at_utc": "2026-07-30T23:00:00Z",
+        "valid_at_local": "2026-07-31 08:30 ACST (UTC+0930)",
+        "interval_minutes": 30,
+        "evidence_id": "ev0340",
+        "source_row_ids": [
+          "derived:mean(|error|) over 24 half-hours: ['ev0246', 'ev0250', 'ev0254', 'ev0258', 'ev0262', 'ev0266']..."
+        ],
+        "evidence_class": "derived",
+        "label": "mean(|error|) over 24 half-hours: ['ev0246', 'ev0250', 'ev0254', 'ev0258', 'ev0262', 'ev0266']..."
+      },
+      {
+        "metric": "mean_error_mw",
+        "value": 4.88,
+        "unit": "MW",
+        "valid_at_utc": "2026-07-30T23:00:00Z",
+        "valid_at_local": "2026-07-31 08:30 ACST (UTC+0930)",
+        "interval_minutes": 30,
+        "evidence_id": "ev0341",
+        "source_row_ids": [
+          "derived:mean(error) over 24 half-hours; positive = over-forecast"
+        ],
+        "evidence_class": "derived",
+        "label": "mean(error) over 24 half-hours; positive = over-forecast"
+      },
+      {
+        "metric": "forecast_error_mw",
+        "value": 66.0,
+        "unit": "MW",
+        "valid_at_utc": "2026-07-30T15:30:00Z",
+        "valid_at_local": "2026-07-31 01:00 ACST (UTC+0930)",
+        "interval_minutes": 30,
+        "evidence_id": "ev0278",
+        "source_row_ids": [
+          "OPDEM_FORECAST_HH:PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607302230_20260730220148:L785",
+          "OPDEM_ACTUAL_DAILY:PUBLIC_ACTUAL_OPERATIONAL_DEMAND_DAILY_20260730_20260731044000:L141"
+        ],
+        "evidence_class": "derived",
+        "label": "POE50 (ev0276) minus actual (ev0277); positive = forecast above actual"
+      },
+      {
+        "metric": "mae_mw",
+        "value": 33.88,
+        "unit": "MW",
+        "valid_at_utc": "2026-07-30T23:00:00Z",
+        "valid_at_local": "2026-07-31 08:30 ACST (UTC+0930)",
+        "interval_minutes": 30,
+        "evidence_id": "ev0439",
+        "source_row_ids": [
+          "derived:mean(|error|) over 24 half-hours: ['ev0345', 'ev0349', 'ev0353', 'ev0357', 'ev0361', 'ev0365']..."
+        ],
+        "evidence_class": "derived",
+        "label": "mean(|error|) over 24 half-hours: ['ev0345', 'ev0349', 'ev0353', 'ev0357', 'ev0361', 'ev0365']..."
+      }
+    ],
+    "forecast_comparison": {
+      "status": "ok",
+      "run_selector": "latest_before_target",
+      "as_of_utc": null,
+      "definition_check": "forecast and actual are both OPERATIONAL_DEMAND, 30-minute, MW (compatible)",
+      "n_pairs": 24,
+      "mae_mw": 32.88,
+      "mae_evidence_id": "ev0340",
+      "mean_error_mw": 4.88,
+      "mean_error_evidence_id": "ev0341",
+      "largest_abs_error": {
+        "target_end_utc": "2026-07-30T15:30:00Z",
+        "target_end_local": "2026-07-31 01:00 ACST (UTC+0930)",
+        "error_mw": 66.0,
+        "error_evidence_id": "ev0278",
+        "error_pct": 4.2,
+        "error_pct_evidence_id": "ev0279",
+        "poe50_mw": 1636.0,
+        "actual_mw": 1570.0,
+        "run_id": "PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607302230_20260730220148"
+      },
+      "note": "error_mw = POE50 - actual; error_pct = error_mw / actual, as a percentage (denominator: actual); retrospective observations published after the forecast was issued."
+    },
+    "possible_explanations": [
+      {
+        "statement": "The larger misses might relate to inputs that AEMO's demand forecasting system uses, such as weather (s01). Those inputs are not in the files used here, so this cannot be tested.",
+        "certainty": "hypothesis",
+        "supporting_evidence_ids": [
+          "ev0278"
+        ],
+        "what_would_test_it": "AEMO's forecast input data or a separately evaluated model."
+      }
+    ],
+    "published_findings": [],
+    "uncertainties": [
+      "POE10/POE90 are AEMO-published values derived from POE50 by scaling factors (SO_OP_3710); they are not calibrated uncertainty intervals.",
+      "No AEMO market event report could be checked: aemo.com.au report pages refused scripted access when the sources were probed, so the corpus holds AEMO market notices, definitions and procedures only.",
+      "Dispatch prices are the values published in real time with their PRICE_STATUS; later price revisions were not ingested.",
+      "Actuals used: revision policy 'latest_available' (updated next-day values); in this snapshot no updated value differed from its initial value"
+    ],
+    "missing_evidence": [],
+    "citations": [
+      {
+        "citation_id": "s01",
+        "chunk_id": "aemo_so_op_3710#p9c16",
+        "doc_id": "aemo_so_op_3710",
+        "title": "SO_OP_3710 Load Forecasting",
+        "url": "https://www.aemo.com.au/-/media/files/electricity/nem/security_and_reliability/power_system_ops/procedures/so_op_3710-load-forecasting.pdf",
+        "section": "7. Load Forecasting in the Dispatch Period",
+        "page": 9,
+        "publication_date": "2023-05-29T14:00:00Z",
+        "doc_type": "procedure",
+        "quote": "The major factors considered in the statistical models are: \u2022 Temperature profile \u2022 Weather season \u2022 Week day / weekend \u2022 Unusual conditions (school / public holidays / daylight savings) Figure 1 provides an overview of the process.",
+        "supports": "Inputs to AEMO's demand forecasting system"
+      },
+      {
+        "citation_id": "s02",
+        "chunk_id": "aemo_so_op_3710#p7c14",
+        "doc_id": "aemo_so_op_3710",
+        "title": "SO_OP_3710 Load Forecasting",
+        "url": "https://www.aemo.com.au/-/media/files/electricity/nem/security_and_reliability/power_system_ops/procedures/so_op_3710-load-forecasting.pdf",
+        "section": "6. Calculation of 10% and 90% Probability of",
+        "page": 7,
+        "publication_date": "2023-05-29T14:00:00Z",
+        "doc_type": "procedure",
+        "quote": "Exceedance Forecasts The 10% and 90% POE forecasts are derived from the 50% POE forecast.",
+        "supports": "Definition context from SO_OP_3710 Load Forecasting"
+      },
+      {
+        "citation_id": "s03",
+        "chunk_id": "aemo_demand_terms#p18c33",
+        "doc_id": "aemo_demand_terms",
+        "title": "Demand Terms in EMMS Data Model",
+        "url": "https://www.aemo.com.au/-/media/files/electricity/nem/security_and_reliability/dispatch/policy_and_process/demand-terms-in-emms-data-model.pdf",
+        "section": "2. Demand terms in EMMS data",
+        "page": 18,
+        "publication_date": "2025-07-31T13:59:59Z",
+        "doc_type": "definition",
+        "quote": "Often referred to as the most probable forecast 10% POE Forecast value with a 10% probability of exceedance. 90% POE Forecast value with a 90% probability of exceedance.",
+        "supports": "Definition context from Demand Terms in EMMS Data Model"
+      }
+    ],
+    "numeric_claims": [
+      {
+        "claim_id": "c001",
+        "text": "24",
+        "value": 24.0,
+        "unit": "half-hours",
+        "evidence_id": "ev0342",
+        "rounding": 0.0
+      },
+      {
+        "claim_id": "c002",
+        "text": "33 MW",
+        "value": 33.0,
+        "unit": "MW",
+        "evidence_id": "ev0340",
+        "rounding": 0.51
+      },
+      {
+        "claim_id": "c003",
+        "text": "+5 MW",
+        "value": 5.0,
+        "unit": "MW",
+        "evidence_id": "ev0341",
+        "rounding": 0.51
+      },
+      {
+        "claim_id": "c004",
+        "text": "+66 MW",
+        "value": 66.0,
+        "unit": "MW",
+        "evidence_id": "ev0278",
+        "rounding": 0.51
+      },
+      {
+        "claim_id": "c005",
+        "text": "+4.2%",
+        "value": 4.2,
+        "unit": "%",
+        "evidence_id": "ev0279",
+        "rounding": 0.051
+      },
+      {
+        "claim_id": "c006",
+        "text": "34 MW",
+        "value": 34.0,
+        "unit": "MW",
+        "evidence_id": "ev0439",
+        "rounding": 0.51
+      }
+    ],
+    "source_manifest": {
+      "data_version": "91a2649f7809bb75",
+      "corpus_version": "9dc5ca595220838f",
+      "sources": [
+        {
+          "url": "https://nemweb.com.au/Reports/ARCHIVE/Operational_Demand/ACTUAL_DAILY/PUBLIC_ACTUAL_OPERATIONAL_DEMAND_DAILY_20260701.zip",
+          "evidence_ids": [
+            "ev0278"
+          ]
+        },
+        {
+          "url": "https://nemweb.com.au/Reports/ARCHIVE/Operational_Demand/FORECAST_HH/PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_20260726.zip",
+          "evidence_ids": [
+            "ev0278"
+          ]
+        }
+      ],
+      "documents": [
+        [
+          "aemo_demand_terms",
+          "https://www.aemo.com.au/-/media/files/electricity/nem/security_and_reliability/dispatch/policy_and_process/demand-terms-in-emms-data-model.pdf"
+        ],
+        [
+          "aemo_so_op_3710",
+          "https://www.aemo.com.au/-/media/files/electricity/nem/security_and_reliability/power_system_ops/procedures/so_op_3710-load-forecasting.pdf"
+        ]
+      ]
+    },
+    "status": "answered",
+    "trace_id": "tr-0e3372afe64b",
+    "versions": {
+      "code": "a8199ec-dirty",
+      "data": "91a2649f7809bb75",
+      "corpus": "9dc5ca595220838f",
+      "prompt": "prompts/v1",
+      "model": null,
+      "controller": "scripted-replay-controller/1"
+    },
+    "generator": "scripted-replay-controller/1",
+    "validation": {
+      "initial": {
+        "passed": true,
+        "n_critical": 0,
+        "n_warnings": 0,
+        "violations": [],
+        "checks_run": [
+          "numeric_claims",
+          "narrative_numbers",
+          "observations",
+          "citations",
+          "published_findings",
+          "metric_compatibility",
+          "language",
+          "status"
+        ],
+        "numbers_checked": 6,
+        "claims_checked": 6,
+        "citations_checked": 3
+      },
+      "fallback_applied": false,
+      "repair_attempted": false,
+      "passed": true,
+      "final_passed": true
+    }
+  },
+  "tool_calls": [
+    {
+      "call_id": "call-001",
+      "name": "get_forecast_runs",
+      "status": "ok",
+      "args": {
+        "region": "SA1",
+        "target_start_utc": "2026-07-30T11:00:00Z",
+        "target_end_utc": "2026-07-30T23:00:00Z",
+        "as_of_utc": null,
+        "max_runs": 4
+      },
+      "blocked_reason": null,
+      "duration_ms": 34.7,
+      "optional": false
+    },
+    {
+      "call_id": "call-002",
+      "name": "get_actual_demand",
+      "status": "ok",
+      "args": {
+        "region": "SA1",
+        "start_utc": "2026-07-30T11:00:00Z",
+        "end_utc": "2026-07-30T23:00:00Z",
+        "revision_policy": "latest_available",
+        "as_of_utc": null
+      },
+      "blocked_reason": null,
+      "duration_ms": 3.3,
+      "optional": false
+    },
+    {
+      "call_id": "call-003",
+      "name": "compare_forecast_actual",
+      "status": "ok",
+      "args": {
+        "region": "SA1",
+        "target_start_utc": "2026-07-30T11:00:00Z",
+        "target_end_utc": "2026-07-30T23:00:00Z",
+        "run_selector": "latest_before_target",
+        "min_lead_hours": null,
+        "run_id": null,
+        "as_of_utc": null,
+        "actual_revision": "latest_available",
+        "actual_metric": "OPERATIONAL_DEMAND"
+      },
+      "blocked_reason": null,
+      "duration_ms": 87.6,
+      "optional": false
+    },
+    {
+      "call_id": "call-004",
+      "name": "compare_forecast_actual",
+      "status": "ok",
+      "args": {
+        "region": "SA1",
+        "target_start_utc": "2026-07-30T11:00:00Z",
+        "target_end_utc": "2026-07-30T23:00:00Z",
+        "run_selector": "min_lead_hours",
+        "min_lead_hours": 24.0,
+        "run_id": null,
+        "as_of_utc": null,
+        "actual_revision": "latest_available",
+        "actual_metric": "OPERATIONAL_DEMAND"
+      },
+      "blocked_reason": null,
+      "duration_ms": 83.6,
+      "optional": false
+    },
+    {
+      "call_id": "call-005",
+      "name": "retrieve_public_evidence",
+      "status": "ok",
+      "args": {
+        "query": "operational demand forecast 50% POE most probable 10% 90% scaling factor load forecasting",
+        "region": null,
+        "event_start_utc": null,
+        "event_end_utc": null,
+        "as_of_utc": null,
+        "top_k": 4,
+        "doc_types": [
+          "definition",
+          "procedure"
+        ]
+      },
+      "blocked_reason": null,
+      "duration_ms": 6.2,
+      "optional": false
+    },
+    {
+      "call_id": "call-006",
+      "name": "retrieve_public_evidence",
+      "status": "ok",
+      "args": {
+        "query": "major factors considered in the demand forecasting statistical models temperature",
+        "region": null,
+        "event_start_utc": null,
+        "event_end_utc": null,
+        "as_of_utc": null,
+        "top_k": 2,
+        "doc_types": [
+          "procedure"
+        ]
+      },
+      "blocked_reason": null,
+      "duration_ms": 4.6,
+      "optional": false
+    }
+  ],
+  "trace_id": "tr-0e3372afe64b",
+  "latency_ms": 223.2
+}

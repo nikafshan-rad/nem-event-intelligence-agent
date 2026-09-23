@@ -1,0 +1,171 @@
+{
+  "simulation": "NEM_AGENT_SIMULATE_ROLLED_OFF=1: every NEMWeb Reports/Current URL answers a simulated 404",
+  "preparation": {
+    "verified_non_current_files_reused": 45,
+    "current_files_not_copied": 262
+  },
+  "steps": [
+    {
+      "cmd": "nem_agent.cli build-data",
+      "exit": 0,
+      "seconds": 107.7,
+      "key_lines": [
+        "[data] ROLLED OFF opdem_actual_daily_20260805: HTTP 404 (SIMULATED: NEM_AGENT_SIMULATE_ROLLED_OFF=1)",
+        "[data] ROLLED OFF opdem_actual_daily_20260806: HTTP 404 (SIMULATED: NEM_AGENT_SIMULATE_ROLLED_OFF=1)",
+        "[data] ROLLED OFF opdem_actual_daily_20260819: HTTP 404 (SIMULATED: NEM_AGENT_SIMULATE_ROLLED_OFF=1)",
+        "[data] ROLLED OFF opdem_actual_daily_20260820: HTTP 404 (SIMULATED: NEM_AGENT_SIMULATE_ROLLED_OFF=1)",
+        "[data] data_version=62fa768cd357380c failed_sources=0 rolled_off_sources=4",
+        "[data] WARNING: 4 source(s) rolled off NEMWeb 'Current' and were not found in an Archive bundle yet; see docs/data-retention.md."
+      ]
+    },
+    {
+      "cmd": "nem_agent.cli data-check",
+      "exit": 0,
+      "seconds": 1.6,
+      "key_lines": [
+        "    \"no_failed_sources\": true,",
+        "  \"rolled_off_sources\": [",
+        "DATA-CHECK: PASS"
+      ]
+    },
+    {
+      "cmd": "nem_agent.cli build-index",
+      "exit": 0,
+      "seconds": 8.1,
+      "key_lines": [
+        "[index] corpus_version=4b2b1371d045896f chunks=398 docs=9 by_type={'definition': 144, 'procedure': 254} embedder=model2vec rolled_off=198",
+        "[index] WARNING: 198 document(s) have rolled off NEMWeb's rolling 'Current' folder and AEMO does not archive them (market notices). They are reported as missing evidence; see docs/data-retention.md."
+      ]
+    },
+    {
+      "cmd": "nem_agent.cli investigate --region SA1 --event 2026-07-31 --out <sim-home>/artifacts/replay_case.json",
+      "exit": 0,
+      "seconds": 1.9,
+      "key_lines": [
+        "  \"status\": \"answered\",",
+        "  \"validation_passed\": true,"
+      ]
+    },
+    {
+      "cmd": "nem_agent.cli investigate --question What did AEMO's market notice say about the City West transformer in SA1 on 2026-07-30? --out <sim-home>/artifacts/notice_question.json",
+      "exit": 0,
+      "seconds": 1.2,
+      "key_lines": [
+        "  \"status\": \"abstained\",",
+        "  \"validation_passed\": true,"
+      ]
+    },
+    {
+      "cmd": "nem_agent.cli eval --out <sim-home>/artifacts/eval/offline.json",
+      "exit": 0,
+      "seconds": 9.0,
+      "key_lines": [
+        "EVAL: PASS -> <sim-home>/artifacts/eval/offline.json"
+      ]
+    },
+    {
+      "cmd": "pytest -q -p no:cacheprovider",
+      "exit": 0,
+      "seconds": 127.5,
+      "key_lines": [
+        "133 passed, 2 skipped, 1 warning in 126.04s (0:02:06)"
+      ]
+    }
+  ],
+  "store": {
+    "data_version": "62fa768cd357380c",
+    "row_counts": {
+      "duid_region": 23340,
+      "opdemand_actual": 2925,
+      "opdemand_forecast": 149755,
+      "price_5min": 7350,
+      "regionsum_5min": 7350,
+      "scada_5min": 754366,
+      "weather_hourly": 480
+    },
+    "failed_sources": [],
+    "rolled_off_sources": [
+      "opdem_actual_daily_20260805",
+      "opdem_actual_daily_20260806",
+      "opdem_actual_daily_20260819",
+      "opdem_actual_daily_20260820"
+    ]
+  },
+  "index": {
+    "corpus_version": "4b2b1371d045896f",
+    "n_chunks": 398,
+    "chunks_by_doc_type": {
+      "definition": 144,
+      "procedure": 254
+    },
+    "rolled_off_sources": 198,
+    "failed_sources": []
+  },
+  "primary_event_report": {
+    "status": "answered",
+    "headline": "SA1 5-minute dispatch price peaked at $4,981.00/MWh for the interval ending 2026-07-31 02:05 ACST (UTC+0930).",
+    "published_findings": 0,
+    "notice_gap_message": [
+      "22 of 22 AEMO market notices selected for this event's window are not in the local corpus: they have rolled off NEMWeb's rolling 'Current' folder and AEMO does not archive notices, so any statement they contained is unavailable on this machine (see docs/data-retention.md)."
+    ],
+    "uncertainties_about_notices": [
+      "No AEMO market event report could be checked: aemo.com.au report pages refused scripted access when the sources were probed, so the corpus holds AEMO market notices, definitions and procedures only.",
+      "No AEMO market notice matching SA1 and the window was retrieved."
+    ],
+    "validation_passed": true
+  },
+  "notice_question_report": {
+    "status": "abstained",
+    "headline": "Abstained: The question asks what an AEMO market notice said, but no market notice matching the region and date is in the local corpus, so it cannot be quoted.",
+    "citations": [],
+    "notice_gap_message": [
+      "22 of 22 AEMO market notices selected for this event's window are not in the local corpus: they have rolled off NEMWeb's rolling 'Current' folder and AEMO does not archive notices, so any statement they contained is unavailable on this machine (see docs/data-retention.md)."
+    ]
+  },
+  "evaluation_test_split": {
+    "gate_checks_all_true": true,
+    "failed_gate_checks": [],
+    "status_ok": {
+      "numerator": 20,
+      "denominator": 21,
+      "value": 0.9524
+    },
+    "gold_numbers": {
+      "numerator": 13,
+      "denominator": 13,
+      "value": 1.0
+    },
+    "gold_forecast": {
+      "numerator": 5,
+      "denominator": 5,
+      "value": 1.0
+    },
+    "gold_citation": {
+      "numerator": 2,
+      "denominator": 3,
+      "value": 0.6667
+    },
+    "corpus_unavailable_cases": 1,
+    "as_of_leaks": 0
+  },
+  "retrieval_eval": {
+    "recall_at_k": {
+      "numerator": 12,
+      "denominator": 15,
+      "value": 0.8,
+      "definition": "labelled (doc, snippet) items found in top-k / all labelled items (micro)"
+    },
+    "hit_at_k": {
+      "numerator": 11,
+      "denominator": 11,
+      "value": 1.0
+    },
+    "mrr_at_k": {
+      "sum_reciprocal_rank": 10.0,
+      "denominator": 11,
+      "value": 0.9091
+    },
+    "labelled_items_unavailable_in_corpus": 6,
+    "queries_unavailable_in_corpus": 4
+  }
+}

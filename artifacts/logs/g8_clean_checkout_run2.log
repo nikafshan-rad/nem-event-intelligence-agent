@@ -1,0 +1,83 @@
+===== make setup (08:12:41)
+python3 -m venv .venv
+.venv/bin/pip install -q --upgrade pip
+.venv/bin/pip install -q -r requirements.lock
+.venv/bin/pip install -q --no-deps -e .
+nem_agent 0.1.0 python 3.14.2
+
+real	0m42.118s
+user	0m36.146s
+sys	0m3.699s
+===== make setup exit=0
+===== make data (08:13:24)
+.venv/bin/python -m nem_agent.cli build-data
+[data] price_5min         rows=    7350 duplicates_dropped=0
+[data] regionsum_5min     rows=    7350 duplicates_dropped=0
+[data] opdemand_forecast  rows=  149755 duplicates_dropped=0
+[data] opdemand_actual    rows=    3410 duplicates_dropped=0
+[data] scada_5min         rows=  754366 duplicates_dropped=0
+[data] duid_region        rows=   23340 duplicates_dropped=0
+[data] weather_hourly     rows=     480 duplicates_dropped=0
+[data] data_version=0a293ac92ec83e65 failed_sources=0
+
+real	1m52.690s
+user	1m40.562s
+sys	0m1.889s
+===== make data exit=0
+===== make index (08:15:16)
+.venv/bin/python -m nem_agent.cli build-index
+Fetching 6 files:   0%|          | 0/6 [00:00<?, ?it/s]Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Fetching 6 files:  17%|█▋        | 1/6 [00:00<00:01,  3.67it/s]Fetching 6 files: 100%|██████████| 6/6 [00:06<00:00,  1.16s/it]Fetching 6 files: 100%|██████████| 6/6 [00:06<00:00,  1.12s/it]
+[index] corpus_version=9dc5ca595220838f chunks=596 docs=207 by_type={'definition': 144, 'procedure': 254, 'market_notice': 198} embedder=model2vec
+
+real	1m18.110s
+user	0m13.528s
+sys	0m1.070s
+===== make index exit=0
+===== make demo (08:16:34)
+    [
+      "retrieve_public_evidence",
+      "ok"
+    ],
+    [
+      "retrieve_public_evidence",
+      "ok"
+    ]
+  ],
+  "out": "artifacts/replay_forecast_case.json"
+}
+== source_explanation
+{
+  "status": "answered",
+  "headline": "According to the retrieved AEMO text [s01]: \u201cOperational demand in a region is demand that is met by local scheduled 6, semi-scheduled7 and significant non-scheduled generation, by generation from scheduled bidirectional units, and by generation imports to the region, excluding the demand of local scheduled loads10 and scheduled bidirectional units, and including Wholesale Demand Response.\u201d",
+  "generator": "scripted-replay-controller/1",
+  "validation_passed": true,
+  "trace_id": "tr-1bd95f73ff0b",
+  "tool_calls": [
+    [
+      "retrieve_public_evidence",
+      "ok"
+    ]
+  ],
+  "out": "artifacts/replay_definition_case.json"
+}
+
+real	0m2.196s
+user	0m2.017s
+sys	0m0.356s
+===== make demo exit=0
+===== make smoke (08:16:37)
+.venv/bin/python scripts/smoke_api.py --port 8765
+GET /health -> {'status': 'ok', 'version': '0.1.0', 'code': '20eb053-dirty', 'data_version': '0a293ac92ec83e65', 'corpus_version': '9dc5ca595220838f', 'replay_available': True, 'live_available': False}
+POST /investigate -> 200 status=answered validation_passed=True tool_calls=['find_market_events', 'get_price_timeline', 'get_actual_demand', 'retrieve_public_evidence', 'retrieve_public_evidence', 'get_generation_change', 'compare_forecast_actual']
+   headline: SA1 5-minute dispatch price peaked at $4,981.00/MWh for the interval ending 2026-07-31 02:05 ACST (UTC+0930).
+GET /evidence/DISPATCHIS:PUBLIC_DISPATCHIS_202607310235_0000000530110070:L32 -> https://nemweb.com.au/Reports/ARCHIVE/DispatchIS_Reports/PUBLIC_DISPATCHIS_20260731.zip line 32: D,DISPATCH,PRICE,5,"2026/07/31 02:35:00",1,SA1,20260730271,0,4981,0,4981,0,0,"2026/07/31 0...
+POST /investigate (bad input) -> 422 {'error': 'invalid_request', 'details': [{'field': 'question', 'message': 'String should have at least 3 characters'}, {'field': 'region', 'message': "Input should be 'NSW1', 'QLD1', 'SA1', 'TAS1' or 'VIC1'"}], 'hint': 'See GET /docs for the InvestigateRequest schema.'}
+POST /investigate (live, no key) -> 400 {'detail': 'Live mode needs OPENAI_API_KEY on the server; use mode=replay.'}
+API-SMOKE: PASS (server stopped)
+
+real	0m3.164s
+user	0m2.269s
+sys	0m0.488s
+===== make smoke exit=0
+===== ALL DONE

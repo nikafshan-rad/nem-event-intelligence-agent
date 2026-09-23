@@ -1,0 +1,90 @@
+.venv/bin/python -m nem_agent.cli demo
+== market_event_review
+{
+  "status": "answered",
+  "headline": "SA1 5-minute dispatch price peaked at $4,981.00/MWh for the interval ending 2026-07-31 02:05 ACST (UTC+0930).",
+  "generator": "scripted-replay-controller/1",
+  "validation_passed": true,
+  "trace_id": "tr-7809c6bd995e",
+  "tool_calls": [
+    [
+      "find_market_events",
+      "ok"
+    ],
+    [
+      "get_price_timeline",
+      "ok"
+    ],
+    [
+      "get_actual_demand",
+      "ok"
+    ],
+    [
+      "retrieve_public_evidence",
+      "ok"
+    ],
+    [
+      "retrieve_public_evidence",
+      "ok"
+    ],
+    [
+      "get_generation_change",
+      "ok"
+    ],
+    [
+      "compare_forecast_actual",
+      "ok"
+    ]
+  ],
+  "out": "artifacts/replay_case.json"
+}
+== forecast_review
+{
+  "status": "answered",
+  "headline": "SA1 operational demand: over 24 half-hour(s) with published actuals, the latest AEMO POE50 run available before each half-hour had a mean absolute error of 33 MW and a mean error of +5 MW (positive = forecast above actual).",
+  "generator": "scripted-replay-controller/1",
+  "validation_passed": true,
+  "trace_id": "tr-099ea072388a",
+  "tool_calls": [
+    [
+      "get_forecast_runs",
+      "ok"
+    ],
+    [
+      "get_actual_demand",
+      "ok"
+    ],
+    [
+      "compare_forecast_actual",
+      "ok"
+    ],
+    [
+      "compare_forecast_actual",
+      "ok"
+    ],
+    [
+      "retrieve_public_evidence",
+      "ok"
+    ],
+    [
+      "retrieve_public_evidence",
+      "ok"
+    ]
+  ],
+  "out": "artifacts/replay_forecast_case.json"
+}
+== source_explanation
+{
+  "status": "answered",
+  "headline": "According to the retrieved AEMO text [s01]: \u201cOperational demand in a region is demand that is met by local scheduled 6, semi-scheduled7 and significant non-scheduled generation, by generation from scheduled bidirectional units, and by generation imports to the region, excluding the demand of local scheduled loads10 and scheduled bidirectional units, and including Wholesale Demand Response.\u201d",
+  "generator": "scripted-replay-controller/1",
+  "validation_passed": true,
+  "trace_id": "tr-78639138cd0f",
+  "tool_calls": [
+    [
+      "retrieve_public_evidence",
+      "ok"
+    ]
+  ],
+  "out": "artifacts/replay_definition_case.json"
+}
