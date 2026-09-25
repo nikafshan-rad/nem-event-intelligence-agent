@@ -1,0 +1,167 @@
+"""NEM Event Intelligence Agent — thin Streamlit UI over the same service used by the CLI and API."""
+
+from __future__ import annotations
+
+import os
+import sys
+from pathlib import Path
+
+import streamlit as st
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+
+from nem_agent import paths
+from nem_agent.agent.request import InvestigateRequest
+from nem_agent.approvals import CaseNoteStore, note_content_from_report
+from nem_agent.selection import load_selection
+from nem_agent.timeutil import REGION_TZ, local_str, parse_iso, region_zone
+from nem_agent.ui_data import demand_chart, frames, observation_table, price_chart
+
+st.set_page_config(page_title="NEM Event Intelligence", layout="wide")
+
+
+def md(text: str) -> str:
+    """Escape '$' so Streamlit does not render currency as LaTeX."""
+    return text.replace("$", "\\$")
+
+LIVE_OK = bool(os.environ.get("OPENAI_API_KEY"))
+sel = load_selection()
+
+with st.sidebar:
+    st.header("Investigation")
+    mode = st.radio("Mode", ["replay", "live"], index=0, horizontal=True, disabled=not LIVE_OK,
+                    help="REPLAY: scripted controller over real data, no LLM. LIVE needs OPENAI_API_KEY.")
+    if not LIVE_OK:
+        st.caption("LIVE is disabled: no OPENAI_API_KEY in this environment.")
+    labels = {e.event_id: f"{e.region} · {local_str(parse_iso(e.peak_interval_end_utc), e.region)[:16]} · "
+                          f"{e.peak_rrp:,.2f} $/MWh{' (primary)' if e.role == 'primary' else ''}" for e in sel.events}
+    event_id = st.selectbox("Verified event", list(labels), format_func=labels.get)
+    ev = sel.event(event_id)
+    day = parse_iso(ev.peak_interval_end_utc).astimezone(region_zone(ev.region)).date()
+    presets = {
+        "Market event review": f"What happened around the {ev.region} price {'spike' if ev.kind == 'high_price' else 'fall'} "
+                               f"on {day}? How did price, operational demand and generation move?",
+        "Forecast review": f"How did AEMO's issued operational demand forecasts compare with actual demand in {ev.region} "
+                           f"on {day}?",
+        "Definition": "What does operational demand mean?",
+        "Causal bait": f"Did low wind cause the {ev.region} price spike on {day}?",
+    }
+    preset = st.radio("Question preset", list(presets))
+    question = st.text_area("Question", presets[preset], height=110, max_chars=1000)
+    as_of = st.text_input("As-of cutoff (optional, ISO-8601 with offset)", "",
+                          placeholder="e.g. 2026-07-30T14:35:00Z")
+    run = st.button("Investigate", type="primary", use_container_width=True)
+
+st.title("NEM Event Intelligence Agent")
+badge = "LIVE — hosted model tool calling" if mode == "live" else "REPLAY — scripted controller, no LLM"
+st.markdown(f"**Mode:** `{badge}` · data `{sel.generated_at[:10]}` snapshot · independent public-data project "
+            "(AEMO NEMWeb + NASA POWER), not affiliated with AEMO.")
+
+if run:
+    from nem_agent.service import investigate
+
+    try:
+        req = InvestigateRequest(question=question, mode=mode, as_of_utc=as_of.strip() or None)
+    except Exception as exc:  # bounded, user-facing error
+        st.error(f"Invalid request: {exc}")
+        st.stop()
+    with st.spinner("Running tools, retrieval and validation..."):
+        st.session_state["result"] = investigate(req)
+
+res = st.session_state.get("result")
+if res is None:
+    st.info("Choose a verified event and a question, then press **Investigate**. Every number shown is a tool value "
+            "with its AEMO source row; every quote is checked against the retrieved text.")
+    st.stop()
+
+rep = res.report.model_dump()
+region = rep["region"]
+status_icon = {"answered": "✅", "answered_with_caveats": "⚠️", "needs_clarification": "❓", "abstained": "⛔",
+               "refused": "⛔"}[rep["status"]]
+v = rep["validation"]
+cols = st.columns(4)
+cols[0].metric("Status", f"{status_icon} {rep['status'].replace('_', ' ')}")
+cols[1].metric("Validation", "passed" if v.get("initial", {}).get("passed") else
+               ("fallback: facts only" if v.get("fallback_applied") else "failed"))
+cols[2].metric("Tool calls", len(res.records))
+cols[3].metric("Latency", f"{res.latency_ms:,.0f} ms")
+st.subheader(md(rep["headline"]))
+for s in rep["summary"]:
+    st.markdown(md(f"- {s}"))
+
+if region:
+    theme = "dark" if getattr(getattr(st.context, "theme", None), "type", "light") == "dark" else "light"
+    pdf, ddf = frames(res.records, region)
+    tz = REGION_TZ[region]
+    peak = rep["observations"][0]["valid_at_utc"] if rep["observations"] and rep["observations"][0]["metric"] == "dispatch_rrp" else None
+    if not pdf.empty:
+        st.altair_chart(price_chart(pdf, region, tz, theme, peak), use_container_width=True)
+    if not ddf.empty:
+        st.altair_chart(demand_chart(ddf, region, tz, theme), use_container_width=True)
+    if not pdf.empty or not ddf.empty:
+        st.caption("Price is 5-minute and demand is half-hourly; each is drawn at its native resolution as an "
+                   "interval-ending step. The forecast line is the latest AEMO POE50 run available before each half-hour. "
+                   "Dispatch TOTALDEMAND is not operational demand and is not plotted against forecasts.")
+
+left, right = st.columns([3, 2])
+with left:
+    st.markdown("#### Observations (tool values with source rows)")
+    obs = observation_table(rep)
+    if not obs.empty:
+        st.dataframe(obs, use_container_width=True, hide_index=True)
+        with st.expander("Trace a value to the publisher's bytes"):
+            from nem_agent.store import Store, trace_row
+
+            rows = sorted({r for o in rep["observations"] for r in o["source_row_ids"] if ":L" in r})
+            if rows:
+                rid = st.selectbox("Source row", rows)
+                tr = trace_row(Store(), rid)
+                st.markdown(f"[{tr['source_url']}]({tr['source_url']}) → `{tr['member']}` line {tr['line_no']}")
+                st.code(tr["raw_line"][:600], language="text")
+                st.caption(f"container sha256 recorded {tr['container_sha256_recorded'][:16]}… recomputed "
+                           f"{tr['container_sha256_recomputed'][:16]}…")
+    if rep.get("forecast_comparison"):
+        st.markdown("#### Forecast comparison")
+        st.json(rep["forecast_comparison"], expanded=False)
+with right:
+    st.markdown("#### Possible explanations (hypotheses, not findings)")
+    for h in rep["possible_explanations"] or [{"statement": "none offered", "what_would_test_it": "-"}]:
+        st.markdown(md(f"- *{h['statement']}*  \n  test: {h['what_would_test_it']}"))
+    st.markdown("#### Published findings (event-specific AEMO notices)")
+    for f in rep["published_findings"] or [{"statement": "No matching AEMO notice was retrieved for this region and window."}]:
+        st.markdown(md(f"- {f['statement']}"))
+    st.markdown("#### Uncertainties and missing evidence")
+    for u in rep["uncertainties"] + rep["missing_evidence"]:
+        st.markdown(md(f"- {u}"))
+
+st.markdown("#### Citations")
+for c in rep["citations"]:
+    loc = f"p.{c['page']}" if c.get("page") else (c.get("section") or "")
+    st.markdown(md(f"**[{c['citation_id']}]** [{c['title']}]({c['url']}) {loc} — “{c['quote']}”"))
+if not rep["citations"]:
+    st.caption("No citations.")
+
+with st.expander("Tool trace (actual calls, arguments, outcomes)"):
+    st.dataframe([{"call": r.call_id, "tool": r.name, "status": r.status, "optional": r.optional,
+                   "ms": r.duration_ms, "args": str(r.args or r.raw_args)[:200], "note": (r.blocked_reason or
+                   (r.missing[0] if r.missing else ""))[:160]} for r in res.records], use_container_width=True,
+                 hide_index=True)
+    st.caption(f"trace id {rep['trace_id']} · generator {rep['generator']} · versions {rep['versions']}")
+with st.expander("Validation details"):
+    st.json(v, expanded=False)
+with st.expander("Held-out evaluation report"):
+    p = paths.artifacts_dir() / "eval" / "report.md"
+    st.markdown(p.read_text() if p.exists() else "Run `make eval` to generate the report.")
+with st.expander("Local case note (approval demo; mock reviewers, nothing leaves this machine)"):
+    store = CaseNoteStore()
+    if st.button("1. Propose note from this report"):
+        prop = store.propose(note_content_from_report(res.report), author="analyst (you)")
+        st.session_state["proposal"] = prop
+    prop = st.session_state.get("proposal")
+    if prop:
+        st.code(f"proposal {prop.proposal_id}\ncontent sha256 {prop.content_sha256}", language="text")
+        if st.button("2. Approve exact hash as mock-reviewer-b"):
+            st.session_state["approval"] = store.approve(prop.proposal_id, "mock-reviewer-b", prop.content_sha256)
+        appr = st.session_state.get("approval")
+        if appr and st.button("3. Publish locally (idempotent)"):
+            st.json(store.publish(prop.proposal_id, appr.approval_id)["status"])

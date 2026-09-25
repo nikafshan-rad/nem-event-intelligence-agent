@@ -1,0 +1,655 @@
+{
+  "report": {
+    "schema_version": "1",
+    "question": "What happened around the SA1 price spike on 2026-07-31? How did price, operational demand and generation move, and what do AEMO's public documents say?",
+    "mode": "replay",
+    "intent": "market_event_review",
+    "region": "SA1",
+    "as_of": null,
+    "event_window": {
+      "start_utc": "2026-07-30T04:30:00Z",
+      "end_utc": "2026-07-31T05:00:00Z",
+      "start_local": "2026-07-30 14:00 ACST (UTC+0930)",
+      "end_local": "2026-07-31 14:30 ACST (UTC+0930)",
+      "timezone": "Australia/Adelaide"
+    },
+    "headline": "SA1 5-minute dispatch price peaked at $4,981.00/MWh for the interval ending 2026-07-31 02:05 ACST (UTC+0930).",
+    "summary": [
+      "In the investigated window the price ranged from $75.14/MWh to $4,981.00/MWh. The unweighted mean of the 5-minute prices was $416.71/MWh, and 214 five-minute intervals were at or above the project analysis threshold of $300.00/MWh (a project setting, not an AEMO label).",
+      "At that interval, dispatch TOTALDEMAND (AEMO: 'Demand (less loads)', a dispatch quantity that is not operational demand) was 1,473 MW and NETINTERCHANGE ('Net interconnector flow from the regional reference node') was -83 MW.",
+      "Actual operational demand (updated values) was 1,466 MW in the half-hour containing the price peak; the window maximum was 2,173 MW (half-hour ending 2026-07-30 19:00 ACST (UTC+0930)).",
+      "The largest unit-level SCADA change in the 90-minute window starting one hour before the peak was AGLHAL (+49 MW); this is an observation, not an outage diagnosis.",
+      "For the half-hours around the peak, the latest AEMO POE50 forecast available before each half-hour had a mean absolute error of 33 MW.",
+      "Definitions used: [s03] \u201cTotal Demand is the forecast demand at the Regional Reference Node (RRN) that is met by local generation from scheduled and semi-scheduled generating units and scheduled BDUs plus interconnector imports, excluding the local demand of scheduled loads and scheduled BDUs and the allocated interconnector losses, but including the demand met by Wholesale Demand Response.\u201d [s04] \u201cRRP (NUMBER(15,5)): Regional Reference Price for this dispatch period.\u201d"
+    ],
+    "observations": [
+      {
+        "metric": "dispatch_rrp",
+        "value": 4981.0,
+        "unit": "$/MWh",
+        "valid_at_utc": "2026-07-30T16:35:00Z",
+        "valid_at_local": "2026-07-31 02:05 ACST (UTC+0930)",
+        "interval_minutes": 5,
+        "evidence_id": "ev0436",
+        "source_row_ids": [
+          "DISPATCHIS:PUBLIC_DISPATCHIS_202607310235_0000000530110070:L32"
+        ],
+        "evidence_class": "observed",
+        "label": "5-minute dispatch RRP"
+      },
+      {
+        "metric": "dispatch_rrp",
+        "value": 75.14288,
+        "unit": "$/MWh",
+        "valid_at_utc": "2026-07-31T00:00:00Z",
+        "valid_at_local": "2026-07-31 09:30 ACST (UTC+0930)",
+        "interval_minutes": 5,
+        "evidence_id": "ev0703",
+        "source_row_ids": [
+          "DISPATCHIS:PUBLIC_DISPATCHIS_202607311000_0000000530159655:L139"
+        ],
+        "evidence_class": "observed",
+        "label": "5-minute dispatch RRP"
+      },
+      {
+        "metric": "mean_dispatch_rrp",
+        "value": 416.71,
+        "unit": "$/MWh",
+        "valid_at_utc": "2026-07-31T05:00:00Z",
+        "valid_at_local": "2026-07-31 14:30 ACST (UTC+0930)",
+        "interval_minutes": null,
+        "evidence_id": "ev0886",
+        "source_row_ids": [
+          "DISPATCHIS:PUBLIC_DISPATCHIS_202607301435_0000000530025968:L85",
+          "DISPATCHIS:PUBLIC_DISPATCHIS_202607301440_0000000530026490:L92",
+          "DISPATCHIS:PUBLIC_DISPATCHIS_202607301445_0000000530027063:L92",
+          "DISPATCHIS:PUBLIC_DISPATCHIS_202607301450_0000000530027610:L92",
+          "DISPATCHIS:PUBLIC_DISPATCHIS_202607301455_0000000530028326:L92",
+          "DISPATCHIS:PUBLIC_DISPATCHIS_202607301500_0000000530028826:L85",
+          "DISPATCHIS:PUBLIC_DISPATCHIS_202607301505_0000000530029434:L85",
+          "DISPATCHIS:PUBLIC_DISPATCHIS_202607301510_0000000530030068:L92",
+          "DISPATCHIS:PUBLIC_DISPATCHIS_202607301515_0000000530030646:L92",
+          "DISPATCHIS:PUBLIC_DISPATCHIS_202607301520_0000000530031296:L92",
+          "DISPATCHIS:PUBLIC_DISPATCHIS_202607301525_0000000530031953:L97",
+          "DISPATCHIS:PUBLIC_DISPATCHIS_202607301530_0000000530032439:L92"
+        ],
+        "evidence_class": "derived",
+        "label": "arithmetic mean of 294 5-minute RRP values (unweighted; not a settlement price)"
+      },
+      {
+        "metric": "intervals_meeting_threshold",
+        "value": 214.0,
+        "unit": "intervals",
+        "valid_at_utc": "2026-07-31T05:00:00Z",
+        "valid_at_local": "2026-07-31 14:30 ACST (UTC+0930)",
+        "interval_minutes": 5,
+        "evidence_id": "ev0887",
+        "source_row_ids": [
+          "DISPATCHIS:PUBLIC_DISPATCHIS_202607301435_0000000530025968:L85",
+          "DISPATCHIS:PUBLIC_DISPATCHIS_202607301440_0000000530026490:L92",
+          "DISPATCHIS:PUBLIC_DISPATCHIS_202607301445_0000000530027063:L92",
+          "DISPATCHIS:PUBLIC_DISPATCHIS_202607301450_0000000530027610:L92",
+          "DISPATCHIS:PUBLIC_DISPATCHIS_202607301455_0000000530028326:L92",
+          "DISPATCHIS:PUBLIC_DISPATCHIS_202607301500_0000000530028826:L85",
+          "DISPATCHIS:PUBLIC_DISPATCHIS_202607301505_0000000530029434:L85",
+          "DISPATCHIS:PUBLIC_DISPATCHIS_202607301510_0000000530030068:L92",
+          "DISPATCHIS:PUBLIC_DISPATCHIS_202607301515_0000000530030646:L92",
+          "DISPATCHIS:PUBLIC_DISPATCHIS_202607301520_0000000530031296:L92",
+          "DISPATCHIS:PUBLIC_DISPATCHIS_202607301525_0000000530031953:L97",
+          "DISPATCHIS:PUBLIC_DISPATCHIS_202607301530_0000000530032439:L92"
+        ],
+        "evidence_class": "derived",
+        "label": "count of 5-minute intervals with RRP >= 300.0 (project analysis threshold)"
+      },
+      {
+        "metric": "dispatch_totaldemand",
+        "value": 1472.82,
+        "unit": "MW",
+        "valid_at_utc": "2026-07-30T16:35:00Z",
+        "valid_at_local": "2026-07-31 02:05 ACST (UTC+0930)",
+        "interval_minutes": 5,
+        "evidence_id": "ev0437",
+        "source_row_ids": [
+          "DISPATCHIS:PUBLIC_DISPATCHIS_202607310235_0000000530110070:L38"
+        ],
+        "evidence_class": "observed",
+        "label": "DISPATCHREGIONSUM.TOTALDEMAND ('Demand (less loads)'); not operational demand"
+      },
+      {
+        "metric": "dispatch_netinterchange",
+        "value": -82.59,
+        "unit": "MW",
+        "valid_at_utc": "2026-07-30T16:35:00Z",
+        "valid_at_local": "2026-07-31 02:05 ACST (UTC+0930)",
+        "interval_minutes": 5,
+        "evidence_id": "ev0438",
+        "source_row_ids": [
+          "DISPATCHIS:PUBLIC_DISPATCHIS_202607310235_0000000530110070:L38"
+        ],
+        "evidence_class": "observed",
+        "label": "DISPATCHREGIONSUM.NETINTERCHANGE ('Net interconnector flow from the regional reference node')"
+      },
+      {
+        "metric": "opdemand_actual",
+        "value": 2173.0,
+        "unit": "MW",
+        "valid_at_utc": "2026-07-30T09:30:00Z",
+        "valid_at_local": "2026-07-30 19:00 ACST (UTC+0930)",
+        "interval_minutes": 30,
+        "evidence_id": "ev0898",
+        "source_row_ids": [
+          "OPDEM_ACTUAL_DAILY:PUBLIC_ACTUAL_OPERATIONAL_DEMAND_DAILY_20260730_20260731044000:L129"
+        ],
+        "evidence_class": "observed",
+        "label": "actual operational demand, updated value (ACTUAL_DAILY next-day)"
+      },
+      {
+        "metric": "opdemand_actual",
+        "value": 1466.0,
+        "unit": "MW",
+        "valid_at_utc": "2026-07-30T17:00:00Z",
+        "valid_at_local": "2026-07-31 02:30 ACST (UTC+0930)",
+        "interval_minutes": 30,
+        "evidence_id": "ev0913",
+        "source_row_ids": [
+          "OPDEM_ACTUAL_DAILY:PUBLIC_ACTUAL_OPERATIONAL_DEMAND_DAILY_20260730_20260731044000:L144"
+        ],
+        "evidence_class": "observed",
+        "label": "actual operational demand, updated value (ACTUAL_DAILY next-day)"
+      },
+      {
+        "metric": "scada_change_mw",
+        "value": 49.44,
+        "unit": "MW",
+        "valid_at_utc": "2026-07-30T17:05:00Z",
+        "valid_at_local": "2026-07-31 02:35 ACST (UTC+0930)",
+        "interval_minutes": null,
+        "evidence_id": "ev0940",
+        "source_row_ids": [
+          "DISPATCH_SCADA:PUBLIC_DISPATCHSCADA_202607310140_0000000530104064:L40",
+          "DISPATCH_SCADA:PUBLIC_DISPATCHSCADA_202607310305_0000000530113336:L40"
+        ],
+        "evidence_class": "derived",
+        "label": "ev0939 - ev0938"
+      },
+      {
+        "metric": "mae_mw",
+        "value": 32.88,
+        "unit": "MW",
+        "valid_at_utc": "2026-07-30T23:00:00Z",
+        "valid_at_local": "2026-07-31 08:30 ACST (UTC+0930)",
+        "interval_minutes": 30,
+        "evidence_id": "ev1049",
+        "source_row_ids": [
+          "derived:mean(|error|) over 24 half-hours: ['ev0955', 'ev0959', 'ev0963', 'ev0967', 'ev0971', 'ev0975']..."
+        ],
+        "evidence_class": "derived",
+        "label": "mean(|error|) over 24 half-hours: ['ev0955', 'ev0959', 'ev0963', 'ev0967', 'ev0971', 'ev0975']..."
+      },
+      {
+        "metric": "mean_error_mw",
+        "value": 4.88,
+        "unit": "MW",
+        "valid_at_utc": "2026-07-30T23:00:00Z",
+        "valid_at_local": "2026-07-31 08:30 ACST (UTC+0930)",
+        "interval_minutes": 30,
+        "evidence_id": "ev1050",
+        "source_row_ids": [
+          "derived:mean(error) over 24 half-hours; positive = over-forecast"
+        ],
+        "evidence_class": "derived",
+        "label": "mean(error) over 24 half-hours; positive = over-forecast"
+      },
+      {
+        "metric": "forecast_error_mw",
+        "value": 66.0,
+        "unit": "MW",
+        "valid_at_utc": "2026-07-30T15:30:00Z",
+        "valid_at_local": "2026-07-31 01:00 ACST (UTC+0930)",
+        "interval_minutes": 30,
+        "evidence_id": "ev0987",
+        "source_row_ids": [
+          "OPDEM_FORECAST_HH:PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607302230_20260730220148:L785",
+          "OPDEM_ACTUAL_DAILY:PUBLIC_ACTUAL_OPERATIONAL_DEMAND_DAILY_20260730_20260731044000:L141"
+        ],
+        "evidence_class": "derived",
+        "label": "POE50 (ev0985) minus actual (ev0986); positive = forecast above actual"
+      }
+    ],
+    "forecast_comparison": {
+      "status": "ok",
+      "run_selector": "latest_before_target",
+      "as_of_utc": null,
+      "definition_check": "forecast and actual are both OPERATIONAL_DEMAND, 30-minute, MW (compatible)",
+      "n_pairs": 24,
+      "mae_mw": 32.88,
+      "mae_evidence_id": "ev1049",
+      "mean_error_mw": 4.88,
+      "mean_error_evidence_id": "ev1050",
+      "largest_abs_error": {
+        "target_end_utc": "2026-07-30T15:30:00Z",
+        "target_end_local": "2026-07-31 01:00 ACST (UTC+0930)",
+        "error_mw": 66.0,
+        "error_evidence_id": "ev0987",
+        "error_pct": 4.2,
+        "error_pct_evidence_id": "ev0988",
+        "poe50_mw": 1636.0,
+        "actual_mw": 1570.0,
+        "run_id": "PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607302230_20260730220148"
+      },
+      "note": "error_mw = POE50 - actual; error_pct = error_mw / actual, as a percentage (denominator: actual); retrospective observations published after the forecast was issued."
+    },
+    "possible_explanations": [
+      {
+        "statement": "Demand level alone may not explain the price peak, because operational demand in the peak half-hour was below the window maximum. Supply-side factors (offers, availability or network limits) could have contributed.",
+        "certainty": "hypothesis",
+        "supporting_evidence_ids": [
+          "ev0913",
+          "ev0898"
+        ],
+        "what_would_test_it": "Bid/offer (BIDPEROFFER) and binding-constraint (DISPATCHCONSTRAINT) data for the peak interval, which this project has not analysed."
+      },
+      {
+        "statement": "Changes in unit output around the peak (largest: AGLHAL) might reflect changed supply conditions; SCADA readings alone cannot show why output changed.",
+        "certainty": "hypothesis",
+        "supporting_evidence_ids": [
+          "ev0940"
+        ],
+        "what_would_test_it": "Unit availability and bid data, plus any AEMO notice about that unit."
+      },
+      {
+        "statement": "Network events or limit changes that AEMO notified for SA1 during the window may have affected interconnector or local limits. The notices do not state any effect on price.",
+        "certainty": "hypothesis",
+        "supporting_evidence_ids": [],
+        "what_would_test_it": "Constraint marginal values and interconnector limits for the peak interval."
+      }
+    ],
+    "published_findings": [
+      {
+        "statement": "An AEMO market notice for SA1 [s01] says: \u201cThe following constraint set(s) invoked at 1630 hrs 30/07/2026 S-DVBL_BC-2CP This constraint set(s) contains equations with the following interconnectors on the LHS.\u201d The notice does not state any effect on price.",
+        "citation_ids": [
+          "s01"
+        ],
+        "doc_type": "market_notice",
+        "applies_to_event": true
+      },
+      {
+        "statement": "An AEMO market notice for SA1 [s02] says: \u201cNon-credible contingency event - SA region - 30/07/2026 At 1140 hrs, the City West 275/66 kV transformer T_1 and the 275 kV circuit breaker 6675 tripped during restoration of City West 275/66 kV transformer T_2.\u201d The notice does not state any effect on price.",
+        "citation_ids": [
+          "s02"
+        ],
+        "doc_type": "market_notice",
+        "applies_to_event": true
+      }
+    ],
+    "uncertainties": [
+      "Co-occurring observations are not causes. Anything beyond the observed data is listed as a hypothesis.",
+      "No AEMO market event report could be checked: aemo.com.au report pages refused scripted access when the sources were probed, so the corpus holds AEMO market notices, definitions and procedures only.",
+      "Dispatch prices are the values published in real time with their PRICE_STATUS; later price revisions were not ingested."
+    ],
+    "missing_evidence": [],
+    "citations": [
+      {
+        "citation_id": "s01",
+        "chunk_id": "market_notice_144693#0",
+        "doc_id": "market_notice_144693",
+        "title": "AEMO market notice 144693 (INTER-REGIONAL TRANSFER): Inter-regional transfer limit variation - Belalie-Davenport 275kV line - SA region - 30/07/2026",
+        "url": "https://nemweb.com.au/Reports/CURRENT/Market_Notice/NEMITWEB1_MKTNOTICE_20260730.R144693",
+        "section": "INTER-REGIONAL TRANSFER",
+        "page": null,
+        "publication_date": "2026-07-30T06:42:20Z",
+        "doc_type": "market_notice",
+        "quote": "The following constraint set(s) invoked at 1630 hrs 30/07/2026 S-DVBL_BC-2CP This constraint set(s) contains equations with the following interconnectors on the LHS.",
+        "supports": "AEMO market notice in SA1 dated within the investigated window"
+      },
+      {
+        "citation_id": "s02",
+        "chunk_id": "market_notice_144692#0",
+        "doc_id": "market_notice_144692",
+        "title": "AEMO market notice 144692 (POWER SYSTEM EVENTS): Non-credible contingency event - SA region - 30/07/2026",
+        "url": "https://nemweb.com.au/Reports/CURRENT/Market_Notice/NEMITWEB1_MKTNOTICE_20260730.R144692",
+        "section": "POWER SYSTEM EVENTS",
+        "page": null,
+        "publication_date": "2026-07-30T03:17:44Z",
+        "doc_type": "market_notice",
+        "quote": "Non-credible contingency event - SA region - 30/07/2026 At 1140 hrs, the City West 275/66 kV transformer T_1 and the 275 kV circuit breaker 6675 tripped during restoration of City West 275/66 kV transformer T_2.",
+        "supports": "AEMO market notice in SA1 dated within the investigated window"
+      },
+      {
+        "citation_id": "s03",
+        "chunk_id": "aemo_demand_terms#p21c42",
+        "doc_id": "aemo_demand_terms",
+        "title": "Demand Terms in EMMS Data Model",
+        "url": "https://www.aemo.com.au/-/media/files/electricity/nem/security_and_reliability/dispatch/policy_and_process/demand-terms-in-emms-data-model.pdf",
+        "section": "2.1.2 Total Demand",
+        "page": 21,
+        "publication_date": "2025-07-31T13:59:59Z",
+        "doc_type": "definition",
+        "quote": "Total Demand is the forecast demand at the Regional Reference Node (RRN) that is met by local generation from scheduled and semi-scheduled generating units and scheduled BDUs plus interconnector imports, excluding the local demand of scheduled loads and scheduled BDUs and the allocated interconnector losses, but including the demand met by Wholesale Demand Response.",
+        "supports": "Definition context from Demand Terms in EMMS Data Model"
+      },
+      {
+        "citation_id": "s04",
+        "chunk_id": "mms_dm_elec21#DISPATCHPRICE#0",
+        "doc_id": "mms_dm_elec21",
+        "title": "AEMO MMS Data Model Report (Electricity)",
+        "url": "https://nemweb.com.au/Reports/Current/MMSDataModelReport/Electricity/Electricity%20Data%20Model%20Report_files/Elec21.htm",
+        "section": "Table: DISPATCHPRICE",
+        "page": null,
+        "publication_date": "2026-05-14T13:59:59Z",
+        "doc_type": "definition",
+        "quote": "RRP (NUMBER(15,5)): Regional Reference Price for this dispatch period.",
+        "supports": "Definition context from AEMO MMS Data Model Report (Electricity)"
+      }
+    ],
+    "numeric_claims": [
+      {
+        "claim_id": "c001",
+        "text": "$4,981.00/MWh",
+        "value": 4981.0,
+        "unit": "$/MWh",
+        "evidence_id": "ev0436",
+        "rounding": 0.01
+      },
+      {
+        "claim_id": "c002",
+        "text": "$75.14/MWh",
+        "value": 75.14,
+        "unit": "$/MWh",
+        "evidence_id": "ev0703",
+        "rounding": 0.01
+      },
+      {
+        "claim_id": "c003",
+        "text": "$4,981.00/MWh",
+        "value": 4981.0,
+        "unit": "$/MWh",
+        "evidence_id": "ev0436",
+        "rounding": 0.01
+      },
+      {
+        "claim_id": "c004",
+        "text": "$416.71/MWh",
+        "value": 416.71,
+        "unit": "$/MWh",
+        "evidence_id": "ev0886",
+        "rounding": 0.01
+      },
+      {
+        "claim_id": "c005",
+        "text": "214",
+        "value": 214.0,
+        "unit": "intervals",
+        "evidence_id": "ev0887",
+        "rounding": 0.0
+      },
+      {
+        "claim_id": "c006",
+        "text": "$300.00/MWh",
+        "value": 300.0,
+        "unit": "$/MWh",
+        "evidence_id": "ev0888",
+        "rounding": 0.01
+      },
+      {
+        "claim_id": "c007",
+        "text": "1,473 MW",
+        "value": 1473.0,
+        "unit": "MW",
+        "evidence_id": "ev0437",
+        "rounding": 0.51
+      },
+      {
+        "claim_id": "c008",
+        "text": "-83 MW",
+        "value": -83.0,
+        "unit": "MW",
+        "evidence_id": "ev0438",
+        "rounding": 0.51
+      },
+      {
+        "claim_id": "c009",
+        "text": "1,466 MW",
+        "value": 1466.0,
+        "unit": "MW",
+        "evidence_id": "ev0913",
+        "rounding": 0.51
+      },
+      {
+        "claim_id": "c010",
+        "text": "2,173 MW",
+        "value": 2173.0,
+        "unit": "MW",
+        "evidence_id": "ev0898",
+        "rounding": 0.51
+      },
+      {
+        "claim_id": "c011",
+        "text": "+49 MW",
+        "value": 49.0,
+        "unit": "MW",
+        "evidence_id": "ev0940",
+        "rounding": 0.51
+      },
+      {
+        "claim_id": "c012",
+        "text": "33 MW",
+        "value": 33.0,
+        "unit": "MW",
+        "evidence_id": "ev1049",
+        "rounding": 0.51
+      }
+    ],
+    "source_manifest": {
+      "data_version": "91a2649f7809bb75",
+      "corpus_version": "9dc5ca595220838f",
+      "sources": [
+        {
+          "url": "https://nemweb.com.au/Reports/ARCHIVE/DispatchIS_Reports/PUBLIC_DISPATCHIS_20260730.zip",
+          "evidence_ids": [
+            "ev0886"
+          ]
+        },
+        {
+          "url": "https://nemweb.com.au/Reports/ARCHIVE/DispatchIS_Reports/PUBLIC_DISPATCHIS_20260731.zip",
+          "evidence_ids": [
+            "ev0436",
+            "ev0437",
+            "ev0438",
+            "ev0703",
+            "ev0886"
+          ]
+        },
+        {
+          "url": "https://nemweb.com.au/Reports/ARCHIVE/Operational_Demand/ACTUAL_DAILY/PUBLIC_ACTUAL_OPERATIONAL_DEMAND_DAILY_20260701.zip",
+          "evidence_ids": [
+            "ev0898",
+            "ev0913",
+            "ev0987"
+          ]
+        },
+        {
+          "url": "https://nemweb.com.au/Reports/ARCHIVE/Operational_Demand/FORECAST_HH/PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_20260726.zip",
+          "evidence_ids": [
+            "ev0987"
+          ]
+        }
+      ],
+      "documents": [
+        [
+          "aemo_demand_terms",
+          "https://www.aemo.com.au/-/media/files/electricity/nem/security_and_reliability/dispatch/policy_and_process/demand-terms-in-emms-data-model.pdf"
+        ],
+        [
+          "market_notice_144692",
+          "https://nemweb.com.au/Reports/CURRENT/Market_Notice/NEMITWEB1_MKTNOTICE_20260730.R144692"
+        ],
+        [
+          "market_notice_144693",
+          "https://nemweb.com.au/Reports/CURRENT/Market_Notice/NEMITWEB1_MKTNOTICE_20260730.R144693"
+        ],
+        [
+          "mms_dm_elec21",
+          "https://nemweb.com.au/Reports/Current/MMSDataModelReport/Electricity/Electricity%20Data%20Model%20Report_files/Elec21.htm"
+        ]
+      ]
+    },
+    "status": "answered",
+    "trace_id": "tr-e2286d7d042e",
+    "versions": {
+      "code": "c33fac3-dirty",
+      "data": "91a2649f7809bb75",
+      "corpus": "9dc5ca595220838f",
+      "prompt": "prompts/v2",
+      "model": null,
+      "controller": "scripted-replay-controller/1"
+    },
+    "generator": "scripted-replay-controller/1",
+    "validation": {
+      "initial": {
+        "passed": true,
+        "n_critical": 0,
+        "n_warnings": 0,
+        "violations": [],
+        "checks_run": [
+          "numeric_claims",
+          "narrative_numbers",
+          "observations",
+          "citations",
+          "published_findings",
+          "metric_compatibility",
+          "language",
+          "status"
+        ],
+        "numbers_checked": 12,
+        "claims_checked": 12,
+        "citations_checked": 4
+      },
+      "fallback_applied": false,
+      "repair_attempted": false,
+      "passed": true,
+      "final_passed": true
+    }
+  },
+  "tool_calls": [
+    {
+      "call_id": "call-001",
+      "name": "find_market_events",
+      "status": "ok",
+      "args": {
+        "region": "SA1",
+        "start_utc": "2026-07-30T04:30:00Z",
+        "end_utc": "2026-07-31T05:00:00Z",
+        "kind": "high_price",
+        "threshold_aud_per_mwh": null,
+        "max_results": 5
+      },
+      "blocked_reason": null,
+      "duration_ms": 219.1,
+      "optional": false
+    },
+    {
+      "call_id": "call-002",
+      "name": "get_price_timeline",
+      "status": "ok",
+      "args": {
+        "region": "SA1",
+        "start_utc": "2026-07-30T04:30:00Z",
+        "end_utc": "2026-07-31T05:00:00Z",
+        "as_of_utc": null
+      },
+      "blocked_reason": null,
+      "duration_ms": 21.7,
+      "optional": false
+    },
+    {
+      "call_id": "call-003",
+      "name": "get_actual_demand",
+      "status": "ok",
+      "args": {
+        "region": "SA1",
+        "start_utc": "2026-07-30T04:30:00Z",
+        "end_utc": "2026-07-31T05:00:00Z",
+        "revision_policy": "latest_available",
+        "as_of_utc": null
+      },
+      "blocked_reason": null,
+      "duration_ms": 4.5,
+      "optional": false
+    },
+    {
+      "call_id": "call-004",
+      "name": "retrieve_public_evidence",
+      "status": "ok",
+      "args": {
+        "query": "SA1 region market notice 2026-07-31 price constraint outage contingency",
+        "region": "SA1",
+        "event_start_utc": "2026-07-30T04:30:00Z",
+        "event_end_utc": "2026-07-31T05:00:00Z",
+        "as_of_utc": null,
+        "top_k": 5,
+        "doc_types": [
+          "market_notice"
+        ]
+      },
+      "blocked_reason": null,
+      "duration_ms": 452.4,
+      "optional": false
+    },
+    {
+      "call_id": "call-005",
+      "name": "retrieve_public_evidence",
+      "status": "ok",
+      "args": {
+        "query": "regional reference price RRP dispatch price definition operational demand",
+        "region": null,
+        "event_start_utc": null,
+        "event_end_utc": null,
+        "as_of_utc": null,
+        "top_k": 3,
+        "doc_types": [
+          "definition"
+        ]
+      },
+      "blocked_reason": null,
+      "duration_ms": 8.1,
+      "optional": false
+    },
+    {
+      "call_id": "call-006",
+      "name": "get_generation_change",
+      "status": "ok",
+      "args": {
+        "region": "SA1",
+        "start_utc": "2026-07-30T15:35:00Z",
+        "end_utc": "2026-07-30T17:05:00Z",
+        "top_n": 5,
+        "as_of_utc": null
+      },
+      "blocked_reason": null,
+      "duration_ms": 102.5,
+      "optional": true
+    },
+    {
+      "call_id": "call-007",
+      "name": "compare_forecast_actual",
+      "status": "ok",
+      "args": {
+        "region": "SA1",
+        "target_start_utc": "2026-07-30T11:00:00Z",
+        "target_end_utc": "2026-07-30T23:00:00Z",
+        "run_selector": "latest_before_target",
+        "min_lead_hours": null,
+        "run_id": null,
+        "as_of_utc": null,
+        "actual_revision": "latest_available",
+        "actual_metric": "OPERATIONAL_DEMAND"
+      },
+      "blocked_reason": null,
+      "duration_ms": 101.6,
+      "optional": true
+    }
+  ],
+  "trace_id": "tr-e2286d7d042e",
+  "latency_ms": 960.0
+}

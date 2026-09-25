@@ -1,0 +1,71 @@
+{
+  "ok": true,
+  "n_passed": 715,
+  "n_failed": 0,
+  "failed": [],
+  "warnings": [],
+  "passed_sample": [
+    "schema: selection validates (307 sources, 8 events)",
+    "comparison opdemand_poe50_vs_actual: same definition/interval/unit (OPERATIONAL_DEMAND, 30 min, MW)",
+    "market_time: fixed UTC+10 confirmed by Last-Modified and DST-boundary evidence",
+    "event SA1-20260731T0235-hi: price cross-check 4981.0 $/MWh, 247 forecast runs before peak, actual 1466.0 MW",
+    "event SA1-20260729T1755-hi: price cross-check 845.0 $/MWh, 181 forecast runs before peak, actual 1872.0 MW",
+    "event NSW1-20260731T0730-hi: price cross-check 531.84849 $/MWh, 256 forecast runs before peak, actual 11178.0 MW",
+    "event VIC1-20260731T0730-hi: price cross-check 529.63 $/MWh, 256 forecast runs before peak, actual 8000.0 MW",
+    "event TAS1-20260731T0730-hi: price cross-check 478.08045 $/MWh, 256 forecast runs before peak, actual 1402.0 MW",
+    "event TAS1-20260806T1300-hi: price cross-check 450.08 $/MWh, 411 forecast runs before peak, actual 1147.0 MW",
+    "event VIC1-20260820T0910-hi: price cross-check 406.00544 $/MWh, 212 forecast runs before peak, actual 6812.0 MW",
+    "event VIC1-20260728T2120-lo: price cross-check -504.6525 $/MWh, 140 forecast runs before peak, actual 7491.0 MW",
+    "live aemo_demand_terms: HTTP 200 application/pdf",
+    "live aemo_nem_fact_sheet: HTTP 200 application/pdf",
+    "live aemo_so_op_3704: HTTP 200 application/pdf",
+    "live aemo_so_op_3705: HTTP 200 application/pdf",
+    "live aemo_so_op_3710: HTTP 200 application/pdf",
+    "live dispatch_scada_20260728: HTTP 200 application/x-zip-compressed",
+    "live dispatch_scada_20260729: HTTP 200 application/x-zip-compressed",
+    "live dispatch_scada_20260730: HTTP 200 application/x-zip-compressed",
+    "live dispatch_scada_20260731: HTTP 200 application/x-zip-compressed",
+    "live dispatch_scada_20260806: HTTP 200 application/x-zip-compressed",
+    "live dispatch_scada_20260807: HTTP 200 application/x-zip-compressed",
+    "live dispatch_scada_20260819: HTTP 200 application/x-zip-compressed",
+    "live dispatch_scada_20260820: HTTP 200 application/x-zip-compressed",
+    "live dispatchis_20260728: HTTP 200 application/x-zip-compressed"
+  ],
+  "self_test": [
+    {
+      "mutation": "invented URL",
+      "rejected": true,
+      "reason": "live invented_archive: https://nemweb.com.au/Reports/ARCHIVE/Operational_Demand/FORECAST_HH/PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_20190101.zip -> HTTP 404  HTTP 404"
+    },
+    {
+      "mutation": "missing URL",
+      "rejected": true,
+      "reason": "schema: 1 validation error(s): sources.0.url: String should have at least 12 characters"
+    },
+    {
+      "mutation": "non-publisher URL",
+      "rejected": true,
+      "reason": "schema: 1 validation error(s): sources.0.url: Value error, URL 'https://example.com/fake.zip' is not under an allowlisted publisher prefix"
+    },
+    {
+      "mutation": "incompatible definition/interval (TOTALDEMAND 5-min vs operational demand 30-min)",
+      "rejected": true,
+      "reason": "comparison opdemand_poe50_vs_actual: definition mismatch 'OPERATIONAL_DEMAND' vs 'DISPATCH_TOTALDEMAND'; interval mismatch 30 vs 5 min"
+    },
+    {
+      "mutation": "interval relabelled to 5 min",
+      "rejected": true,
+      "reason": "comparison opdemand_poe50_vs_actual: interval mismatch 30 vs 5 min; OPDEM_ACTUAL_HH.OPERATIONAL_DEMAND: declared 5 min/MW but OPERATIONAL_DEMAND is 30 min/MW"
+    },
+    {
+      "mutation": "empty checksum",
+      "rejected": true,
+      "reason": "schema: 1 validation error(s): sources.0.sha256: String should match pattern '^[0-9a-f]{64}$'"
+    },
+    {
+      "mutation": "checksum mismatch",
+      "rejected": true,
+      "reason": "sha256 opdem_actual_hh_20260726: local bytes hash df495278ed8322b9 != recorded 0000000000000000"
+    }
+  ]
+}
