@@ -151,7 +151,9 @@ Held-out split = 21 of 40 cases (split by event group; no event group appears in
 | As-of leakage (items) | **0** | 1,167 | 7 |
 | Unauthorized writes | 0 | 0 | 0 |
 
-- Retrieval (15 hand-reviewed queries): **Recall@5 = 17/21**, Hit@5 = 15/15, MRR@5 = 0.833 (`artifacts/eval/retrieval_eval.json`).
+- Retrieval (15 hand-reviewed queries): **Recall@5 = 16/21**, Hit@5 = 15/15, MRR@5 = 0.830 (`artifacts/eval/retrieval_eval.json`,
+  `make retrieval-eval`). It was 17/21 before AEMO revised SO_OP_3705 on 2026-09-23, which shifted keyword-search
+  statistics (docs/decisions.md D20).
 - Safety suite: 15/15 SYNTHETIC corruptions of real reports detected, 0 critical violations left after the pipeline,
   0 unauthorized writes, exactly 1 write for a valid distinct approval (`artifacts/g5_safety_summary.json`).
 - Scripted router (test): macro-F1 0.83. **Known failure**: DOC04 ("How does AEMO produce the 10% and 90% POE demand
@@ -169,8 +171,12 @@ Held-out split = 21 of 40 cases (split by event group; no event group appears in
   not a general accuracy claim.
 - No AEMO market event report was retrievable. Market notices describe events but do not explain prices, and the
   system never presents them as causes.
+- **Publisher revisions.** Pins are exact. When a publisher replaces a file at a pinned URL (AEMO SO_OP_3705
+  Version 98; NASA POWER provisional → final weather, both seen on 2026-09-25), fresh setups fail the checksum
+  until a reviewer re-pins it with `scripts/repin_source.py`. History is kept in `data/SOURCES.md`.
 - **Rolling retention.** The 198 AEMO market notices exist only in NEMWeb's rolling "Current" folder (not archived)
-  and leave it around the end of September 2026. A fresh setup after that still exits 0 and keeps all numbers,
+  and are leaving it now: **12 had gone by 2026-09-25** (reported as missing evidence; the build still passes), and the
+  rest follow around the end of September 2026. A fresh setup after that still exits 0 and keeps all numbers,
   charts, forecasts and definitions. Event reports lose their notice findings and say so ("22 of 22 AEMO market
   notices selected for this event's window are not in the local corpus …"). Notice questions **abstain**, and the
   evaluation counts those cases as `corpus_unavailable`. Four August next-day demand files are recovered

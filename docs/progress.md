@@ -581,7 +581,7 @@ no commit was made to this repository (the clean checkout used a throwaway commi
 | G0 | PASS | `source_probe.py`, `verify_selection.py` | 8 events, 307 sources; 715 checks passed; 7/7 mutations rejected | `data/source_selection.json`, `artifacts/g0_verify.json` |
 | G1 | PASS | `make setup`, `make data` ×2, `pytest tests/data`, `data-check` | idempotent rebuild; row → raw bytes traced; DST round trip | `data/store/snapshot.json`, `artifacts/logs/g1_*` |
 | G2 | PASS | `pytest tests/tools tests/time`, replay CLI | 35 passed; schema-valid real-event JSON | `artifacts/replay_case.json` |
-| G3 | PASS | `make index`, `pytest tests/retrieval`, `retrieve` | Recall@5 17/21, Hit@5 15/15, MRR 0.833 | `artifacts/eval/retrieval_eval.json` |
+| G3 | PASS | `make index`, `pytest tests/retrieval`, `retrieve` | Recall@5 17/21, Hit@5 15/15, MRR 0.833 (16/21 and 0.830 since SO_OP_3705 Version 98, D20) | `artifacts/eval/retrieval_eval.json` |
 | G4 | PASS (replay + fake transport) / hosted smoke verified 2026-09-25 (see Post-PR) | `pytest tests/agent tests/provider`, `make demo`, `live-smoke` | 14 passed; 3 intents answered; live-smoke exit 3 (no key) | `artifacts/logs/g4_*` |
 | G5 | PASS | `pytest tests/validation tests/security tests/approvals`, `make safety` | 14/14 detected (15/15 since 2026-09-25); 0 critical left; 0 unauthorized writes; 1 valid write | `artifacts/g5_safety_summary.json` |
 | G6 | PASS (offline) / hosted eval **UNVERIFIED** | `make eval`, `pytest tests/eval` | all gate checks true; see table in G6 | `artifacts/eval/report.md` |
@@ -688,3 +688,61 @@ fallback before the final fixes. The first draft usually restates notice details
 support is not validated: run 9 still calls a line outage that began about 10 hours before the peak "associated
 with local scarcity around the episode peak" (hedged, and with no coincidence claim). Three passing runs on the
 final controller do not establish a pass rate.
+
+## Post-merge — publisher revisions broke fresh setups; reviewed re-pin (2026-09-25)
+
+**Observed failure.** After PR #1 was merged, the first CI run on `main` (run 36107168395) failed in both jobs (Python
+3.12 and 3.14) at *Build the document index*. The feature-branch runs had passed only because they restored a cache
+from 2026-09-23; `main` cannot read feature-branch caches, so it downloaded everything fresh:
+
+```
+[data]  MISSING nasa_power_tas1_20260805_20260806: sha256 mismatch ...    (build-data exit 0: not a core dataset)
+[data]  MISSING nasa_power_vic1_20260819_20260820: sha256 mismatch ...
+[index] MISSING aemo_so_op_3705: sha256 mismatch: expected 481012861541a8a7..., got fb1a2ada99048382...
+[index] corpus_version=2b6f503e61faca02 chunks=385 ... procedure 55 ... rolled_off=12
+make: *** [Makefile:43: index] Error 1
+```
+
+**Exact exit condition.** `build-index` returns 1 when `manifest["failed_sources"]` is non-empty or no chunks were
+built. The SO_OP_3705 checksum mismatch alone caused it. The 12 rolled-off notices are counted separately and were
+reported as missing evidence, as intended.
+
+**Upstream check (fetched twice each; identical results):**
+- AEMO SO_OP_3705 is now **Version 98**, effective 23 September 2026 (was Version 97, effective 1 April 2026).
+  `Last-Modified` is 2026-09-23T09:38:32Z, three hours after our pin; size 1,315,253 bytes (was 1,267,581).
+- NASA POWER for 5–6 and 19–20 August moved from provisional **GEOS-IT** to final **MERRA-2** meteorology: all 48
+  hourly T2M and WS50M values changed, and ALLSKY_SFC_SW_DWN is unchanged. The six July responses were already
+  MERRA-2 when pinned.
+
+**Fix** ([`docs/decisions.md` D20](decisions.md)):
+- `scripts/repin_source.py` re-pins one source only to a reviewer-supplied hash. It keeps the old pin in a
+  `superseded` history and regenerates `data/SOURCES.md`.
+- The three sources were re-pinned with that script; checksum verification is unchanged.
+- API mismatch errors now name the content hash.
+- CI caches no longer fall back to older pin sets.
+- `make retrieval-eval` regenerates the retrieval report.
+
+**Executed**
+
+```
+repin_source.py refusals (scratch copy): wrong hash -> exit 1, already pinned -> exit 2, selection unchanged
+repin_source.py x3 -> exit 0; only those 3 of 307 entries changed
+make data / make index   # exit 0; NASA and SO_OP_3705 re-downloaded and verified; data_version 8c14c217f5570d32, procedure chunks 255
+make verify              # G0 VERIFY: PASS
+make data-check          # PASS
+make lint && make typecheck
+make test                # 152 passed
+make eval                # PASS; all 82 rows and every summary metric identical to before the re-pin
+make safety              # PASS
+make retrieval-eval      # Recall@5 16/21 (was 17/21), Hit@5 15/15, MRR 0.830 (was 0.833)
+Fresh home, no cache (replicates CI): build-data 0 (data_version 8c14c217f5570d32, identical to local) ·
+  build-index 0 (rolled_off=15, failed_sources=[], warning printed) · data-check PASS · pytest 152 passed ·
+  eval PASS (held-out unchanged) · safety PASS
+```
+
+**Retrieval change:** for "lack of reserve forecast South Australia", LOR2 notice 144627 fell from rank 5 to just
+outside the top 5. Version 98 changed the keyword-search (BM25) statistics of the corpus. Gold labels were not
+changed.
+
+**Roll-off keeps growing:** 12 notices were missing at 07:26Z and 15 by the fresh index build at 08:05Z
+(`market_notice_144622`–`144637`, from late July). All are reported as missing evidence; none fails the build.

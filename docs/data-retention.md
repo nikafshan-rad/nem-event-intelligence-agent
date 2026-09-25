@@ -55,13 +55,29 @@ date could cover it, and accepts the member only if its bytes hash to the **SHA-
 
 - **The machine that ran setup before roll-off** keeps verified copies in `data/raw/` (git-ignored). A later fetch
   failure falls back to them and labels the source `cache_fallback`, with its original retrieval time.
-- **GitHub Actions** caches `data/raw` (key: hash of `data/source_selection.json`). If the first CI run happened before
-  roll-off, later runs restore the notices from that cache. GitHub evicts caches unused for 7 days, so this is a
-  convenience, not an archive.
+- **GitHub Actions** caches `data/raw` under the hash of `data/source_selection.json` and reuses it only for that
+  exact pin set; there is no prefix fallback to older caches (D20). A run for a new pin set downloads what is
+  available that day and reports rolled-off notices as missing. GitHub evicts caches unused for 7 days, so this
+  is a convenience, not an archive.
 - **Committing the notice texts** (198 files, ≈ 0.3 MB) would make them permanent in the repository. That was not done because
   AEMO's copyright-permissions page refused scripted access, so the redistribution terms could not be checked
   ([`docs/decisions.md` D2](decisions.md)). If you confirm the terms in a browser, the files are in
   `data/raw/MARKET_NOTICE/` on a machine that fetched them in time.
+
+## Publisher revisions (a different failure from roll-off)
+
+A file can also stay online but **change**. When a publisher replaces content at a pinned URL, the SHA-256 check
+fails, and `make data`/`make index` report the source as failed. This is intended: numbers and quotes must come from
+the exact bytes that were reviewed. Observed on 2026-09-25 (CI run 36107168395 on `main`, no cache):
+
+| Source | Change | Effect before the re-pin |
+| --- | --- | --- |
+| `aemo_so_op_3705` | AEMO SO_OP_3705 Version 97 → **98** (effective 23 September 2026), same URL | `build-index` exit 1 (failed source); index lost the procedure's chunks |
+| `nasa_power_tas1_20260805_20260806`, `nasa_power_vic1_20260819_20260820` | NASA POWER provisional GEOS-IT → final **MERRA-2** meteorology | reported as failed; weather for those two events missing |
+
+The fix is a reviewed re-pin (`scripts/repin_source.py`, docs/decisions.md D20). The old pin stays in the
+entry's `superseded` history and in `data/SOURCES.md`. The same run also showed real roll-off: **12** market
+notices had left NEMWeb Current and were reported as missing evidence without failing the build, as described above.
 
 ## How to check a real fresh setup
 

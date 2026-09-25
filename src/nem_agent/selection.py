@@ -35,6 +35,20 @@ class _Strict(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class SupersededPin(_Strict):
+    """A previous pin kept after a reviewed re-pin (scripts/repin_source.py): the publisher revised the content."""
+
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    content_sha256: str | None = Field(None, pattern=r"^[0-9a-f]{64}$")
+    size: int = Field(gt=0)
+    last_modified: str | None = None
+    retrieved_at: str
+    superseded_at: str
+    new_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    publisher_revision: str = Field(min_length=3, description="what the publisher changed, as verified by a reviewer")
+    reason: str = Field(min_length=3)
+
+
 class SourceEntry(_Strict):
     source_id: str
     dataset: Dataset
@@ -55,6 +69,7 @@ class SourceEntry(_Strict):
     issue_time_provenance: str | None = None
     events: list[str] = Field(default_factory=list)
     notes: str | None = None
+    superseded: list[SupersededPin] = Field(default_factory=list)
 
     @field_validator("url")
     @classmethod

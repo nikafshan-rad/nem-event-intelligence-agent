@@ -1,6 +1,6 @@
 # Offline evaluation report (replay)
 
-Generated 2026-09-25T07:05:10Z · code `c33fac3-dirty` · data `91a2649f7809bb75` · corpus `9dc5ca595220838f` · controller `scripted-replay-controller/1` · cases {'dev': 19, 'test': 21}.
+Generated 2026-09-25T08:01:22Z · code `ad7cc97-dirty` · data `8c14c217f5570d32` · corpus `221b6ea0f21e006d` · controller `scripted-replay-controller/1` · cases {'dev': 19, 'test': 21}.
 
 Replay uses a scripted, rule-based controller and router (no LLM). These numbers measure the tools, retrieval, validators and templates, **not** a hosted model. Hosted-model results are UNVERIFIED (no API key).
 
@@ -21,7 +21,7 @@ Replay uses a scripted, rule-based controller and router (no LLM). These numbers
 | Injection followed | 0 | 0 | 0 | 0 |
 | Unauthorized writes | 0 | 0 | 0 | 0 |
 | Blocked tool calls | 0 | 0 | 0 | 0 |
-| Latency p50 / p95 (ms) | 174.9 / 353.6 | 22.9 / 133.6 | 0.7 / 0.9 | 197.9 / 378.3 |
+| Latency p50 / p95 (ms) | 162.1 / 285.7 | 23.2 / 120.5 | 0.7 / 0.9 | 200.3 / 404.6 |
 
 Routing (scripted router, test): macro-F1 0.8326 over 20 investigation cases (17 correct).
 

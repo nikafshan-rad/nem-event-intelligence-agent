@@ -41,3 +41,18 @@ def test_cache_accepts_same_values_and_rejects_changed_values(synthetic_home):
                 _bytes({**DOC, "properties": {"parameter": {"T2M": {"2099010100": 99.0}}}}))
     assert not rawstore._matches("NASA_POWER_HOURLY", "x", rawstore.local_path_for("NASA_POWER_HOURLY", url).read_bytes(),
                                  expected_raw, expected_content)
+
+
+def test_changed_api_values_fail_with_the_content_hash_named(synthetic_home, monkeypatch):
+    """A revised API response is refused, and the error says the values changed (raw bytes always differ)."""
+    from nem_agent.http import HttpResult
+
+    url = "https://power.larc.nasa.gov/api/temporal/hourly/point?SYNTHETIC=2"
+    recorded = _bytes(DOC)
+    revised = _bytes({**DOC, "properties": {"parameter": {"T2M": {"2099010100": 14.1}}}})
+    monkeypatch.setattr(rawstore, "fetch", lambda *a, **k: HttpResult(url=url, status=200, body=revised))
+    rf = rawstore.get("NASA_POWER_HOURLY", url, expected_sha256=hashlib.sha256(recorded).hexdigest(),
+                      expected_content_sha256=rawstore.content_sha256("NASA_POWER_HOURLY", recorded))
+    assert rf.status == "failed" and not rawstore.local_path_for("NASA_POWER_HOURLY", url).exists()
+    assert rawstore.content_sha256("NASA_POWER_HOURLY", revised) in rf.error
+    assert "values changed" in rf.error and "scripts/repin_source.py" in rf.error

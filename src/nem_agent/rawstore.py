@@ -132,6 +132,14 @@ def get(
         digest = hashlib.sha256(res.body).hexdigest()
         if not _matches(dataset, digest, res.body, expected_sha256, expected_content_sha256):
             err = f"sha256 mismatch: expected {expected_sha256}, got {digest}"
+            try:
+                got_content = content_sha256(dataset, res.body)
+            except ValueError:  # not JSON (e.g. an error page)
+                got_content = "unparseable"
+            if got_content is not None:  # raw bytes of API responses always differ; say whether the values did
+                err += (f"; content_sha256 expected {expected_content_sha256}, got {got_content} (the values changed, "
+                        "not only volatile metadata)")
+            err += "; the publisher content differs from the pin: review it, then re-pin with scripts/repin_source.py"
             rf = RawFile(dataset, url, str(path), digest, len(res.body), res.status, res.content_type,
                          res.last_modified, None, "failed", err)
             _append_manifest({"event": "checksum_mismatch", "at": _now(), **asdict(rf)})

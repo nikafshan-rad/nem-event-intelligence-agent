@@ -230,3 +230,39 @@ Each entry: the decision, why, the evidence, and what it costs. Departures from
   only what remains, and a run that uses it all is written as incomplete with no metrics. Live results go to
   `artifacts/eval/live*.json`/`live_report.md`, never over the offline `report.md`.
 
+
+## D20. Publisher revisions are re-pinned after review, never accepted automatically (2026-09-25)
+
+- **What happened:** the first CI run on `main` (run 36107168395, after PR #1 was merged) had no cache and
+  downloaded everything. Three pinned sources had changed upstream since they were pinned on 2026-09-23:
+  - `aemo_so_op_3705`: AEMO replaced SO_OP_3705 Dispatch **Version 97** (effective 1 April 2026) with **Version
+    98** (effective 23 September 2026) at the same URL. `Last-Modified` is 2026-09-23T09:38:32Z, three hours
+    after our pin; the file is 1,315,253 bytes (was 1,267,581). Version 97 is no longer served there.
+  - `nasa_power_tas1_20260805_20260806` and `nasa_power_vic1_20260819_20260820`: NASA POWER replaced
+    provisional **GEOS-IT** meteorology with final **MERRA-2**. All 48 hourly T2M and WS50M values changed;
+    ALLSKY_SFC_SW_DWN is unchanged. The six July responses were already MERRA-2 when pinned and still match.
+- **Why the index step failed:** `build-index` exits 1 when `failed_sources` is non-empty or no chunks were
+  built. A checksum mismatch is a failed source, so SO_OP_3705 alone caused the failure. Rolled-off market
+  notices are counted separately (`rolled_off_sources`) and never change the exit code; the run reported 12 of
+  them as missing evidence, as intended. `build-data` fails only for core datasets (DISPATCHIS and the two
+  operational-demand datasets), so the NASA mismatches were reported but did not stop the job.
+- **Rule:** a mismatch stays a failure. Verification is unchanged: raw SHA-256 for files, and the canonical
+  content hash for API responses, whose bytes always differ. The only way to move a pin is
+  `scripts/repin_source.py`:
+  - it takes a reviewer-supplied hash and refuses unless the content served now matches it;
+  - it keeps the old pin in the entry's `superseded` history, with what the publisher changed and why;
+  - it regenerates `data/SOURCES.md`.
+
+  Machines holding the old content fetch the new version automatically, because the old copy no longer matches
+  the pin.
+- **Why re-pin rather than keep the old version:** the old bytes cannot be downloaded any more, so pinning them
+  would make every fresh setup fail. Both new versions were fetched twice with identical content; the NASA
+  change is a one-way move to the final product.
+- **Effect:** offline evaluation rows and metrics are unchanged. Retrieval Recall@5 went from 17/21 to 16/21:
+  version 98 changed the keyword-search (BM25) statistics, and one LOR2 notice fell from rank 5 to just outside
+  the top 5. Gold labels were not changed.
+- **CI cache:** the `restore-keys: nem-raw-` fallback is removed. It restored caches from older pin sets, which
+  brought back market notices that have since rolled off NEMWeb and hid the change. Caches are now reused only
+  for the identical pin set, so a pin change always runs against what a fresh setup downloads.
+- **Error messages:** a mismatch on an API source now shows the content hash and says the values changed, with a
+  pointer to the re-pin procedure; the raw hash alone looked random on every run.
