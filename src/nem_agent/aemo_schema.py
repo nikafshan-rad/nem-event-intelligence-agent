@@ -70,4 +70,13 @@ METRIC_DEFINITIONS: dict[str, dict[str, str | int]] = {
         "source_tables": "DISPATCH/PRICE (DISPATCHPRICE.RRP)",
         "aemo_definition": "Regional Reference Price for this dispatch period. RRP is the price used to settle the market",
     },
+    "DISPATCH_NETINTERCHANGE": {
+        "unit": "MW",
+        "interval_minutes": 5,
+        "source_tables": "DISPATCH/REGIONSUM (DISPATCHREGIONSUM.NETINTERCHANGE)",
+        "aemo_definition": "Net interconnector flow from the regional reference node",
+        # Flow *from* the node: positive leaves the region. AEMO's Demand Terms document (worked NSW example) pairs a
+        # negative NetInterchange with a net import into the region.
+        "sign_convention": "positive = net flow out of the region (export); negative = net flow into the region (import)",
+    },
 }

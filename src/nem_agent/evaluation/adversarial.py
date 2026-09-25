@@ -101,6 +101,15 @@ def build_fixtures(selection: Any) -> list[Fixture]:
     add("quote_from_irrelevant_report", "FINDING_WRONG_REGION", "a VIC notice presented as a finding for the SA1 event",
         irrelevant)
 
+    def paraphrase(r: InvestigationReport, g: EvidenceRegistry) -> InvestigationReport:
+        # Observed in a live gpt-5-mini run: notice text restated as a finding without quotation marks.
+        cid = r.published_findings[0].citation_ids[0] if r.published_findings else r.citations[0].citation_id
+        f = PublishedFinding(statement=f"AEMO reported that network equipment in the region tripped [{cid}].",
+                             citation_ids=[cid], doc_type="market_notice", applies_to_event=True)
+        return r.model_copy(update={"published_findings": [*r.published_findings, f]})
+    add("paraphrased_finding", "FINDING_NOT_QUOTED", "a notice paraphrased as a finding instead of quoted verbatim",
+        paraphrase)
+
     def unknown_chunk(r: InvestigationReport, g: EvidenceRegistry) -> InvestigationReport:
         c = r.citations[0].model_copy(update={"citation_id": "sY", "chunk_id": "made_up#0"})
         return r.model_copy(update={"citations": [*r.citations, c]})

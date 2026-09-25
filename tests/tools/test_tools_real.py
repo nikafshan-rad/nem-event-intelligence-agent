@@ -164,6 +164,37 @@ def test_generation_change_is_descriptive(mk, ev):
     assert u["change_mw"]["value"] == pytest.approx(u["end"]["mw"] - u["start"]["mw"], abs=0.005)  # rounded to 2 dp
 
 
+def test_notice_clock_times_are_nem_time_converted_to_utc_and_local():
+    from nem_agent.tools.impl import notice_clock_times
+
+    dated, bare = notice_clock_times("At 1630 hrs 30/07/2026 there was a short notice outage.", "2026-07-30", "SA1"), \
+        notice_clock_times("At 1140 hrs, the City West transformer tripped.", "2026-07-30", "SA1")
+    assert dated == [{"text": "1630 hrs 30/07/2026", "nem_time": "2026-07-30 16:30 NEM (UTC+10)",
+                      "utc": "2026-07-30T06:30:00Z", "local": "2026-07-30 16:00 ACST (UTC+0930)"}]
+    assert bare[0]["utc"] == "2026-07-30T01:40:00Z" and "notice date" in bare[0]["date"]
+    assert notice_clock_times("At 1140 hrs.", None, "SA1") == []  # no date anywhere: nothing is guessed
+
+
+def test_retrieved_notices_carry_clock_times(mk, ev):
+    rec = mk().call("retrieve_public_evidence", {"query": "network outage", "region": ev.region,
+                                                 "event_start_utc": ev.window_start_utc, "event_end_utc": ev.window_end_utc,
+                                                 "top_k": 8, "doc_types": ["market_notice"]})
+    notices = [r for r in rec.view.get("results", []) if r["doc_type"] == "market_notice"]
+    if not notices:
+        pytest.skip("not in corpus: NEMWeb Current notices have rolling retention")
+    assert "NEM market time (UTC+10" in rec.view["clock_time_basis"]
+    assert all("clock_times" in r for r in notices)
+    assert any(t["utc"].endswith("Z") for r in notices for t in r["clock_times"])
+
+
+def test_price_timeline_states_netinterchange_sign(mk, ev):
+    rec = mk().call("get_price_timeline", {**win(ev), "as_of_utc": None})
+    ni = rec.view["netinterchange_at_peak"]
+    assert rec.view["definitions"]["DISPATCH_NETINTERCHANGE"].startswith("Net interconnector flow from the regional")
+    expected = "into" if ni["value"] < 0 else "out of" if ni["value"] > 0 else "no net"
+    assert expected in ni["direction"]
+
+
 def test_find_market_events_contains_primary_peak(mk, ev):
     d = mk()
     rec = d.call("find_market_events", {**win(ev), "kind": ev.kind})
@@ -171,3 +202,9 @@ def test_find_market_events_contains_primary_peak(mk, ev):
     top = rec.view["episodes"][0]["peak_rrp"]
     assert top["interval_end_utc"] == ev.peak_interval_end_utc and top["value"] == pytest.approx(ev.peak_rrp)
     assert rec.view["threshold_note"].startswith("project analysis threshold")
+    # the threshold is its own evidence item, so a stated threshold never borrows a count's evidence id
+    thr = d.registry.get(rec.view["threshold"]["evidence_id"])
+    assert thr is not None and thr.metric == "project_analysis_threshold" and thr.unit == "$/MWh"
+    assert thr.value == pytest.approx(rec.view["threshold"]["value"])
+    n = d.registry.get(rec.view["episodes"][0]["n_intervals"]["evidence_id"])
+    assert n is not None and n.unit == "intervals" and rec.view["episodes"][0]["n_intervals"]["unit"] == "intervals"

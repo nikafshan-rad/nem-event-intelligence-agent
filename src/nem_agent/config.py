@@ -15,4 +15,10 @@ MAX_RETRIEVED_CHARS = 12_000        # total characters of retrieved text passed 
 MAX_OPTIONAL_DIAGNOSTICS = 2        # optional tool calls allowed on top of the intent playbook
 MAX_MODEL_CALLS = 8                 # live path: model round trips per question
 MAX_REPAIR_ATTEMPTS = 1
-PROMPT_VERSION = "prompts/v1"
+PROMPT_VERSION = "prompts/v2"       # directory under src/nem_agent/ read by the live controller
+
+# Live-model prices in USD per 1M tokens (input, output), so a session budget is always enforceable. Source: OpenAI
+# API pricing page (developers.openai.com/api/docs/pricing), standard tier, read 2026-09-25. Override with
+# NEM_AGENT_PRICE_INPUT_PER_MTOK / NEM_AGENT_PRICE_OUTPUT_PER_MTOK; a model with no price is refused (fail closed).
+# All input is charged at the uncached rate, so reported costs are upper bounds.
+MODEL_PRICES_PER_MTOK: dict[str, tuple[float, float]] = {"gpt-5-mini": (0.25, 2.00)}

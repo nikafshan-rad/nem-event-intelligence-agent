@@ -582,8 +582,8 @@ no commit was made to this repository (the clean checkout used a throwaway commi
 | G1 | PASS | `make setup`, `make data` ×2, `pytest tests/data`, `data-check` | idempotent rebuild; row → raw bytes traced; DST round trip | `data/store/snapshot.json`, `artifacts/logs/g1_*` |
 | G2 | PASS | `pytest tests/tools tests/time`, replay CLI | 35 passed; schema-valid real-event JSON | `artifacts/replay_case.json` |
 | G3 | PASS | `make index`, `pytest tests/retrieval`, `retrieve` | Recall@5 17/21, Hit@5 15/15, MRR 0.833 | `artifacts/eval/retrieval_eval.json` |
-| G4 | PASS (replay + fake transport) / hosted smoke **UNVERIFIED** | `pytest tests/agent tests/provider`, `make demo`, `live-smoke` | 14 passed; 3 intents answered; live-smoke exit 3 (no key) | `artifacts/logs/g4_*` |
-| G5 | PASS | `pytest tests/validation tests/security tests/approvals`, `make safety` | 14/14 detected; 0 critical left; 0 unauthorized writes; 1 valid write | `artifacts/g5_safety_summary.json` |
+| G4 | PASS (replay + fake transport) / hosted smoke verified 2026-09-25 (see Post-PR) | `pytest tests/agent tests/provider`, `make demo`, `live-smoke` | 14 passed; 3 intents answered; live-smoke exit 3 (no key) | `artifacts/logs/g4_*` |
+| G5 | PASS | `pytest tests/validation tests/security tests/approvals`, `make safety` | 14/14 detected (15/15 since 2026-09-25); 0 critical left; 0 unauthorized writes; 1 valid write | `artifacts/g5_safety_summary.json` |
 | G6 | PASS (offline) / hosted eval **UNVERIFIED** | `make eval`, `pytest tests/eval` | all gate checks true; see table in G6 | `artifacts/eval/report.md` |
 | G7 | PASS | `make demo`, `make smoke`, `make api`/`make app`, `pytest tests/api tests/ui` | smoke PASS; UI screenshot captured | `docs/img/ui_replay_sa1.png`, `docs/demo.md` |
 | G8 | PASS (local + clean clone) / CI **UNVERIFIED** | lint, mypy, `make test`, `make eval`, `make ml`, clean-clone quick start | 132 passed; clean clone all targets exit 0 | `artifacts/logs/g8_*`, `artifacts/ml/report.md` |
@@ -621,3 +621,70 @@ matching notice is available. The scorer counts abstention as the correct behavi
 **Operational note:** one simulation attempt, run concurrently with the full test suite, produced no data store
 (most likely memory pressure on this 2-vCPU/7 GB Codespace; the exact cause was not captured). The script now
 records incomplete runs instead of crashing, and the standalone re-run passed as shown.
+
+## Post-PR — hosted live-smoke with gpt-5-mini: diagnosis and fixes (2026-09-25)
+
+An OpenAI API key became available in the Codespace (presence is printed as a boolean; the key is never printed or
+stored). The first `live-smoke` printed `LIVE-SMOKE: PASS`, but the **model's narrative had been rejected** and only
+the facts-only fallback passed. The old criterion counted a passing fallback as a pass.
+
+**First run (prompts/v1; trace `tr-b73bcd5fab1b`):** 6 model calls, 59,500 input / 19,456 output tokens.
+- Tools: 8 calls. `find_market_events` ×2 (1 blocked: `max_results` 100 > 20), `retrieve_public_evidence` ×2 (1
+  blocked: `top_k` 10 > 8), and `get_price_timeline`, `get_actual_demand`, `get_generation_change` and
+  `get_weather_context` ×1 each, all ok.
+- Validation: 18 critical violations after one repair turn.
+
+| Failure (claim) | What was lacking or misused | Where it came from |
+| --- | --- | --- |
+| c3 "300 $/MWh" → `ev0884` (214 intervals) | The threshold had no evidence id; the only id beside it was the count's | tool output (context) |
+| c19 "50 m" → `ev1004` (3.5 m/s) | The measurement height in `WS50M` was restated as a claim | prompt + model |
+| c18, c20–c22, hypotheses → `market_notice_14469x#0` | Chunk ids used as numeric evidence ids | schema/prompt + model; the repair made it worse |
+| findings: 1140, 66, 6675, 1630, 2, "cause of" | Notice text written into findings **without quotation marks** | prompt/schema (replay always quotes) |
+| 2 blocked tool calls | Argument limits were stripped from the model-facing schemas | context assembly |
+
+The validators were right on every count. One gap was found on the lenient side: a finding with no quotation was
+never checked for being verbatim. It is now `FINDING_NOT_QUOTED` (critical). Rendered traces showed two
+more errors that passed validation: NETINTERCHANGE −82.59 MW read as an *export* (AEMO's MMS definition is "Net
+interconnector flow **from** the regional reference node", so negative = import), and a notice's "1630 hrs" (NEM
+time, 06:30 UTC) called "coincident" with the 16:35 UTC peak.
+
+**Fixes:** threshold registered as its own evidence; schema constraints restated in descriptions; findings rendered
+from the cited verbatim quote; NETINTERCHANGE definition and sign; notice `clock_times` in UTC and local time (D18);
+prompts/v2 (numbers, times, quotes, parallel calls); per-code repair hints; drafts kept in the trace; 2 model calls
+reserved for synthesis and repair; honest `live-smoke` verdicts (PASS / FALLBACK / FAIL); budget always enforced (D19).
+Validator changes are all consistency fixes with tests showing real numbers are still caught: exact issued chunk ids
+and Unicode hyphens (U+2010/2011) are ignored like ASCII ones, DD/MM/YYYY dates like ISO dates, `°C` = `C`. The
+new `paraphrased_finding` adversarial fixture exercises `FINDING_NOT_QUOTED`.
+
+**Live-smoke reruns** (gpt-5-mini, prompts/v2, session budget 0.25 USD enforced; cost = upper bound)
+
+| Run | Code state | Verdict | Before repair → after | Calls | Tokens in / out | USD ≤ |
+| --- | --- | --- | --- | --- | --- | --- |
+| 2 | first fix set | PASS | CITATION_QUOTE_NOT_FOUND → none | 5 | 46,766 / 14,268 | 0.040 |
+| 3 | + NETINTERCHANGE sign | PASS (time-basis error found by reading) | NUMERIC_UNTRACKED → none | 5 | 46,832 / 14,653 | 0.041 |
+| 4 | + notice clock times | FALLBACK | 2 codes → CITATION_QUOTE_NOT_FOUND ("LINE"→"Line") | 5 | 45,663 / 13,005 | 0.037 |
+| 5 | + short quotes | FALLBACK | no repair possible: 8/8 calls used | 8 | 62,629 / 11,924 | 0.040 |
+| 6 | same | PASS | NUMERIC_UNTRACKED → none | 5 | 48,702 / 12,745 | 0.038 |
+| 7 | + reserved calls | PASS | NUMERIC_UNTRACKED → none | 5 | 50,230 / 15,079 | 0.043 |
+| 8 | same | PASS | CLAIM_UNIT_MISMATCH (°C), NUMERIC_UNTRACKED → none | 6 | 65,262 / 14,748 | 0.046 |
+| 9 | final | **PASS** | NUMERIC_UNTRACKED ("275" kV) → none | 5 | 47,998 / 12,180 | 0.036 |
+
+Final run 9: tools `find_market_events`, `get_price_timeline`, `get_actual_demand`, `retrieve_public_evidence`,
+`get_generation_change` and `get_weather_context` all ok (6 calls, 0 blocked). Final validation passed:
+0 critical, 18 numbers, 11 claims and 2 citations checked, 2 findings quoted verbatim. Times are labelled
+("16:35 UTC / 02:05 ACST") and NETINTERCHANGE is reported as an import. The eight runs used 414,082 input and
+108,602 output tokens, at most 0.32 USD.
+
+**Offline regression:** `make lint`, `make typecheck`, `make test` (148 passed), `make eval` (PASS; all 82 rows and
+all summary metrics identical to before, excluding latency), `make safety` (PASS, 15/15 fixtures). Gold labels and
+cases were not changed.
+
+**Larger live evaluation not run.** `eval --mode live` now checks the budget before starting: 38 of the 40 questions
+call the model, and the estimate is 1.90 USD (5.70 USD high) against the configured `--budget-usd 1.00`. It printed
+`NOT RUN` and made no API call. Hosted evaluation metrics therefore remain **UNVERIFIED**.
+
+**Remaining:** the first draft failed validation in all 8 reruns (a repair was needed each time); 2 of the 8 ended in
+fallback before the final fixes. The first draft usually restates notice details outside the quote. Semantic
+support is not validated: run 9 still calls a line outage that began about 10 hours before the peak "associated
+with local scarcity around the episode peak" (hedged, and with no coincidence claim). Three passing runs on the
+final controller do not establish a pass rate.

@@ -6,7 +6,7 @@ REGION ?= SA1
 API_PORT ?= 8000
 APP_PORT ?= 8501
 
-.PHONY: help setup probe verify data data-check index demo api app smoke lint typecheck test eval eval-live safety rolloff-sim ml clean-derived
+.PHONY: help setup probe verify data data-check index demo api app smoke lint typecheck test eval eval-live live-smoke safety rolloff-sim ml clean-derived
 
 help:
 	@echo "make setup      - create .venv and install pinned dependencies (requirements.lock)"
@@ -71,7 +71,10 @@ safety:
 
 eval-live:
 	@test -n "$$OPENAI_API_KEY" || (echo "OPENAI_API_KEY not set: hosted evaluation is UNVERIFIED" && exit 2)
-	$(PY) -m nem_agent.cli eval --mode live --budget-usd $${NEM_AGENT_SESSION_BUDGET_USD:-1.00} --out artifacts/eval/live.json
+	$(PY) -m nem_agent.cli eval --mode live --budget-usd $${NEM_AGENT_EVAL_BUDGET_USD:-1.00} --out artifacts/eval/live.json
+
+live-smoke:
+	$(PY) -m nem_agent.cli live-smoke
 
 rolloff-sim:
 	$(PY) scripts/simulate_rolloff.py --home /tmp/nem_rolloff_home --out artifacts/rolloff_simulation.json

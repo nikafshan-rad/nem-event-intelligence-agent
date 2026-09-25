@@ -169,11 +169,13 @@ Each entry: the decision, why, the evidence, and what it costs. Departures from
   towards GitHub runner IPs, and notice roll-off (handled as missing evidence, not a failure).
 - The live controller was exercised only through a fake transport and a mock-HTTP SDK contract test. The default
   model id `gpt-5-mini` is a placeholder to be set via `NEM_AGENT_MODEL`.
+- *Update 2026-09-25:* the hosted smoke test has since run with a real key (D18, `docs/progress.md` Post-PR);
+  the 40-case hosted evaluation is still UNVERIFIED.
 
 ## D16. Version stamping
 
 - Each report records `versions.code` (git short sha, `-dirty` if tracked **or untracked** files differ from HEAD),
-  `data` (store content hash), `corpus` (chunk hashes + embedder), `prompt` (`prompts/v1`), `model` and `controller`.
+  `data` (store content hash), `corpus` (chunk hashes + embedder), `prompt` (`prompts/v1`, `prompts/v2` since 2026-09-25; old versions are kept), `model` and `controller`.
   Until this work is committed, reports correctly say `a8199ec-dirty` (the initial commit does not contain this code).
 
 ## D17. Identity of API responses (found by the clean-checkout run)
@@ -186,3 +188,45 @@ Each entry: the decision, why, the evidence, and what it costs. Departures from
   with known volatile keys (`NASA_POWER_HOURLY`: `times`), the selection also records `content_sha256`, the hash of
   canonical JSON without those keys, computed from the originally probed bytes (whose raw SHA-256 was re-checked).
   A re-download is accepted if either hash matches. The cache metadata records which hash verified it.
+
+## D18. Live synthesis contract and notice clock times (from the first hosted run, 2026-09-25)
+
+- **Context over leniency.** The first gpt-5-mini narrative failed validation because the model was not told
+  things it needed. The fix was to give it that context, not to accept its output. Every number the model may state
+  now has its own evidence id: the analysis threshold is registered by the tools, and counts carry units.
+  Constraints stripped from strict schemas are restated in descriptions. Findings are rendered by the controller
+  from the cited verbatim quote, and the model chooses only which citation. Replay already worked this way.
+- **Notice times are NEM market time (UTC+10).** Notices write "HHMM hrs" without a zone. Checked against
+  publication timestamps for all 13 "At HHMM hrs" notices in the corpus:
+  - UTC+10 fits all 13 (10 published up to 6 h after the stated time, 3 "short notice outage" notices published
+    2–17 min before it).
+  - UTC+09:30 fits 2 of 13, and UTC fits none.
+
+  Retrieval returns each notice's `clock_times` with UTC and region-local equivalents, so times are never
+  compared across bases by eye.
+- **NETINTERCHANGE sign.** AEMO: "Net interconnector flow from the regional reference node" (MMS Data Model), and
+  AEMO's Demand Terms worked example pairs a negative NetInterchange with a net import. The price timeline states
+  the definition and a code-computed direction.
+- **Validator changes are limited to consistency fixes, each with a test that real numbers are still caught.**
+  - Issued chunk ids are removed only on an exact match.
+  - U+2010/U+2011 hyphens are treated as "-".
+  - DD/MM/YYYY dates use strict ranges.
+  - `°C` is the same unit as `C`.
+  - One check is stricter: `FINDING_NOT_QUOTED`.
+  - "HHMM hrs" times and equipment numbers outside quotes stay flagged.
+- **Two of the eight model calls are reserved** for synthesis and one repair (a run used all 8 in one-tool-per-turn
+  loops). The single-repair policy is unchanged.
+
+## D19. Live budgets are always enforced (2026-09-25)
+
+- The USD budget was enforced only if `NEM_AGENT_PRICE_*` was set, and `eval --budget-usd` applied per question.
+  Now a dated price table in `config.py` (gpt-5-mini: 0.25 / 2.00 USD per 1M input/output tokens, from the OpenAI
+  pricing page, 2026-09-25; environment override) makes every session budget enforceable. A model with no price is
+  refused before any request.
+- Costs charge cached input at the full rate, so they are upper bounds. The check runs before each model call, so
+  a session can overshoot by at most one call.
+- `eval --mode live` estimates the run before starting (38 model questions: 1.90 USD typical, 5.70 USD high from
+  live-smoke runs). It refuses when the estimate exceeds `--budget-usd`. The budget is run-wide: each question gets
+  only what remains, and a run that uses it all is written as incomplete with no metrics. Live results go to
+  `artifacts/eval/live*.json`/`live_report.md`, never over the offline `report.md`.
+

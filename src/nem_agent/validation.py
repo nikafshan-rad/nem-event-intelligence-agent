@@ -39,6 +39,7 @@ QUOTED_RE = re.compile(r"“[^”]*”|\"[^\"]*\"")
 IGNORE_RES = [re.compile(p) for p in (
     r"\b\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)?",
     r"\b\d{4}/\d{2}/\d{2}(?: \d{2}:\d{2}(?::\d{2})?)?",
+    r"\b(?:0[1-9]|[12]\d|3[01])/(?:0[1-9]|1[0-2])/20\d{2}\b",  # DD/MM/YYYY, as AEMO notices write dates
     r"\bUTC[+-]\d{2,4}(?::\d{2})?",
     r"\b\d{1,2}:\d{2}(?::\d{2})?\b",
     r"\b(?:NSW|QLD|SA|TAS|VIC)1\b",
@@ -51,7 +52,7 @@ IGNORE_RES = [re.compile(p) for p in (
     r"\b[a-z]+[0-9]+[a-z0-9]*\b",
 )]
 NUM_RE = re.compile(r"(?<![\w.])[-+−]?\$?\d[\d,]*(?:\.\d+)?")
-UNIT_ALIASES = {"$/mwh": "$/MWh", "mw": "MW", "%": "%", "intervals": "intervals"}
+UNIT_ALIASES = {"$/mwh": "$/MWh", "mw": "MW", "%": "%", "intervals": "intervals", "\u00b0c": "C"}  # degree sign
 
 
 @dataclass
@@ -103,8 +104,16 @@ def _unit(u: str) -> str:
     return UNIT_ALIASES.get(u.strip().lower(), u.strip())
 
 
-def narrative_numbers(text: str) -> list[float]:
+def narrative_numbers(text: str, ids: frozenset[str] = frozenset()) -> list[float]:
+    """Numbers stated in ``text`` outside quotations, dates, times and identifiers.
+
+    ``ids`` are identifiers issued by the system in this request (retrieved chunk ids such as
+    ``market_notice_144692#0``); only exact matches are removed, so a model cannot hide a number by calling it an id.
+    """
     t = QUOTED_RE.sub(" ", text)
+    for i in sorted(ids, key=len, reverse=True):
+        t = t.replace(i, " ")
+    t = t.replace("\u2010", "-").replace("\u2011", "-")  # U+2010/U+2011 hyphens: same duration label as "5-minute"
     for pat in IGNORE_RES:
         t = pat.sub(" ", t)
     out = []
@@ -150,8 +159,9 @@ def validate(report: InvestigationReport, registry: EvidenceRegistry, *, as_of: 
     # -- every number in narrative text must be a claim
     res.checks_run.append("narrative_numbers")
     claim_vals = [(float(c.value), c.rounding) for c in report.numeric_claims]
+    chunk_ids = frozenset(registry.chunks)
     for where, text in _narratives(report):
-        for n in narrative_numbers(text):
+        for n in narrative_numbers(text, chunk_ids):
             res.numbers_checked += 1
             if not any(abs(n - v) <= tol + 1e-9 or abs(abs(n) - abs(v)) <= tol + 1e-9 for v, tol in claim_vals):
                 V.append(Violation("NUMERIC_UNTRACKED", "critical", f"{where}: number {n:g} is not a registered claim"))
@@ -194,6 +204,9 @@ def validate(report: InvestigationReport, registry: EvidenceRegistry, *, as_of: 
     # -- published findings: event-specific, same region/window, verbatim quote
     res.checks_run.append("published_findings")
     for i, f in enumerate(report.published_findings):
+        quoted = [q.strip("“”\"") for q in QUOTED_RE.findall(f.statement)]
+        if not any(_norm(q) for q in quoted):  # without a quotation nothing below can check it is verbatim
+            V.append(Violation("FINDING_NOT_QUOTED", "critical", f"finding {i}: states the document without quoting it"))
         for cid in f.citation_ids:
             fcit = cites.get(cid)
             if fcit is None:
@@ -213,7 +226,6 @@ def validate(report: InvestigationReport, registry: EvidenceRegistry, *, as_of: 
                 hi = (window[1].astimezone(NEM_TZ) + timedelta(days=1)).date()
                 if not lo <= d <= hi:
                     V.append(Violation("FINDING_WRONG_DATE", "critical", f"finding {i}: document dated {ch.event_date}"))
-            quoted = [q.strip("“”\"") for q in QUOTED_RE.findall(f.statement)]
             if quoted and not all(_norm(q) in _norm(ch.text) for q in quoted):
                 V.append(Violation("FINDING_QUOTE_MISMATCH", "critical", f"finding {i}: quoted text differs from the source"))
 

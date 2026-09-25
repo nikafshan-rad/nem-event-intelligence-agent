@@ -26,7 +26,8 @@ kept separate.
 | 40-case evaluation, two baselines, held-out split | built, measured (replay) | G6, [`artifacts/eval/report.md`](artifacts/eval/report.md) |
 | FastAPI + Streamlit UI + API smoke test | built, verified | G7, [`docs/demo.md`](docs/demo.md) |
 | Separate day-ahead quantile experiment (our model, not AEMO's) | built, measured | G8, [`artifacts/ml/report.md`](artifacts/ml/report.md) |
-| **Hosted-model (live) runs** | **UNVERIFIED** (no API key was available) | `make eval-live`, `nem-agent live-smoke` |
+| Hosted-model (live) smoke test | verified 2026-09-25 with gpt-5-mini: narrative passed validation after one repair turn in the last 3 of 8 runs (2 earlier runs fell back to facts only) | `make live-smoke`, [`docs/progress.md`](docs/progress.md) Post-PR |
+| **Hosted-model 40-case evaluation** | **UNVERIFIED**: not run (estimate 1.90 USD > configured budget 1.00 USD) | `make eval-live` |
 | **GitHub Actions CI** | configured (lint, mypy, real-data build, tests, eval, safety on Python 3.12 and 3.14); the result is shown in the pull request checks | [`.github/workflows/ci.yml`](.github/workflows/ci.yml) |
 
 ## The question it answers
@@ -101,14 +102,16 @@ A ChatGPT or Claude subscription is **not** API access. Live mode needs an OpenA
 Codespaces, add `OPENAI_API_KEY` as a Codespaces secret (GitHub → Settings → Codespaces → Secrets), then:
 
 ```bash
-export NEM_AGENT_MODEL=<a Responses-API model available to your account>   # default placeholder: gpt-5-mini
-export NEM_AGENT_SESSION_BUDGET_USD=0.25
-python -m nem_agent.cli live-smoke                                      # one bounded hosted run; writes a redacted trace
+export NEM_AGENT_MODEL=<a Responses-API model available to your account>   # default: gpt-5-mini (priced in config.py)
+export NEM_AGENT_SESSION_BUDGET_USD=0.25                                # per question; enforced before every model call
+make live-smoke                                                        # one bounded hosted run; PASS only if the model's narrative validates
 python -m nem_agent.cli investigate --mode live --region SA1 --event 2026-07-31 --out artifacts/live_case.json
-make eval-live                                                          # hosted evaluation (spends money; budget-capped)
+NEM_AGENT_EVAL_BUDGET_USD=2.50 make eval-live                           # hosted evaluation: estimated first, refused if over budget
 ```
 
 Without a key these commands print `UNVERIFIED` and exit non-zero. They never relabel replay results as hosted.
+A model with no known price (`NEM_AGENT_PRICE_INPUT_PER_MTOK` / `_OUTPUT_PER_MTOK`) is refused, because its budget
+could not be enforced. The first live results and what was fixed are recorded in `docs/progress.md` (Post-PR).
 
 ## Architecture
 
@@ -149,7 +152,7 @@ Held-out split = 21 of 40 cases (split by event group; no event group appears in
 | Unauthorized writes | 0 | 0 | 0 |
 
 - Retrieval (15 hand-reviewed queries): **Recall@5 = 17/21**, Hit@5 = 15/15, MRR@5 = 0.833 (`artifacts/eval/retrieval_eval.json`).
-- Safety suite: 14/14 SYNTHETIC corruptions of real reports detected, 0 critical violations left after the pipeline,
+- Safety suite: 15/15 SYNTHETIC corruptions of real reports detected, 0 critical violations left after the pipeline,
   0 unauthorized writes, exactly 1 write for a valid distinct approval (`artifacts/g5_safety_summary.json`).
 - Scripted router (test): macro-F1 0.83. **Known failure**: DOC04 ("How does AEMO produce the 10% and 90% POE demand
   forecasts?") was routed to a forecast review and asked for a region instead of answering from SO_OP_3710.
@@ -159,8 +162,9 @@ Held-out split = 21 of 40 cases (split by event group; no event group appears in
 
 ## Honest limitations
 
-- Replay measures tools, retrieval, validators and templates, not a language model. Hosted-model routing, tool use,
-  latency and cost are **UNVERIFIED**.
+- Replay measures tools, retrieval, validators and templates, not a language model. The hosted model has passed
+  only a smoke test (8 runs, one question): its first draft needed a repair turn every time, and validators check
+  numbers, quotes and wording, not whether an explanation is apt. Hosted evaluation metrics are **UNVERIFIED**.
 - 40 cases over 8 events in one fortnight is small. The numbers above show the pipeline behaves as designed; they are
   not a general accuracy claim.
 - No AEMO market event report was retrievable. Market notices describe events but do not explain prices, and the

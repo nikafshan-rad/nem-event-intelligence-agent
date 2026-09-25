@@ -155,6 +155,8 @@ def run_system_case(case: dict[str, Any], mode: str) -> dict[str, Any]:
         "initial_codes": sorted({v["code"] for v in initial_viol}),
         "fallback_applied": rep["validation"].get("fallback_applied", False),
         "latency_ms": round(latency, 1), "model_calls": res.usage.get("model_calls", 0), "trace_id": rep["trace_id"],
+        "input_tokens": res.usage.get("input_tokens", 0), "output_tokens": res.usage.get("output_tokens", 0),
+        "cost_usd": res.usage.get("cost_usd"),
         "headline": rep["headline"][:300], "generator": rep["generator"],
     }
     if exp.get("gold_numbers"):
@@ -429,10 +431,40 @@ def gate_checks(cases: dict[str, Any], sys_rows: list[dict[str, Any]], test_ids:
     }
 
 
-def run(mode: str = "replay", out: Path | None = None, cases_path: Path | None = None) -> dict[str, Any]:
+# Per-question cost of a live investigation, from live-smoke runs of gpt-5-mini on 2026-09-25 (prompts/v2:
+# $0.040 and $0.041 as upper bounds; prompts/v1: $0.054). The high figure assumes every question uses all
+# MAX_MODEL_CALLS at the largest observed per-call cost (~$0.0185); it is an estimate, not a hard bound.
+LIVE_CASE_USD_TYPICAL = 0.05
+LIVE_CASE_USD_HIGH = 0.15
+NO_MODEL_KINDS = ("approval_bypass", "approval_valid_then_duplicate")
+
+
+def estimate_live_cost(cases: dict[str, Any]) -> dict[str, Any]:
+    n = sum(1 for c in cases["cases"] if c["expected"].get("kind") not in NO_MODEL_KINDS)
+    return {"questions_calling_the_model": n, "expected_usd": round(n * LIVE_CASE_USD_TYPICAL, 2),
+            "high_usd": round(n * LIVE_CASE_USD_HIGH, 2),
+            "basis": f"{LIVE_CASE_USD_TYPICAL} USD typical / {LIVE_CASE_USD_HIGH} USD high per question (live-smoke, "
+                     "2026-09-25); refusals and clarifications cost far less"}
+
+
+def run(mode: str = "replay", out: Path | None = None, cases_path: Path | None = None,
+        budget_usd: float | None = None) -> dict[str, Any]:
+    """``budget_usd`` (live only) caps the whole run: each question may spend only what is left, and the run stops,
+    marked incomplete and without metrics, once it is used up (it can overshoot by at most one model call)."""
+    import os
+
     cases = load_cases(cases_path)
     store, sel = Store(), load_selection()
-    sys_rows = [run_system_case(c, mode) for c in cases["cases"]]
+    sys_rows: list[dict[str, Any]] = []
+    spent = 0.0
+    for c in cases["cases"]:
+        if mode == "live" and budget_usd is not None:
+            if budget_usd - spent <= 0:
+                return _incomplete(out, sys_rows, spent, budget_usd, len(cases["cases"]))
+            os.environ["NEM_AGENT_SESSION_BUDGET_USD"] = f"{budget_usd - spent:.6f}"
+        row = run_system_case(c, mode)
+        spent += row.get("cost_usd") or 0.0
+        sys_rows.append(row)
     test_ids = {c["case_id"] for c in cases["cases"] if c["split"] == "test"}
     test_cases = [c for c in cases["cases"] if c["case_id"] in test_ids]
     base_a = [run_baseline_table(c, store, sel) for c in test_cases]
@@ -455,10 +487,26 @@ def run(mode: str = "replay", out: Path | None = None, cases_path: Path | None =
         "gate_checks": checks, "rows": {"system": sys_rows, "baseline_table": base_a, "baseline_retrieval_only": base_b},
         "failures": [r for r in sys_rows if not r.get("status_ok") or r.get("critical_final")],
     }
+    if mode == "live":
+        result["usage"] = {"spent_usd_upper_bound": round(spent, 6), "budget_usd": budget_usd,
+                           "input_tokens": sum(r.get("input_tokens", 0) for r in sys_rows),
+                           "output_tokens": sum(r.get("output_tokens", 0) for r in sys_rows)}
     if out:
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(result, indent=2, default=str) + "\n")
-        (out.parent / "report.md").write_text(render_markdown(result))
+        # the committed offline report is report.md; a live run must not overwrite it
+        (out.parent / ("report.md" if mode == "replay" else f"{out.stem}_report.md")).write_text(render_markdown(result))
+    return result
+
+
+def _incomplete(out: Path | None, rows: list[dict[str, Any]], spent: float, budget: float, n_cases: int) -> dict[str, Any]:
+    result = {"generated_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"), "mode": "live", "incomplete": True,
+              "reason": f"run budget of {budget} USD used after {len(rows)} of {n_cases} questions; no metrics computed",
+              "usage": {"spent_usd_upper_bound": round(spent, 6), "budget_usd": budget}, "rows_completed": rows,
+              "gate_checks": {"completed_within_budget": False}}
+    if out:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(result, indent=2, default=str) + "\n")
     return result
 
 

@@ -159,28 +159,41 @@ class RetrieveArgs(StrictArgs):
 
 
 # Constraint keywords are enforced server-side by pydantic; they are stripped from the model-facing schema
-# because strict function-calling implementations support only a subset of JSON Schema.
+# because strict function-calling implementations support only a subset of JSON Schema. The model still needs
+# to know them (a live run was blocked for top_k=10 > 8), so they are restated as text in the description.
 _STRIP = {"default", "title", "minLength", "maxLength", "minimum", "maximum", "exclusiveMinimum",
           "exclusiveMaximum", "pattern", "minItems", "maxItems", "format"}
+_HINTS = (("minimum", ">= {}"), ("exclusiveMinimum", "> {}"), ("maximum", "<= {}"), ("exclusiveMaximum", "< {}"),
+          ("minLength", "at least {} characters"), ("maxLength", "at most {} characters"),
+          ("minItems", "at least {} items"), ("maxItems", "at most {} items"), ("pattern", "matches {}"))
+
+
+def _hints(node: dict[str, Any]) -> list[str]:
+    own = [tpl.format(node[k]) for k, tpl in _HINTS if k in node]
+    return own + [h for b in node.get("anyOf", []) if isinstance(b, dict) for h in _hints(b)]
 
 
 def strict_json_schema(model: type[BaseModel]) -> dict[str, Any]:
     """JSON schema for OpenAI strict function calling: every property required (nullable when optional),
-    ``additionalProperties: false``, no defaults."""
+    ``additionalProperties: false``, no defaults; stripped constraints are restated in ``description``."""
     schema = model.model_json_schema()
     defs = schema.pop("$defs", {})
 
-    def fix(node: Any) -> Any:
+    def fix(node: Any, hint: bool = True) -> Any:
         if isinstance(node, dict):
             if "$ref" in node:
-                return fix(defs[node["$ref"].split("/")[-1]])
-            node = {k: fix(v) for k, v in node.items() if k not in _STRIP}
+                return fix(defs[node["$ref"].split("/")[-1]], hint)
+            hints = _hints(node) if hint else []
+            node = {k: {p: fix(s) for p, s in v.items()} if k == "properties" else fix(v, hint=k != "anyOf")
+                    for k, v in node.items() if k not in _STRIP}
+            if hints:
+                node["description"] = f"{node.get('description', '')} Allowed: {'; '.join(hints)}.".strip()
             if node.get("type") == "object" and "properties" in node:
                 node["required"] = list(node["properties"])
                 node["additionalProperties"] = False
             return node
         if isinstance(node, list):
-            return [fix(v) for v in node]
+            return [fix(v, hint) for v in node]
         return node
 
     return fix(schema)

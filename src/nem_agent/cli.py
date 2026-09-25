@@ -206,20 +206,44 @@ def cmd_live_smoke(args: argparse.Namespace) -> int:
         print("UNVERIFIED: hosted-model smoke test not run (no OPENAI_API_KEY). Live plumbing is covered by "
               "tests/provider with a fake transport and an SDK mock-HTTP contract test.")
         return 3
+    from .agent.live import model_id_from_env, model_prices
+
+    if model_prices(model_id_from_env()) is None:
+        print(f"NOT RUN: no price known for {model_id_from_env()!r}, so the budget cannot be enforced. Set "
+              "NEM_AGENT_PRICE_INPUT_PER_MTOK and NEM_AGENT_PRICE_OUTPUT_PER_MTOK.")
+        return 2
     os.environ.setdefault("NEM_AGENT_SESSION_BUDGET_USD", "0.25")
+    print(f"session budget: {os.environ['NEM_AGENT_SESSION_BUDGET_USD']} USD (enforced; prices USD/1M tokens "
+          f"{model_prices(model_id_from_env())})")
     ev = load_selection().primary
     day = parse_iso(ev.peak_interval_end_utc).astimezone(region_zone(ev.region)).date().isoformat()
     res = investigate(InvestigateRequest(question=f"What happened around the {ev.region} price spike on {day}?", mode="live"))
     rep = res.report
     fc = [e for e in res.trace.events if e["kind"] == "model" and e.get("function_calls")]
-    out = {"model": rep.versions.model, "status": rep.status, "headline": rep.headline, "usage": res.usage,
-           "function_calls": [c for e in fc for c in e["function_calls"]], "validation": rep.validation,
+    v = rep.validation
+    tools = [{"name": r.name, "status": r.status, "reason": r.blocked_reason} for r in res.records]
+    out = {"model": rep.versions.model, "prompt": rep.versions.prompt, "status": rep.status, "headline": rep.headline,
+           "usage": res.usage, "tool_calls": tools,
+           "validation_summary": {"narrative_passed": not v.get("fallback_applied"),
+                                  "repair_attempted": bool(v.get("repair_attempted")),
+                                  "pre_repair_codes": v.get("pre_repair_codes", []),
+                                  "final_candidate_codes": sorted({x["code"] for x in v.get("initial", {}).get("violations", [])
+                                                                   if x["severity"] == "critical"}),
+                                  "fallback_applied": bool(v.get("fallback_applied")), "final_passed": v.get("final_passed")},
+           "function_calls": [c for e in fc for c in e["function_calls"]], "validation": v, "report": rep.model_dump(),
            "trace": res.trace.as_dict()}
     _write("artifacts/live_smoke_trace.json", out)
-    ok = bool(fc) and rep.validation.get("final_passed")
-    print(json.dumps({k: out[k] for k in ("model", "status", "headline", "usage")}, indent=2, default=str))
-    print("LIVE-SMOKE:", "PASS" if ok else "FAIL (see artifacts/live_smoke_trace.json)")
-    return 0 if ok else 1
+    print(json.dumps({k: out[k] for k in ("model", "prompt", "status", "headline", "usage", "tool_calls",
+                                          "validation_summary")}, indent=2, default=str))
+    # PASS means the model's own narrative passed validation; a facts-only fallback is reported, never a pass.
+    if fc and not v.get("fallback_applied") and v.get("final_passed"):
+        print("LIVE-SMOKE: PASS (model narrative passed independent validation)")
+        return 0
+    if fc and v.get("final_passed"):
+        print("LIVE-SMOKE: FALLBACK (narrative rejected; facts-only report shown; see artifacts/live_smoke_trace.json)")
+        return 1
+    print("LIVE-SMOKE: FAIL (see artifacts/live_smoke_trace.json)")
+    return 1
 
 
 def cmd_safety_suite(args: argparse.Namespace) -> int:
@@ -286,11 +310,29 @@ def cmd_eval(args: argparse.Namespace) -> int:
     from .evaluation.runner import run
 
     if args.mode == "live":
+        from .agent.live import model_id_from_env, model_prices
+        from .evaluation.runner import estimate_live_cost, load_cases
+
         if not os.environ.get("OPENAI_API_KEY"):
             print("UNVERIFIED: live evaluation needs OPENAI_API_KEY; nothing run (replay numbers are never relabelled).")
             return 3
-        os.environ["NEM_AGENT_SESSION_BUDGET_USD"] = str(args.budget_usd)
-    res = run(mode=args.mode, out=Path(args.out))
+        model = model_id_from_env()
+        if model_prices(model) is None:
+            print(f"NOT RUN: no price known for {model!r}, so the budget cannot be enforced. Set "
+                  "NEM_AGENT_PRICE_INPUT_PER_MTOK and NEM_AGENT_PRICE_OUTPUT_PER_MTOK.")
+            return 2
+        est = estimate_live_cost(load_cases())
+        print(json.dumps({"model": model, "prices_usd_per_mtok": model_prices(model), "run_budget_usd": args.budget_usd,
+                          "estimate": est}, indent=2))
+        if est["expected_usd"] > args.budget_usd:
+            print(f"NOT RUN: expected cost {est['expected_usd']} USD exceeds --budget-usd {args.budget_usd}. "
+                  "Raise --budget-usd deliberately to run it.")
+            return 2
+    res = run(mode=args.mode, out=Path(args.out), budget_usd=args.budget_usd if args.mode == "live" else None)
+    if res.get("incomplete"):
+        print(json.dumps({"usage": res["usage"], "reason": res["reason"]}, indent=2))
+        print("EVAL: INCOMPLETE ->", args.out)
+        return 1
     s = res["summary"]["system_test"]
     print(json.dumps({"gate_checks": res["gate_checks"], "system_test": {k: s[k] for k in (
         "status_ok", "answerable_accepted", "required_tool_recall_on_answerable", "numeric_traceability_on_accepted",

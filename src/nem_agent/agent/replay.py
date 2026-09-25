@@ -343,10 +343,7 @@ class ReplayController:
         v = tl[0].view
         key = "peak" if res.kind == "high_price" else "minimum"
         pk = v[key]
-        thr_ev = self.reg.add(evidence_class="derived", metric="project_analysis_threshold",
-                              value=v["intervals_at_or_above_threshold"]["threshold"], unit="$/MWh", region=res.region,
-                              valid_at_utc=None, interval_minutes=None, source_row_ids=[], source_urls=[],
-                              tool_call_id="config", derivation="project setting (data/source_selection.json), not an AEMO label")
+        thr_id = v["analysis_threshold"]["evidence_id"]
         for eid in (pk["evidence_id"], v["minimum"]["evidence_id"], v["peak"]["evidence_id"], v["mean_rrp"]["evidence_id"],
                     v["intervals_at_or_above_threshold"]["evidence_id"]):
             comp.observe(eid)
@@ -357,7 +354,7 @@ class ReplayController:
               f"{comp.num(v['peak']['evidence_id'], 'price')}. The unweighted mean of the 5-minute prices was "
               f"{comp.num(v['mean_rrp']['evidence_id'], 'price')}, and "
               f"{comp.num(v['intervals_at_or_above_threshold']['evidence_id'], 'count')} five-minute intervals were at or above "
-              f"the project analysis threshold of {comp.num(thr_ev.evidence_id, 'price')} (a project setting, not an AEMO label).")
+              f"the project analysis threshold of {comp.num(thr_id, 'price')} (a project setting, not an AEMO label).")
         summary = [s1]
         if v.get("totaldemand_at_peak") and res.kind == "high_price":
             comp.observe(v["totaldemand_at_peak"]["evidence_id"])
