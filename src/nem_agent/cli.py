@@ -349,8 +349,11 @@ def cmd_build_index(args: argparse.Namespace) -> int:
     manifest = build_index(allow_download=not args.no_download)
     rolled = manifest.get("rolled_off_sources", [])
     if rolled:
-        print(f"[index] WARNING: {len(rolled)} document(s) have rolled off NEMWeb's rolling 'Current' folder and AEMO "
-              "does not archive them (market notices). They are reported as missing evidence; see docs/data-retention.md.")
+        seen = next((s["archive_checked"] for s in manifest.get("sources", []) if s.get("archive_checked")), None)
+        where = (f"; NEMWeb {seen['url']} listed {seen['n_files']} file(s) when checked at {seen['checked_at']}"
+                 if seen else "")
+        print(f"[index] WARNING: {len(rolled)} document(s) have rolled off NEMWeb's rolling 'Current' folder and no "
+              f"verified copy was found{where}. They are reported as missing evidence; see docs/data-retention.md.")
     return 1 if manifest["failed_sources"] or manifest["n_chunks"] == 0 else 0
 
 
@@ -369,6 +372,32 @@ def cmd_retrieve(args: argparse.Namespace) -> int:
     return 0 if hits else 1
 
 
+def cmd_refresh_check(args: argparse.Namespace) -> int:
+    """Publisher-refresh check: exit 0 = nothing to review, 1 = a changed or unexpectedly unavailable source."""
+    from pathlib import Path
+
+    from .refresh import run_refresh
+
+    rep = run_refresh(source_ids=args.source_id or None, datasets=args.dataset or None, with_eval=args.eval)
+    print(json.dumps({"summary": rep["summary"], "needs_review": rep["needs_review"],
+                      "report": str(Path("artifacts/source_refresh") / rep["run_id"] / "report.md")}, indent=2))
+    print("REFRESH-CHECK:", "REVIEW NEEDED" if rep["needs_review"] else "NOTHING TO REVIEW")
+    return 1 if rep["needs_review"] else 0
+
+
+def cmd_sources(args: argparse.Namespace) -> int:
+    """Which pinned source versions are in use, revised upstream or unavailable (no network)."""
+    from .sources import source_statuses
+
+    st = source_statuses()
+    print(json.dumps({k: st[k] for k in ("data_version", "corpus_version", "summary", "refresh_check")}, indent=2))
+    for r in st["sources"]:
+        if r["category"] != "pinned" or r.get("note") or args.all:
+            print(f"  {r['category']:11s} in_use={str(r['in_use']).lower():5s} {r['source_id']}: "
+                  f"{r.get('reason') or r.get('note') or ''}"[:220])
+    return 0
+
+
 COMMANDS: dict[str, tuple[Callable[[argparse.Namespace], int], str]] = {
     "build-data": (cmd_build_data, "fetch selected publisher files and build the Parquet store"),
     "data-check": (cmd_data_check, "G1 checks on the built store"),
@@ -379,6 +408,8 @@ COMMANDS: dict[str, tuple[Callable[[argparse.Namespace], int], str]] = {
     "live-smoke": (cmd_live_smoke, "bounded hosted-model smoke test (requires OPENAI_API_KEY)"),
     "safety-suite": (cmd_safety_suite, "G5 adversarial/approval summary (SYNTHETIC fixtures)"),
     "eval": (cmd_eval, "run the 40-case evaluation and baselines"),
+    "refresh-check": (cmd_refresh_check, "download current publisher content, compare with the pins, write a report"),
+    "sources": (cmd_sources, "show which pinned source versions are in use, revised or unavailable"),
 }
 
 
@@ -406,6 +437,12 @@ def main(argv: list[str] | None = None) -> int:
             sp.add_argument("--question")
             sp.add_argument("--as-of", help="ISO-8601 cutoff with offset, e.g. 2026-07-30T14:00:00Z")
             sp.add_argument("--out")
+        if name == "refresh-check":
+            sp.add_argument("--source-id", action="append", help="check only this source (repeatable)")
+            sp.add_argument("--dataset", action="append", help="check only this dataset (repeatable)")
+            sp.add_argument("--eval", action="store_true", help="also evaluate changed sources in sandboxes")
+        if name == "sources":
+            sp.add_argument("--all", action="store_true", help="list pinned sources too")
         if name == "eval":
             sp.add_argument("--mode", choices=["replay", "live"], default="replay")
             sp.add_argument("--out", default="artifacts/eval/offline.json")

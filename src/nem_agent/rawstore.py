@@ -34,8 +34,11 @@ class RawFile:
     content_type: str | None
     last_modified: str | None
     retrieved_at: str | None  # original retrieval time of the bytes on disk
-    status: str  # downloaded | cache_hit | cache_fallback | failed
+    status: str  # downloaded | cache_hit | cache_fallback | recovered_from_archive | failed
     error: str | None = None
+    # What the publisher served on this attempt: matches_pin | revised (different content) | unavailable (not served
+    # or the request failed) | not_checked (a verified cached copy was used without a request).
+    upstream: str = "not_checked"
 
     @property
     def available(self) -> bool:
@@ -46,6 +49,13 @@ class RawFile:
     def rolled_off(self) -> bool:
         """The publisher answered 404 for a NEMWeb Current URL (rolling retention), as opposed to a real error."""
         return self.status == "failed" and self.http_status == 404 and "/reports/current/" in self.url.lower()
+
+    @property
+    def pin_status(self) -> str:
+        """What the application uses: ``pinned`` (verified pinned bytes), else why not: ``revised`` or ``unavailable``."""
+        if self.available:
+            return "pinned"
+        return "revised" if self.upstream == "revised" else "unavailable"
 
 
 def sha256_file(path: Path) -> str:
@@ -131,6 +141,7 @@ def get(
             dataset=dataset, url=url, local_path=str(path), sha256=cached_meta["sha256"], size=cached_meta["size"],
             http_status=cached_meta.get("http_status"), content_type=cached_meta.get("content_type"),
             last_modified=cached_meta.get("last_modified"), retrieved_at=cached_meta["retrieved_at"], status="cache_hit",
+            upstream="not_checked",
         )
         _append_manifest({"event": "cache_hit", "at": _now(), **asdict(rf)})
         return rf
@@ -163,7 +174,7 @@ def get(
                         "not only volatile metadata)")
             err += "; the publisher content differs from the pin: review it, then re-pin with scripts/repin_source.py"
             rf = RawFile(dataset, url, str(path), digest, len(res.body), res.status, res.content_type,
-                         res.last_modified, None, "failed", err)
+                         res.last_modified, None, "failed", err, upstream="revised")
             _append_manifest({"event": "checksum_mismatch", "at": _now(), **asdict(rf)})
             return _fallback(rf, path, meta_path, expected_sha256, expected_content_sha256)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -179,12 +190,12 @@ def get(
         }
         meta_path.write_text(json.dumps(meta, indent=2, sort_keys=True))
         rf = RawFile(dataset, url, str(path), digest, len(res.body), res.status, res.content_type,
-                     res.last_modified, meta["retrieved_at"], "downloaded")
+                     res.last_modified, meta["retrieved_at"], "downloaded", upstream="matches_pin")
         _append_manifest({"event": "download", "at": _now(), **asdict(rf)})
         return rf
 
     rf = RawFile(dataset, url, str(path), None, None, res.status, res.content_type, res.last_modified, None,
-                 "failed", res.error or f"HTTP {res.status}")
+                 "failed", res.error or f"HTTP {res.status}", upstream="unavailable")
     _append_manifest({"event": "fetch_failed", "at": _now(), **asdict(rf)})
     return _fallback(rf, path, meta_path, expected_sha256, expected_content_sha256)
 
@@ -212,7 +223,8 @@ def _fallback(failed: RawFile, path: Path, meta_path: Path, expected_sha256: str
                                                       expected_content_sha256):
             rf = RawFile(failed.dataset, failed.url, str(path), actual, meta["size"], meta.get("http_status"),
                          meta.get("content_type"), meta.get("last_modified"), meta["retrieved_at"], "cache_fallback",
-                         f"live fetch failed ({failed.error}); using cached copy retrieved {meta['retrieved_at']}")
+                         f"live fetch failed ({failed.error}); using cached copy retrieved {meta['retrieved_at']}",
+                         upstream=failed.upstream)
             _append_manifest({"event": "cache_fallback", "at": _now(), **asdict(rf)})
             return rf
     return failed

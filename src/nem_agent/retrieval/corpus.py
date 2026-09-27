@@ -304,10 +304,21 @@ def build_corpus(sel: Selection, log: Any = print) -> tuple[list[Chunk], list[di
         if src.dataset not in ("AEMO_PDF", "MMS_DATA_MODEL_HTML", "MARKET_NOTICE") or src.role in ("document_toc", "document_cover"):
             continue
         rf = rawstore.get(src.dataset, src.url, expected_sha256=src.sha256, max_bytes=30_000_000)
+        if rf.rolled_off:
+            from ..recover import recover_from_archive
+
+            rf = recover_from_archive(src.dataset, src.url, src.sha256, log=log) or rf
         if not rf.available:
-            status.append({"source_id": src.source_id, "ok": False, "error": rf.error, "rolled_off": rf.rolled_off})
+            entry: dict[str, Any] = {"source_id": src.source_id, "ok": False, "error": rf.error, "rolled_off": rf.rolled_off,
+                                     "pin_status": rf.pin_status, "upstream": rf.upstream}
+            if rf.rolled_off and src.dataset == "MARKET_NOTICE":
+                from ..recover import notice_archive_listing
+
+                lst = notice_archive_listing()
+                entry["archive_checked"] = {k: lst[k] for k in ("url", "http_status", "checked_at", "n_files")}
+            status.append(entry)
             if not rf.rolled_off:
-                log(f"[index] MISSING {src.source_id}: {rf.error}")
+                log(f"[index] MISSING {src.source_id} ({rf.pin_status}): {rf.error}")
             continue
         p = Path(rf.local_path)
         try:
@@ -319,8 +330,10 @@ def build_corpus(sel: Selection, log: Any = print) -> tuple[list[Chunk], list[di
                 c = notice_chunk(src, p)
                 new = [c] if c else []
         except Exception as exc:  # parse failure: record, never invent text
-            status.append({"source_id": src.source_id, "ok": False, "error": f"{type(exc).__name__}: {exc}"})
+            status.append({"source_id": src.source_id, "ok": False, "error": f"{type(exc).__name__}: {exc}",
+                           "pin_status": "unavailable", "upstream": rf.upstream})
             continue
         chunks.extend(new)
-        status.append({"source_id": src.source_id, "ok": True, "chunks": len(new), "fetch": rf.status})
+        status.append({"source_id": src.source_id, "ok": True, "chunks": len(new), "fetch": rf.status,
+                       "pin_status": "pinned", "upstream": rf.upstream})
     return chunks, status

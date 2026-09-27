@@ -51,6 +51,29 @@ with st.sidebar:
     as_of = st.text_input("As-of cutoff (optional, ISO-8601 with offset)", "",
                           placeholder="e.g. 2026-07-30T14:35:00Z")
     run = st.button("Investigate", type="primary", use_container_width=True)
+    st.divider()
+    st.subheader("Data and sources")
+    try:
+        from nem_agent.sources import source_statuses
+
+        _src = source_statuses(sel)
+        _sm = _src["summary"]
+        st.caption(f"data `{_src['data_version']}` · corpus `{_src['corpus_version']}`")
+        st.markdown(f"- **{_sm['pinned']}** pinned sources in use (verified by hash)\n"
+                    f"- **{_sm['revised_in_use_pending_review']}** revised upstream; pinned version still used, "
+                    "review pending\n"
+                    f"- **{_sm['revised_excluded']}** revised upstream and excluded (no verified copy)\n"
+                    f"- **{_sm['unavailable_excluded']}** unavailable and excluded (reported as missing evidence)")
+        _odd = [r for r in _src["sources"] if r["category"] != "pinned" or r.get("note")]
+        if _odd:
+            with st.expander(f"{len(_odd)} source(s) not plainly pinned"):
+                st.dataframe([{"source": r["source_id"], "status": r["category"], "in use": r["in_use"],
+                               "why": (r.get("reason") or r.get("note") or "")[:160]} for r in _odd],
+                             use_container_width=True, hide_index=True)
+        if _src["refresh_check"]:
+            st.caption(f"Last publisher-refresh check: {_src['refresh_check']['generated_at']}")
+    except Exception as _exc:  # the panel is informational; investigations still fail closed on their own
+        st.caption(f"Source status unavailable: {type(_exc).__name__}")
 
 st.title("NEM Event Intelligence Agent")
 badge = "LIVE — hosted model tool calling" if mode == "live" else "REPLAY — scripted controller, no LLM"

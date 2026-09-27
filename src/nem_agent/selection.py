@@ -47,6 +47,12 @@ class SupersededPin(_Strict):
     new_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     publisher_revision: str = Field(min_length=3, description="what the publisher changed, as verified by a reviewer")
     reason: str = Field(min_length=3)
+    # Recorded by scripts/repin_source.py since the source-governance workflow (docs/source-governance.md); optional
+    # only because the first three re-pins (2026-09-25) predate it.
+    approved_by: str | None = Field(None, min_length=2)
+    refresh_report: dict[str, Any] | None = None
+    metadata: dict[str, Any] | None = Field(None, description="publisher version / API metadata, pinned and current")
+    old_bytes: str | None = Field(None, description="where the superseded bytes are kept, or why they are not")
 
 
 class SourceEntry(_Strict):
