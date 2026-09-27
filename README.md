@@ -25,6 +25,7 @@ kept separate.
 | Independent validators (numbers, quotes, as-of, metrics, causality, injection) + approval-gated local write | built, verified | G5, `make safety` |
 | 40-case evaluation, two baselines, held-out split | built, measured (replay) | G6, [`artifacts/eval/report.md`](artifacts/eval/report.md) |
 | FastAPI + Streamlit UI + API smoke test | built, verified | G7, [`docs/demo.md`](docs/demo.md) |
+| Approved-bytes store: builds that restore every approved publisher file, verified by SHA-256, without contacting AEMO/NASA | built, verified 2026-09-27 (fresh machine, no cache) | [`docs/pinned-store.md`](docs/pinned-store.md) |
 | Separate day-ahead quantile experiment (our model, not AEMO's) | built, measured | G8, [`artifacts/ml/report.md`](artifacts/ml/report.md) |
 | Hosted-model (live) smoke test | verified 2026-09-25 with gpt-5-mini: narrative passed validation after one repair turn in the last 3 of 8 runs (2 earlier runs fell back to facts only) | `make live-smoke`, [`docs/progress.md`](docs/progress.md) Post-PR |
 | **Hosted-model 40-case evaluation** | **UNVERIFIED**: not run (estimate 1.90 USD > configured budget 1.00 USD) | `make eval-live` |
@@ -81,7 +82,8 @@ SA1 29 Jul, NSW1/VIC1/TAS1 31 Jul, TAS1 6 Aug, VIC1 20 Aug, and a negative-price
 
 ```bash
 make setup      # .venv + pinned deps (requirements.lock)
-make data       # download the selected AEMO/NASA files (~100 MB), verify SHA-256, build Parquet/DuckDB
+make restore-pinned  # (repository collaborators) restore approved publisher bytes from the store, SHA-256 verified
+make data       # build Parquet/DuckDB; downloads (and verifies) anything not restored from the store
 make index      # AEMO documents + notices → FTS5 + embedding index (downloads a 129 MB MIT-licensed model)
 make demo       # replay investigations for the primary event → artifacts/replay_*.json
 make app        # Streamlit UI on port 8501   (Codespaces: Ports tab → 8501 → Open in Browser)
@@ -161,6 +163,27 @@ Held-out split = 21 of 40 cases (split by event group; no event group appears in
 - Separate experiment, SA1 day-ahead demand, 6 monthly rolling-origin folds, 8,408 test half-hours: linear quantile
   model MAE **159.7 MW** vs seasonal-naive 173.6 MW and persistence 185.3 MW; q10–q90 coverage 0.796 (target 0.80).
   This is this project's model, not an AEMO forecast.
+
+## Reproducibility: what is verified
+
+- **With read access to this private repository**, a fresh machine with no cache runs `make setup`,
+  `make restore-pinned`, `make data`, `make index`. Verified 2026-09-27:
+  - all 307 approved files are restored from the store, and 0 publisher downloads are made;
+  - the build reproduces `data_version` `8c14c217f5570d32` and `corpus_version` `221b6ea0f21e006d`;
+  - all 198 pinned market notices are present;
+  - all 178 tests pass, and the evaluation (all 82 rows identical to the committed results) and the safety suite
+    pass.
+  CI runs the same restore on every push and fails if any file is missing from the store or if the build contacts
+  a publisher.
+- **Without access to the store**, `make data` / `make index` download from AEMO and NASA and verify every file against
+  its pin. These builds are **not** identical today:
+  - 67 notices (72 files including 5 probe-only price files) are no longer served by NEMWeb, and its
+    Archive/Market_Notice listing is empty. Those notices become missing evidence, so the corpus version differs.
+  - Future publisher revisions fail the checksum until a reviewer re-pins them.
+- **Earlier versions are kept.** Superseded versions, including AEMO SO_OP_3705 Version 97 (recovered and verified on
+  2026-09-27), are in the store with their approval history.
+- **Not covered:** the embedding model (Hugging Face, pinned revision) and Python packages (PyPI, pinned versions)
+  are fetched from those services. Hosted-model results are not reproducible and are reported separately.
 
 ## Honest limitations
 

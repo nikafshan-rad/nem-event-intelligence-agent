@@ -11,16 +11,19 @@ used until a reviewer accepts it. Nothing switches over silently.
 
 ## Two separate checks
 
-| | Pinned build (`ci` workflow, `make data` / `make index`) | Publisher-refresh check (`publisher-refresh` workflow, `make refresh-check`) |
+| | Pinned build (`ci` workflow, `make restore-pinned` / `make data` / `make index`) | Publisher-refresh check (`publisher-refresh` workflow, `make refresh-check`) |
 | --- | --- | --- |
 | When | Every push and pull request | Weekly (Monday 19:17 UTC), on demand, and on pull requests that touch governance code |
-| Uses | Only bytes whose hash matches the pin | Whatever the publishers serve today |
-| If a publisher changed a file | The source cannot be obtained in its pinned form, so it is excluded and reported (see "What the application shows"). For documents, `make index` fails. | Reports the change for review, with a diff |
+| Uses | Only approved bytes from the store whose hash matches the pin; no publisher is contacted | Whatever the publishers serve today |
+| If a publisher changed a file | Nothing changes: the approved bytes come from the store | Reports the change for review, with a diff |
 | Changes the pins? | Never | Never |
 
-The pinned build fetches from the publishers and verifies every file. A GitHub Actions cache saves repeat
-downloads, but it is only a convenience: GitHub deletes a cache after 7 days without use, so it is **not** an
-archive (see "What we cannot keep").
+The pinned build restores every approved file from the **approved-bytes store**, which is content-addressed by
+SHA-256 and held in this private repository's releases (docs/pinned-store.md). It then checks that no publisher was
+contacted. Without access to the store, for example on a machine without read access to this repository, `make data`
+and `make index` download from the publishers and verify every file against its pin. Those builds see roll-off and
+revisions (see "What the application shows"). The GitHub Actions cache holds only the embedding model; it is not an
+archive, because GitHub deletes a cache after 7 days without use.
 
 A pull request that changes a pin is also checked by `scripts/check_pin_changes.py`: every changed hash must come
 with a history entry naming the reviewer and the reason, made with `scripts/repin_source.py`.
@@ -76,12 +79,16 @@ No credentials are used. Reports record only public URLs and four response heade
    - the file is not what it should be (for example, not a PDF).
 3. The old pin is kept in the source's `superseded` history, with its hashes, dates, the publisher's version
    details, the report reference, your name and your reason. `data/SOURCES.md` shows the history.
-4. Rebuild with `make data` / `make index` and refresh the committed results (`make eval`, `make retrieval-eval`,
-   `make demo`).
-5. Open a pull request. CI checks the history entry and runs everything against the new pins.
+4. Add the newly approved bytes to the store: `python scripts/publish_pinned_store.py --release pinned-bytes-<date>
+   --target <commit>`. This creates a new release; nothing existing is replaced. The old version stays in the store
+   as a `superseded` object.
+5. Rebuild with `make restore-pinned` / `make data` / `make index` and refresh the committed results (`make eval`,
+   `make retrieval-eval`, `make demo`).
+6. Open a pull request with `data/source_selection.json`, `data/SOURCES.md` and `data/pinned_store.json`. CI checks
+   the history entry, checks that the store index was only added to, and runs everything against the new pins from
+   the store.
 
-If you do not accept a change, do nothing. The application keeps using the pinned version while this machine or
-the CI cache still has it. Once it cannot be obtained, the source is shown as excluded.
+If you do not accept a change, do nothing. Pinned builds keep restoring the approved version from the store.
 
 ## What the application shows
 
@@ -99,18 +106,17 @@ Excluded sources are never replaced by other content. Tools report them as missi
 or state the gap. For example, a missing weather source is named with its status, and event reports say how many
 of the selected market notices are missing.
 
-## What we cannot keep
+## What is kept, and where
 
-- **Publisher files are not redistributed.** AEMO's copyright terms could not be confirmed (docs/decisions.md D2),
-  so the repository contains hashes and metadata, not the files.
-- **Superseded versions** are kept only on the machine that held them when they were re-pinned, in
-  `data/pinned_store/` (git-ignored). If AEMO replaces a document, other machines can no longer obtain the old
-  version, and the history records only its hash and details. SO_OP_3705 Version 97 was lost this way: it was
-  re-pinned on 2026-09-25, before this workflow existed, and the next `make index` overwrote the local copy.
-- **The GitHub Actions cache is not an archive.** It holds the pinned files for up to 7 days without use.
+- **Every approved version**, current and superseded, is in the approved-bytes store (docs/pinned-store.md). This
+  includes SO_OP_3705 Version 97, recovered and verified from the 2026-09-23 CI cache, and all 198 pinned market
+  notices, including the 67 NEMWeb no longer serves.
+- **AEMO's terms** permit use "for any purpose" with attribution (archived page, 2026-09-23; see docs/pinned-store.md).
+  NASA POWER states no restriction and asks for acknowledgement and notification. The store is private.
+  Publisher files are still not committed to git (D2), for size and separation.
+- **The GitHub Actions cache is not an archive.** It holds only the embedding model.
 - **Market notices** leave NEMWeb `Reports/Current` after about 60 days. NEMWeb has a `Reports/Archive/Market_Notice/`
-  directory, but its listing contained no files when checked on 2026-09-27. The build looks there for every missing
-  notice (accepting only a hash match) and records what it saw.
-
-A durable, private store of the pinned bytes would make every build fully repeatable. Whether AEMO's terms allow
-that is a decision for the project owner.
+  directory, but its listing contained no files when checked on 2026-09-27. Builds that download from NEMWeb, rather
+  than from the store, look there for every missing notice (accepting only a hash match) and record what they saw.
+- **Not stored:** the embedding model (Hugging Face, pinned by revision) and Python packages (pinned in
+  `requirements.lock`). Builds depend on those two services being available.
