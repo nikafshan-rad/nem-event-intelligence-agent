@@ -1,0 +1,42 @@
+name: recover-superseded-bytes
+
+# One-off (2026-09-27): the pins superseded on 2026-09-25 (AEMO SO_OP_3705 Version 97 and two provisional NASA POWER
+# responses) are no longer served by their publishers. The only known copies are in this branch's GitHub Actions
+# cache from 2026-09-23 (key below; GitHub evicts it after 7 days without use). This job restores that exact cache
+# read-only and uploads only those three files, privately and for one day, so they can be verified against the
+# SHA-256 values recorded in data/source_selection.json.
+on:
+  push:
+    branches: [feat/nem-event-intelligence-agent]
+    paths: [".github/workflows/recover-superseded.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Restore the 2026-09-23 cache (exact key, read-only)
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            data/raw
+            data/models
+          key: nem-raw-3a7ea10c7bef393d6bb7b034b932210f608fefcafa380450faf62163d6b07e6d
+          fail-on-cache-miss: true
+      - name: Hash the candidates
+        run: |
+          sha256sum data/raw/AEMO_PDF/so_op_3705-dispatch.pdf
+          cat data/raw/AEMO_PDF/so_op_3705-dispatch.pdf.meta.json
+          grep -l '20260805\|20260819' data/raw/NASA_POWER_HOURLY/*.meta.json | while read m; do
+            f="${m%.meta.json}"; sha256sum "$f"; cat "$m"; done
+      - name: Upload the candidates (private, one day)
+        uses: actions/upload-artifact@v4
+        with:
+          name: superseded-candidates
+          path: |
+            data/raw/AEMO_PDF/so_op_3705-dispatch.pdf
+            data/raw/AEMO_PDF/so_op_3705-dispatch.pdf.meta.json
+            data/raw/NASA_POWER_HOURLY/
+          retention-days: 1
