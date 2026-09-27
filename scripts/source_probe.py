@@ -793,6 +793,16 @@ def write_sources_md(sel: dict[str, Any], path: Path) -> None:
         if len(items) > 40:
             lines.append(f"| … | {len(items) - 40} more in data/source_selection.json | | | |")
         lines.append("")
+    revised = [(s["source_id"], p) for s in sel["sources"] for p in s.get("superseded", [])]
+    if revised:
+        lines += ["## Pin revisions (publisher changed the content; re-pinned after review)", "",
+                  "Made with `scripts/repin_source.py`, which accepts only the reviewed hash; see docs/decisions.md D20.",
+                  "", "| source_id | old SHA-256 (first 16) | new SHA-256 (first 16) | re-pinned | publisher revision |",
+                  "| --- | --- | --- | --- | --- |"]
+        for sid, p in revised:
+            lines.append(f"| {sid} | `{p['sha256'][:16]}` | `{p['new_sha256'][:16]}` | {p['superseded_at']} | "
+                         f"{p['publisher_revision']} |")
+        lines.append("")
     if sel["attempted_unavailable"]:
         lines += ["## Attempted but not used", "", "| URL | status | reason |", "| --- | --- | --- |"]
         for a in sel["attempted_unavailable"]:

@@ -26,7 +26,9 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       # Publisher files are fetched from AEMO/NASA by `make data`/`make index` (not committed; docs/decisions.md D2).
-      # The cache keeps verified copies so later runs survive NEMWeb Current's rolling retention of market notices.
+      # The cache is reused only for the exact same pin set. No prefix fallback: an older cache would bring back
+      # market notices that have since rolled off NEMWeb and hide them, so any change to the pins runs against what
+      # a fresh setup gets today (docs/decisions.md D20).
       - name: Cache verified publisher files and the embedding model
         uses: actions/cache@v4
         with:
@@ -34,7 +36,6 @@ jobs:
             data/raw
             data/models
           key: nem-raw-${{ hashFiles('data/source_selection.json') }}
-          restore-keys: nem-raw-
       - name: Install (pinned)
         run: make setup SYSTEM_PY=python
       - name: Lint

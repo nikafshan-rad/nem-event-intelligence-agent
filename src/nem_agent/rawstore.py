@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -58,6 +59,13 @@ def sha256_file(path: Path) -> str:
 # API responses whose bytes carry volatile metadata. Their identity is a canonical content hash; every other
 # publisher file keeps strict byte identity (raw SHA-256).
 VOLATILE_JSON_KEYS: dict[str, tuple[str, ...]] = {"NASA_POWER_HOURLY": ("times",)}
+
+# NASA POWER has served different values for the same request to different clients at the same time (CI runners,
+# 2026-09-27) while the Codespace got the pinned values 32 times out of 32. A mismatching API response is therefore
+# requested again a bounded number of times; only content equal to the pin is ever accepted, every variant seen is
+# logged and kept under data/raw/_rejected/ for review, and a real revision (every response differs) still fails.
+MISMATCH_RETRIES: dict[str, int] = {"NASA_POWER_HOURLY": 2}
+MISMATCH_RETRY_WAIT_S = 5.0
 
 
 def content_sha256(dataset: str, data: bytes) -> str | None:
@@ -127,11 +135,33 @@ def get(
         _append_manifest({"event": "cache_hit", "at": _now(), **asdict(rf)})
         return rf
 
-    res = fetch(url, timeout=timeout, max_bytes=max_bytes)
+    variants: list[str] = []
+    for attempt in range(1 + MISMATCH_RETRIES.get(dataset, 0)):
+        if attempt:
+            time.sleep(MISMATCH_RETRY_WAIT_S)
+        res = fetch(url, timeout=timeout, max_bytes=max_bytes)
+        if not res.ok or res.body is None or _matches(dataset, hashlib.sha256(res.body).hexdigest(), res.body,
+                                                      expected_sha256, expected_content_sha256):
+            break
+        variants.append(_keep_rejected(dataset, url, res.body))
     if res.ok and res.body is not None:
         digest = hashlib.sha256(res.body).hexdigest()
+        if variants:
+            _append_manifest({"event": "checksum_mismatch_variants", "at": _now(), "dataset": dataset, "url": url,
+                              "variants": variants, "accepted_after_attempts": None if not _matches(
+                                  dataset, digest, res.body, expected_sha256, expected_content_sha256) else len(variants) + 1})
         if not _matches(dataset, digest, res.body, expected_sha256, expected_content_sha256):
             err = f"sha256 mismatch: expected {expected_sha256}, got {digest}"
+            if len(variants) > 1:
+                err += f" ({len(variants)} attempts, content seen: {sorted(set(v[:12] for v in variants))})"
+            try:
+                got_content = content_sha256(dataset, res.body)
+            except ValueError:  # not JSON (e.g. an error page)
+                got_content = "unparseable"
+            if got_content is not None:  # raw bytes of API responses always differ; say whether the values did
+                err += (f"; content_sha256 expected {expected_content_sha256}, got {got_content} (the values changed, "
+                        "not only volatile metadata)")
+            err += "; the publisher content differs from the pin: review it, then re-pin with scripts/repin_source.py"
             rf = RawFile(dataset, url, str(path), digest, len(res.body), res.status, res.content_type,
                          res.last_modified, None, "failed", err)
             _append_manifest({"event": "checksum_mismatch", "at": _now(), **asdict(rf)})
@@ -157,6 +187,19 @@ def get(
                  "failed", res.error or f"HTTP {res.status}")
     _append_manifest({"event": "fetch_failed", "at": _now(), **asdict(rf)})
     return _fallback(rf, path, meta_path, expected_sha256, expected_content_sha256)
+
+
+def _keep_rejected(dataset: str, url: str, body: bytes) -> str:
+    """Keep a response that did not match its pin (local only, git-ignored) so a reviewer can inspect it."""
+    try:
+        ident = content_sha256(dataset, body) or hashlib.sha256(body).hexdigest()
+    except ValueError:
+        ident = hashlib.sha256(body).hexdigest()
+    d = paths.raw_dir() / "_rejected" / dataset
+    d.mkdir(parents=True, exist_ok=True)
+    (d / f"{ident}.bin").write_bytes(body)
+    (d / f"{ident}.url").write_text(url + "\n")
+    return ident
 
 
 def _fallback(failed: RawFile, path: Path, meta_path: Path, expected_sha256: str | None,
