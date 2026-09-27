@@ -266,3 +266,11 @@ Each entry: the decision, why, the evidence, and what it costs. Departures from
   for the identical pin set, so a pin change always runs against what a fresh setup downloads.
 - **Error messages:** a mismatch on an API source now shows the content hash and says the values changed, with a
   pointer to the re-pin procedure; the raw hash alone looked random on every run.
+- **Inconsistent API servers (added 2026-09-27):** PR #2's first CI run failed although nothing had been revised.
+  NASA POWER returned values different from the pin for 3 of the 16 NASA requests the two CI jobs made
+  (`sa1_20260730`, `vic1_20260730`, `tas1_20260805`); the content hashes matched no version seen before. At the
+  same time 32 of 32 requests from the Codespace returned the pinned values. In one job, a rebuild seconds later
+  received the pinned content. A mismatching NASA response is therefore requested again, at most twice, 5 s
+  apart. Only content equal to the pin is ever accepted. Each variant seen is logged (`checksum_mismatch_variants`
+  in the raw manifest) and kept under `data/raw/_rejected/` for review. If every response differs, the source
+  fails as before. Publisher files (AEMO, NEMWeb) are not retried.

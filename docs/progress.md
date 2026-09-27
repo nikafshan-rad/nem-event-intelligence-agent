@@ -746,3 +746,18 @@ changed.
 
 **Roll-off keeps growing:** 12 notices were missing at 07:26Z and 15 by the fresh index build at 08:05Z
 (`market_notice_144622`–`144637`, from late July). All are reported as missing evidence; none fails the build.
+
+**Follow-up (2026-09-27): inconsistent NASA POWER responses.** PR #2's first CI run
+([run 36353599841](https://github.com/nikafshan-rad/nem-event-intelligence-agent/actions/runs/36353599841)) failed
+2 tests in each job.
+- *What failed:* `test_real_store_nonempty_and_no_failed_sources` and `test_rebuild_from_cache_is_idempotent`. NASA
+  returned values different from the pin for `sa1_20260730` and `vic1_20260730` (Python 3.12 job) and for
+  `tas1_20260805` (Python 3.14 job). None of those content hashes matched a known version.
+- *Local check at the same time:* 8 sources × 4 requests from the Codespace all returned the pinned content.
+- *Diagnosis:* in the 3.14 job the rebuild seconds later received the pinned content, so NASA serves different
+  versions to different requests.
+- *Fix:* bounded re-requests for API sources only (D20). Verification is unchanged, and variants are logged and
+  kept for review.
+- *Checks:* `make lint`, `make typecheck`, `pytest tests/data` (40 passed; 3 new tests cover: accepted after a
+  variant, refused when every response differs, publisher files not retried).
+
