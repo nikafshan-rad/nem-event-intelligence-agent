@@ -52,6 +52,20 @@ def _coverage_note(ctx: ToolContext) -> str:
     return f"The local snapshot ({ctx.store.data_version}) covers these event windows: {wins}"
 
 
+def _source_gap_note(ctx: ToolContext, dataset: str, region: str | None) -> str:
+    """Say why a pinned source is missing (revised upstream vs unavailable); its content is never substituted."""
+    built = ctx.store.snapshot.get("sources", {})
+    bad = []
+    for s in ctx.selection.sources:
+        if s.dataset != dataset or (region and not any(e.startswith(f"{region}-") for e in s.events)):
+            continue
+        st = built.get(s.source_id, {}).get("pin_status")
+        if st in ("revised", "unavailable"):
+            bad.append(f"{s.source_id} is {'revised by the publisher' if st == 'revised' else 'unavailable'}")
+    return (" Pinned source status: " + "; ".join(bad) + "; excluded, and no other version is substituted."
+            if bad else "")
+
+
 def _as_of_filter(rows: list[dict[str, Any]], as_of: datetime | None) -> tuple[list[dict[str, Any]], int]:
     if as_of is None:
         return rows, 0
@@ -547,7 +561,8 @@ def get_weather_context(ctx: ToolContext, a: A.WeatherArgs) -> ToolOutput:
                 missing=["Weather context excluded: retrospective data cannot inform an as-of view"])
     if not rows:
         return ToolOutput("unavailable", {"reason": "no weather rows"},
-                          missing=[f"No NASA POWER rows for {a.region} {a.start_utc}..{a.end_utc}. {_coverage_note(ctx)}"])
+                          missing=[f"No NASA POWER rows for {a.region} {a.start_utc}..{a.end_utc}. {_coverage_note(ctx)}"
+                                   f"{_source_gap_note(ctx, 'NASA_POWER_HOURLY', a.region)}"])
     params: dict[str, list[dict[str, Any]]] = {}
     for r in rows:
         ev = ctx.registry.add(evidence_class="retrospective_context", metric=f"weather_{r['parameter'].lower()}",

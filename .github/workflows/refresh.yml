@@ -1,0 +1,56 @@
+name: publisher-refresh
+
+# Downloads what AEMO and NASA serve now, compares it with the reviewed pins and writes a report for a human
+# reviewer. It never changes data/source_selection.json, never commits and never feeds the application: a new
+# version is used only after `scripts/repin_source.py` and a reviewed pull request (docs/source-governance.md).
+on:
+  schedule:
+    - cron: "17 19 * * 1"   # weekly, Monday 19:17 UTC (Tuesday morning in the NEM)
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "src/nem_agent/refresh.py"
+      - "src/nem_agent/sources.py"
+      - "src/nem_agent/rawstore.py"
+      - "scripts/repin_source.py"
+      - "scripts/check_pin_changes.py"
+      - "data/source_selection.json"
+      - ".github/workflows/refresh.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # Pinned bytes are needed for content diffs and for the baseline evaluation. The cache is a convenience,
+      # not an archive: when it is gone, changed sources are still reported, but without a content diff.
+      - name: Restore the pinned-version cache if one exists (read-only)
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            data/raw
+            data/models
+          key: nem-raw-${{ hashFiles('data/source_selection.json') }}
+      - name: Install (pinned)
+        run: make setup SYSTEM_PY=python
+      - name: Build from the pinned versions (baseline; a revised source is reported, not substituted)
+        run: make data && make index || echo "::warning::pinned build incomplete; the refresh report explains why"
+      - name: Publisher refresh check
+        run: make refresh-check
+      - name: Upload the refresh report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: publisher-refresh-report
+          path: |
+            artifacts/source_refresh/*/report.md
+            artifacts/source_refresh/*/report.json
+          if-no-files-found: warn
+          retention-days: 90

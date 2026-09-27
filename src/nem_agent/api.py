@@ -49,9 +49,20 @@ def health() -> dict[str, Any]:
         dv = Store().data_version
     except StoreMissingError:
         dv = None
+    from .sources import source_statuses
+
+    summary = source_statuses()["summary"] if dv else None
     return {"status": "ok" if dv else "degraded", "version": __version__, "code": code_version(), "data_version": dv,
             "corpus_version": corpus_version(), "replay_available": dv is not None,
-            "live_available": bool(os.environ.get("OPENAI_API_KEY"))}
+            "live_available": bool(os.environ.get("OPENAI_API_KEY")), "sources": summary}
+
+
+@app.get("/sources")
+def sources() -> dict[str, Any]:
+    """Pinned source versions in use, sources revised upstream, and unavailable sources (see docs/source-governance.md)."""
+    from .sources import source_statuses
+
+    return source_statuses()
 
 
 @app.get("/events")

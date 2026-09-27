@@ -761,3 +761,41 @@ changed.
 - *Checks:* `make lint`, `make typecheck`, `pytest tests/data` (40 passed; 3 new tests cover: accepted after a
   variant, refused when every response differs, publisher files not retried).
 
+
+## Source governance: pinned builds, publisher-refresh check, reviewed re-pins (2026-09-27)
+
+Plain-English reviewer guide: [`docs/source-governance.md`](source-governance.md). Decision: D21.
+
+**Built:**
+- `nem_agent.refresh` and `make refresh-check`: the publisher-refresh check and its report. Results are
+  unchanged / changed / inconsistent / unavailable, with diffs, affected tables, documents and cases, and sandboxed
+  evaluation differences.
+- `nem_agent.sources`, `/sources`, `/health`, the Streamlit sidebar and `nem-agent sources`: pinned / revised /
+  unavailable status and the data and corpus versions.
+- Every build now records `pin_status` and `upstream` for each source.
+- `scripts/repin_source.py` requires `--approved-by`, links a refresh report, and keeps superseded bytes locally.
+- `scripts/check_pin_changes.py` runs in CI.
+- The `publisher-refresh` workflow (weekly, on demand, and on governance pull requests); CI gains a `fresh`
+  (no-cache) option.
+- Notices are looked up in `Reports/Archive/Market_Notice/`, and the wording about archiving is corrected.
+
+**Executed**
+
+```
+NEMWeb listings, 2026-09-27T21:58Z: Archive/Market_Notice HTTP 200, 0 files, 0 subdirectories;
+  Current/Market_Notice 683 notices (R144691, 30 Jul .. R145384, 27 Sep); 66 of 198 pinned notices gone
+make lint && make typecheck        # clean (48 source files)
+make test                          # 168 passed (13 new: 10 source-governance tests, 3 re-pin tests)
+make eval / make safety / make demo / make retrieval-eval   # PASS; 82/82 eval rows identical; artifacts unchanged
+make refresh-check  (all 307 live sources, 2026-09-27T22:25Z)  # exit 0, NOTHING TO REVIEW:
+  unchanged 235, changed 0, inconsistent 0, unavailable 72 (all expected NEMWeb Current retention:
+  67 market notices, 5 probe-only price files); Archive/Market_Notice listed 0 files
+Sandbox demonstration (synthetic altered NASA pin, real current NASA content; repository untouched):
+  refresh-check -> exit 1 REVIEW NEEDED; diff: T2M 1 of 48 values, max change 2.0; feeds weather_hourly (60 rows),
+  cases EV01 EV02 FC01 FC02; sandbox evaluation pinned vs candidate: all held-out metrics and retrieval identical,
+  no case changes; `sources` shows it as revised, in use, pending review; repin_source.py --report --approved-by ->
+  exit 0, old bytes kept in data/pinned_store/; pin guard: approved change PASS, silent change FAIL
+Fresh home, no cache, 2026-09-27T22:39Z: build-data 0 (data_version 8c14c217f5570d32, identical to local) ·
+  build-index 0 (67 notices unavailable; warning quotes the Archive/Market_Notice listing: 0 files) ·
+  data-check PASS · pytest 168 passed · eval PASS · safety PASS · `sources`: 178 pinned, 67 unavailable (excluded)
+```

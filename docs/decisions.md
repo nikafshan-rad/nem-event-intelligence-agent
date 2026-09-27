@@ -274,3 +274,35 @@ Each entry: the decision, why, the evidence, and what it costs. Departures from
   apart. Only content equal to the pin is ever accepted. Each variant seen is logged (`checksum_mismatch_variants`
   in the raw manifest) and kept under `data/raw/_rejected/` for review. If every response differs, the source
   fails as before. Publisher files (AEMO, NEMWeb) are not retried.
+
+## D21. Source governance: pinned builds and a separate publisher-refresh check (2026-09-27)
+
+- **Two checks, two purposes.**
+  - *Pinned build:* CI, `make data` and `make index` use only content whose hash matches the reviewed pin. It never
+    substitutes other content.
+  - *Publisher-refresh check:* `make refresh-check` and the weekly `publisher-refresh` workflow download what AEMO
+    and NASA serve now into a staging folder. They report `unchanged`, `changed`, `inconsistent` or `unavailable`,
+    and never touch the manifest, the raw cache, the store or the index.
+- **Reports are for a human reviewer.** For each changed source:
+  - old and new hashes;
+  - safe HTTP metadata;
+  - document version or NASA API metadata;
+  - a content diff (PDF or HTML text lines, changed NASA values, changed zip members);
+  - the affected data tables, index documents, events and evaluation cases;
+  - with `--eval`, a sandboxed offline evaluation of the pinned set against the candidate set.
+- **Accepting is explicit.** `scripts/repin_source.py` now requires `--approved-by`. With `--report`, it refuses
+  unless the report lists the same change. It records the report hash, the version metadata, the approver and where
+  the old bytes are kept. CI's `scripts/check_pin_changes.py` fails any pull request that changes a pin without
+  such a history entry, or that edits history or adds or removes sources silently.
+- **The application shows what it uses.** `/health`, `/sources`, the Streamlit sidebar and `nem-agent sources` list
+  data and corpus versions and group sources as `pinned`, `revised` (in use pending review, or excluded) and
+  `unavailable` (excluded). Builds record `pin_status` and `upstream` for every source. Excluded sources stay
+  missing evidence, and nothing is substituted.
+- **Market notices.** NEMWeb has `Reports/Archive/Market_Notice/`, but its listing had 0 files on 2026-09-27. Rolled-off
+  notices are looked up there, accepted only on a hash match, and the observed listing is recorded. Earlier wording
+  said "AEMO never archives notices"; that was stronger than the evidence.
+- **Limits.**
+  - Superseded bytes are kept only locally (`data/pinned_store/`, git-ignored). Publisher files are not
+    redistributed (D2), and a GitHub Actions cache is not an archive.
+  - A fully repeatable CI would need a durable private store of pinned bytes. That depends on AEMO's terms, which
+    are the owner's decision.

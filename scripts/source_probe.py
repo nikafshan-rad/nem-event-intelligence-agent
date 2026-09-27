@@ -774,7 +774,7 @@ def write_sources_md(sel: dict[str, Any], path: Path) -> None:
         "OPDEM_ACTUAL_HH": "AEMO actual operational demand, real-time half-hourly files (initial values), weekly archive",
         "OPDEM_ACTUAL_DAILY": "AEMO actual operational demand, next-day daily files (updated values)",
         "PUBLIC_PRICES": "AEMO Public_Prices next-day report (DREGION) — used only to scan for candidate events",
-        "MARKET_NOTICE": "AEMO market notices (NEMWeb Current; rolling ~60-day retention, no archive)",
+        "MARKET_NOTICE": "AEMO market notices (NEMWeb Current; rolling ~60-day retention. NEMWeb has an Archive/Market_Notice directory, but its listing had 0 files when checked on 2026-09-27)",
         "MMSDM_DUDETAILSUMMARY": "AEMO MMS Data Model monthly archive, DUDETAILSUMMARY (DUID → region)",
         "MMS_DATA_MODEL_HTML": "AEMO MMS Data Model Report (Electricity), HTML pages defining the tables used",
         "AEMO_PDF": "AEMO public PDF publications (definitions and procedures)",

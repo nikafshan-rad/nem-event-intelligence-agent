@@ -1,9 +1,17 @@
 # What a fresh setup does after NEMWeb's rolling folder drops files
 
 NEMWeb serves recent files from `Reports/Current` for a limited time (about 60 days observed: 25 Jul – 23 Sep 2026)
-and later bundles most of them into `Reports/Archive`. **AEMO market notices are never archived there.** The notices
-selected for the July events will leave `Current` around the end of September 2026. After that, no fresh setup
-can download them again.
+and later bundles most of them into `Reports/Archive`.
+
+**Market notices, as observed on 2026-09-27 21:58Z:**
+- NEMWeb has a `Reports/Archive/Market_Notice/` directory. It answered HTTP 200, but its listing contained
+  **0 files and 0 subdirectories**.
+- `Reports/Current/Market_Notice/` held 683 notices, from 30 July 2026 (`R144691`) to 27 September 2026.
+- 66 of our 198 pinned notices (`144622`–`144690`) were no longer in Current.
+
+So a fresh setup cannot download a notice once it has left Current, unless AEMO starts populating the Archive
+directory. The build checks that directory for every rolled-off notice, accepts a file only if its SHA-256 matches
+the pin, and records the listing it saw. The remaining July notices will leave Current around the end of September.
 
 This page describes that situation from an **executed simulation**, not a forecast. It covers what degrades, what
 keeps working, and how to reproduce the check.
@@ -12,7 +20,7 @@ keeps working, and how to reproduce the check.
 
 | Source (from `data/source_selection.json`) | Files | After roll-off |
 | --- | --- | --- |
-| AEMO market notices (`MARKET_NOTICE`) | 198 | **Lost to fresh setups.** Not archived by AEMO; nothing to recover. |
+| AEMO market notices (`MARKET_NOTICE`) | 198 | **Lost to fresh setups** unless NEMWeb's Archive/Market_Notice directory gains them (empty when checked). |
 | August next-day actual demand (`opdem_actual_daily_20260805`, `_0806`, `_0819`, `_0820`) | 4 | Recovered automatically once AEMO publishes the August monthly archive (see below). Until then: missing; initial real-time actuals are used instead. |
 | Public_Prices daily files (`PUBLIC_PRICES`) | 60 | Used only by the G0 probe's event scan; **not** needed by `make data`, `make index`, the app or the evaluation. |
 | Everything else (DispatchIS, SCADA, forecasts, real-time actuals, MMSDM, AEMO PDFs, MMS Data Model pages, NASA POWER) | 45 | Unaffected (archives ~13 months; documents and API). |
@@ -49,7 +57,8 @@ date could cover it, and accepts the member only if its bytes hash to the **SHA-
   (`tests/data/test_recover.py`).
 - The four August next-day files will therefore come back automatically once AEMO publishes the August monthly
   archive (`…_DAILY_20260801.zip`; July's appeared by the end of August). Until then they are reported as rolled off.
-- Market notices have no archive, so recovery cannot help them.
+- Market notices are looked up in `Reports/Archive/Market_Notice/`, as plain files or inside zip bundles, and
+  accepted only on a SHA-256 match. The listing was empty when checked (2026-09-27), so nothing is recovered today.
 
 ## Other places a copy may survive
 

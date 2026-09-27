@@ -171,12 +171,15 @@ Held-out split = 21 of 40 cases (split by event group; no event group appears in
   not a general accuracy claim.
 - No AEMO market event report was retrievable. Market notices describe events but do not explain prices, and the
   system never presents them as causes.
+- **Source governance.** A weekly publisher-refresh check reports AEMO/NASA changes for review; nothing is used
+  until a reviewer re-pins it. The reviewer workflow is in [`docs/source-governance.md`](docs/source-governance.md).
 - **Publisher revisions.** Pins are exact. When a publisher replaces a file at a pinned URL (AEMO SO_OP_3705
   Version 98; NASA POWER provisional → final weather, both seen on 2026-09-25), fresh setups fail the checksum
   until a reviewer re-pins it with `scripts/repin_source.py`. History is kept in `data/SOURCES.md`.
-- **Rolling retention.** The 198 AEMO market notices exist only in NEMWeb's rolling "Current" folder (not archived)
-  and are leaving it now: **12 had gone by 2026-09-25** (reported as missing evidence; the build still passes), and the
-  rest follow around the end of September 2026. A fresh setup after that still exits 0 and keeps all numbers,
+- **Rolling retention.** The 198 AEMO market notices are served by NEMWeb's rolling "Current" folder. NEMWeb's
+  `Archive/Market_Notice` directory exists, but its listing was empty when checked on 2026-09-27. Notices are leaving
+  Current: **12 had gone by 2026-09-25 and 66 by 2026-09-27** (reported as missing evidence; the build still
+  passes), and the rest follow around the end of September 2026. A fresh setup after that still exits 0 and keeps all numbers,
   charts, forecasts and definitions. Event reports lose their notice findings and say so ("22 of 22 AEMO market
   notices selected for this event's window are not in the local corpus …"). Notice questions **abstain**, and the
   evaluation counts those cases as `corpus_unavailable`. Four August next-day demand files are recovered

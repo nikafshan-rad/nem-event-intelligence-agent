@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -342,15 +342,16 @@ def build(sel: Selection | None = None, *, refresh: bool = False, store: Path | 
             from .recover import recover_from_archive
 
             rf = recover_from_archive(src.dataset, src.url, src.sha256, log=log) or rf
-        status: dict[str, Any] = {"dataset": src.dataset, "fetch_status": rf.status, "retrieved_at": rf.retrieved_at}
+        status: dict[str, Any] = {"dataset": src.dataset, "fetch_status": rf.status, "retrieved_at": rf.retrieved_at,
+                                  "pin_status": rf.pin_status, "upstream": rf.upstream}
         if not rf.available:
             status.update(ingested=False, error=rf.error, rolled_off=rf.rolled_off)
-            log(f"[data] {'ROLLED OFF' if rf.rolled_off else 'MISSING'} {src.source_id}: {rf.error}")
+            log(f"[data] {'ROLLED OFF' if rf.rolled_off else 'MISSING'} {src.source_id} ({rf.pin_status}): {rf.error}")
         else:
             try:
                 status.update(ingested=True, rows=handler(src, rf))
-            except MmsFormatError as exc:
-                status.update(ingested=False, error=f"{type(exc).__name__}: {exc}")
+            except MmsFormatError as exc:  # verified bytes that break the MMS contract are not used
+                status.update(ingested=False, error=f"{type(exc).__name__}: {exc}", pin_status="unavailable")
                 log(f"[data] REJECTED {src.source_id}: {exc}")
         out.source_status[src.source_id] = status
 
@@ -386,6 +387,7 @@ def build(sel: Selection | None = None, *, refresh: bool = False, store: Path | 
         "sources": out.source_status,
         "failed_sources": {k: v for k, v in out.source_status.items() if not v.get("ingested") and not v.get("rolled_off")},
         "rolled_off_sources": {k: v for k, v in out.source_status.items() if v.get("rolled_off")},
+        "pin_status_counts": dict(Counter(v["pin_status"] for v in out.source_status.values())),
     }
     (store / "snapshot.json").write_text(json.dumps(snapshot, indent=2, sort_keys=True, default=str))
     log(f"[data] data_version={data_version} failed_sources={len(snapshot['failed_sources'])} "

@@ -254,8 +254,9 @@ class ReplayController:
         if not absent:
             return []
         return [f"{len(absent)} of {len(selected)} AEMO market notices selected for this event's window are not in the "
-                "local corpus: they have rolled off NEMWeb's rolling 'Current' folder and AEMO does not archive notices, "
-                "so any statement they contained is unavailable on this machine (see docs/data-retention.md)."]
+                "local corpus: they have rolled off NEMWeb's rolling 'Current' folder and were not found in NEMWeb's "
+                "Archive/Market_Notice directory (its listing was empty when checked), so any statement they contained "
+                "is unavailable on this machine (see docs/data-retention.md)."]
 
     def _base(self, res: Resolution, comp: Composer, headline: str, summary: list[str], **kw: Any) -> InvestigationReport:
         missing: list[str] = self._notice_gap(res)

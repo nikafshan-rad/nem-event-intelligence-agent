@@ -74,7 +74,7 @@ AEMO Dispatch SCADA (DISPATCH/UNIT_SCADA), 5-minute unit MW, daily archive. File
 
 ### MARKET_NOTICE
 
-AEMO market notices (NEMWeb Current; rolling ~60-day retention, no archive). Files: 198, total 0.3 MB.
+AEMO market notices (NEMWeb Current; rolling ~60-day retention. NEMWeb has an Archive/Market_Notice directory, but its listing had 0 files when checked on 2026-09-27). Files: 198, total 0.3 MB.
 
 | source_id | URL | SHA-256 (first 16) | retrieved | role |
 | --- | --- | --- | --- | --- |

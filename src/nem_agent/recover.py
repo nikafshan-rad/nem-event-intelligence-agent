@@ -3,7 +3,11 @@
 NEMWeb keeps individual files in ``Reports/Current`` for a limited time, then bundles the *same zip files* into
 daily/weekly/monthly archives. When a pinned Current URL answers 404, this module looks for a member with the same
 file name inside the Archive containers whose start date could cover it, and accepts the member only if its bytes
-hash to the SHA-256 recorded by the probe. Market notices have no archive and cannot be recovered.
+hash to the SHA-256 recorded by the probe.
+
+Market notices: NEMWeb has a ``Reports/Archive/Market_Notice/`` directory, but its listing contained no files
+when checked (2026-09-27). Rolled-off notices are looked up there by file name (plain or inside a zip bundle)
+and accepted only on a SHA-256 match; every lookup records what the listing contained and when.
 """
 
 from __future__ import annotations
@@ -42,7 +46,55 @@ def extract_verified_member(container: bytes, name: str, expected_sha256: str) -
     return None
 
 
+NOTICE_ARCHIVE_DIR = "/Reports/Archive/Market_Notice/"
+_notice_listing: dict[str, Any] = {}
+
+
+def notice_archive_listing() -> dict[str, Any]:
+    """The NEMWeb Archive/Market_Notice listing, fetched once per process: files by name plus when and what was seen."""
+    if not _notice_listing:
+        res, entries = nemweb.list_dir(NOTICE_ARCHIVE_DIR)
+        files = [e for e in entries if not e.is_dir]
+        _notice_listing.update(url=nemweb.NEMWEB + NOTICE_ARCHIVE_DIR, http_status=res.status, checked_at=iso_utc(datetime.now(UTC)),
+                               n_files=len(files), files={e.name: e.url for e in files})
+    return _notice_listing
+
+
+def recover_notice_from_archive(url: str, expected_sha256: str, log: Any = print) -> rawstore.RawFile | None:
+    name = unquote(Path(urlparse(url).path).name)
+    listing = notice_archive_listing()
+    cands = [u for n, u in listing["files"].items() if n == name] + \
+            [u for n, u in listing["files"].items() if n.lower().endswith(".zip")]
+    for cand in cands:
+        got = rawstore.get("MARKET_NOTICE_ARCHIVE", cand)
+        if not got.available:
+            continue
+        raw = Path(got.local_path).read_bytes()
+        data = raw if hashlib.sha256(raw).hexdigest() == expected_sha256 else extract_verified_member(raw, name, expected_sha256)
+        if data is not None:
+            return _store_recovered("MARKET_NOTICE", url, data, expected_sha256, cand, got.sha256, "text/plain", log)
+    return None
+
+
+def _store_recovered(dataset: str, url: str, data: bytes, expected_sha256: str, source: str, container_sha: str | None,
+                     content_type: str, log: Any) -> rawstore.RawFile:
+    path = rawstore.local_path_for(dataset, url)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(data)
+    now = iso_utc(datetime.now(UTC))
+    meta = {"url": url, "sha256": expected_sha256, "size": len(data), "http_status": 200,
+            "content_type": content_type, "last_modified": None, "retrieved_at": now,
+            "recovered_from_archive": source, "archive_sha256": container_sha,
+            "note": "Current URL rolled off; identical bytes recovered from the NEMWeb Archive"}
+    path.with_name(path.name + ".meta.json").write_text(json.dumps(meta, indent=2, sort_keys=True))
+    log(f"[data] RECOVERED {Path(urlparse(url).path).name} from {source} (sha256 verified)")
+    return rawstore.RawFile(dataset, url, str(path), expected_sha256, len(data), 200, content_type, None, now,
+                            "recovered_from_archive", f"recovered from {source}", upstream="unavailable")
+
+
 def recover_from_archive(dataset: str, url: str, expected_sha256: str, log: Any = print) -> rawstore.RawFile | None:
+    if dataset == "MARKET_NOTICE":
+        return recover_notice_from_archive(url, expected_sha256, log=log)
     dirs = nemweb.DATASET_DIRS.get(dataset)
     if dirs is None or dirs[1] is None or "/reports/current/" not in url.lower():
         return None
@@ -62,16 +114,5 @@ def recover_from_archive(dataset: str, url: str, expected_sha256: str, log: Any 
         data = extract_verified_member(Path(arc.local_path).read_bytes(), name, expected_sha256)
         if data is None:
             continue
-        path = rawstore.local_path_for(dataset, url)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(data)
-        now = iso_utc(datetime.now(UTC))
-        meta = {"url": url, "sha256": expected_sha256, "size": len(data), "http_status": 200,
-                "content_type": "application/zip", "last_modified": None, "retrieved_at": now,
-                "recovered_from_archive": e.url, "archive_sha256": arc.sha256,
-                "note": "Current URL rolled off; identical bytes recovered from the NEMWeb Archive bundle"}
-        path.with_name(path.name + ".meta.json").write_text(json.dumps(meta, indent=2, sort_keys=True))
-        log(f"[data] RECOVERED {name} from {e.url} (sha256 verified)")
-        return rawstore.RawFile(dataset, url, str(path), expected_sha256, len(data), 200, "application/zip", None, now,
-                                "recovered_from_archive", f"recovered from {e.url}")
+        return _store_recovered(dataset, url, data, expected_sha256, e.url, arc.sha256, "application/zip", log)
     return None

@@ -1,9 +1,17 @@
 name: ci
 
+# Deterministic check against the reviewed, pinned source versions only. It never accepts upstream content that
+# differs from data/source_selection.json; the separate publisher-refresh workflow (refresh.yml) detects and
+# reports revisions for review (docs/source-governance.md).
 on:
   push:
   pull_request:
   workflow_dispatch:
+    inputs:
+      fresh:
+        description: "Ignore the cache and download every pinned source from the publishers"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -22,14 +30,19 @@ jobs:
         python: ["3.12", "3.14"]
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2  # HEAD^ is the base branch (pull requests) or the previous commit (pushes)
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
+      - name: Pin changes carry a reviewed history entry
+        run: python scripts/check_pin_changes.py --base HEAD^
       # Publisher files are fetched from AEMO/NASA by `make data`/`make index` (not committed; docs/decisions.md D2).
       # The cache is reused only for the exact same pin set. No prefix fallback: an older cache would bring back
       # market notices that have since rolled off NEMWeb and hide them, so any change to the pins runs against what
       # a fresh setup gets today (docs/decisions.md D20).
       - name: Cache verified publisher files and the embedding model
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.fresh) }}
         uses: actions/cache@v4
         with:
           path: |
@@ -52,6 +65,14 @@ jobs:
         run: make eval
       - name: Safety suite (SYNTHETIC adversarial fixtures + approval boundary)
         run: make safety
+      - name: Upload responses that did not match their pins (diagnosis only)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rejected-responses-py${{ matrix.python }}
+          path: data/raw/_rejected/
+          if-no-files-found: ignore
+          retention-days: 14
       - name: Upload evaluation artifacts
         if: always()
         uses: actions/upload-artifact@v4

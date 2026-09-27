@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -87,7 +88,8 @@ def build_index(sel: Selection | None = None, out_dir: Path | None = None, allow
     manifest = write_index(chunks, emb, out_dir or paths.index_dir(),
                            extra={"sources": status,
                                   "failed_sources": [s for s in status if not s["ok"] and not s.get("rolled_off")],
-                                  "rolled_off_sources": [s["source_id"] for s in status if s.get("rolled_off")]})
+                                  "rolled_off_sources": [s["source_id"] for s in status if s.get("rolled_off")],
+                                  "pin_status_counts": dict(Counter(s.get("pin_status", "unknown") for s in status))})
     log(f"[index] corpus_version={manifest['corpus_version']} chunks={manifest['n_chunks']} docs={manifest['n_docs']} "
         f"by_type={manifest['chunks_by_doc_type']} embedder={manifest['embedder']['backend']} "
         f"rolled_off={len(manifest['rolled_off_sources'])}")
