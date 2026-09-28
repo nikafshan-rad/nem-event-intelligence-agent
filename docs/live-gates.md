@@ -1,5 +1,15 @@
 # Live (OpenAI) path: gates L0–L6
 
+> **Current status (v1.0, 2026-09-28): Live is experimental.**
+> - **Held-out v4** (20 independent cases, frozen, run once): Live met every pre-registered v4 criterion, narrowly.
+>   Gold labels 15/18 (bar 15); relevance 17/20 (bar 16, counting two answers with gaps).
+> - **Unusable answers:** 3 of 20 (2 facts-only fallbacks, 1 non-answer).
+> - **The full L3 rule is unverified:** its regression safety condition was not run.
+> - **Earlier sets:** held-out v2 and v3 failed.
+>
+> The log below is chronological, so earlier sections record the status as it was then. See "Results: held-out set
+> v4" at the end.
+
 Branch `feat/live-llm-path`, started from `main` `e5e41ed` on 2026-09-28. The gate log records each gate's command,
 observed result, evidence, failures and decision. **Replay results are never evidence of Live LLM quality.**
 Paid-call budget for this task: **USD 5, hard**.
@@ -2193,12 +2203,13 @@ Prepared and verified with approval, with **no Live call**. Files: `eval/holdout
 | Q3 gold labels in the model's own answer (≥ 15 of G = 18) | **15/18: met, exactly at the bar** (misses: W10, W14 fallbacks; W20 gold citation) |
 | Q4 relevant, judged by hand (≥ 16/20) | **17/20: met** (not relevant: W10, W14, W20) |
 
-## L3 decision on v4
+## L3 decision on v4: v4 criteria met; full L3 rule unverified
 
 - **v4 meets every pre-registered v4 criterion.** It is the first independent held-out set to do so; v2 and v3 failed.
 - **The pass rule also requires** that the regression runs show no H1–H5 violation. That regression was **not run**,
   at the owner's instruction, so that condition is **not evaluated**.
-- **L3 is therefore recorded as "passed on v4; regression condition not evaluated"**, not as an unconditional pass.
+- **The full L3 rule is therefore unverified.** v4's own criteria are met, but L3 is not recorded as passed, and Live
+  remains experimental.
 - **Margins are thin:**
   - Q3 is exactly at its bar.
   - Q4 is one case above its bar, and it rests on the developer's judgement of two answers with gaps (W04, W19).
