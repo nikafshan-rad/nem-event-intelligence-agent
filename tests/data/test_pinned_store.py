@@ -242,3 +242,232 @@ def test_restored_bytes_are_still_checked_against_their_sha256(tmp_path):
             return b"not the pinned bytes"
     assert pinstore.satisfies(obj, Backend().get(obj), type("S", (), {"sha256": "0" * 64, "content_sha256": None,
                                                                        "dataset": "X"})()) is False
+
+
+# ------------------------------------------------------------------------------------------ bundles (CI API quota)
+# CI on the v4 freeze commit (0b667e2): restoring 307 assets one by one spent ~311 API calls per job, four jobs per
+# push exhausted the workflow token's quota, and all four stopped with "HTTP 403: API rate limit exceeded for
+# installation". A bundle is one asset holding many objects: two calls per restore.
+def _objects(n: int = 5) -> list[tuple[dict, bytes]]:
+    datas = [f"SYNTHETIC object {i}".encode() for i in range(n)]
+    return [({"sha256": hashlib.sha256(d).hexdigest(), "release": "T1", "size": len(d)}, d) for d in datas]
+
+
+def _bundle(tmp_path: Path, objs: list[tuple[dict, bytes]], name: str = "b.tar.gz") -> dict:
+    built = _script("publish_store_bundle").build_bundle(objs, tmp_path / name)
+    return {"release": "B1", "asset": name, **built, "created_at": "2026-09-28T00:00:00Z", "note": "SYNTHETIC"}
+
+
+def _serving(tmp_path: Path, asset: str):
+    """A fake `gh` that serves the bundle file for `--pattern <asset>` and records every call."""
+    import shutil
+    calls: list[list[str]] = []
+
+    def run(cmd):
+        calls.append(cmd)
+        d = Path(cmd[cmd.index("--dir") + 1])
+        if "--pattern" in cmd:
+            shutil.copy(tmp_path / asset, d / asset)
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+    return run, calls
+
+
+def test_a_bundle_restores_every_object_with_one_download(tmp_path):
+    objs = _objects(5)
+    entry = _bundle(tmp_path, objs)
+    run, calls = _serving(tmp_path, entry["asset"])
+    be = pinstore.GitHubReleaseBackend("owner/repo", run=run, bundles=[entry])
+    assert all(be.get(o) == d for o, d in objs)
+    assert len(calls) == 1 and calls[0][:4] == ["gh", "release", "download", "B1"]
+    assert calls[0][calls[0].index("--pattern") + 1] == entry["asset"]
+    assert _bundle(tmp_path, list(reversed(objs)), "c.tar.gz")["sha256"] == entry["sha256"]  # same objects, same bundle
+
+
+def test_a_bundle_that_does_not_match_its_recorded_hash_is_refused(tmp_path):
+    objs = _objects(3)
+    entry = _bundle(tmp_path, objs) | {"sha256": "0" * 64}
+    run, _ = _serving(tmp_path, entry["asset"])
+    be = pinstore.GitHubReleaseBackend("owner/repo", run=run, bundles=[entry])
+    with pytest.raises(RuntimeError, match="does not match its recorded SHA-256"):
+        be.get(objs[0][0])
+
+
+@pytest.mark.parametrize("member", ["../escape", "a" * 64, "subdir/" + "b" * 64])
+def test_a_bundle_with_an_unlisted_or_path_member_is_refused(tmp_path, member):
+    import io
+    import tarfile
+    objs = _objects(2)
+    with tarfile.open(tmp_path / "bad.tar.gz", "w:gz") as tf:
+        for name, data in [(objs[0][0]["sha256"], objs[0][1]), (member, b"x")]:
+            ti = tarfile.TarInfo(name)
+            ti.size = len(data)
+            tf.addfile(ti, io.BytesIO(data))
+    blob = (tmp_path / "bad.tar.gz").read_bytes()
+    entry = {"release": "B1", "asset": "bad.tar.gz", "sha256": hashlib.sha256(blob).hexdigest(), "size": len(blob),
+             "objects": [o["sha256"] for o, _ in objs], "created_at": "t", "note": "SYNTHETIC"}
+    run, _ = _serving(tmp_path, "bad.tar.gz")
+    be = pinstore.GitHubReleaseBackend("owner/repo", run=run, bundles=[entry])
+    with pytest.raises(RuntimeError, match="unexpected member"):
+        be.get(objs[0][0])
+
+
+def test_bytes_from_a_bundle_are_still_checked_against_their_key_and_pin(tmp_path):
+    """The bundle's hash only proves it is the recorded bundle; each object is still verified by `satisfies`."""
+    (good, _good_data), (_other, other_data) = _objects(2)
+    entry = _bundle(tmp_path, [(good, other_data)])  # a key whose bytes are not the ones it names
+    run, _ = _serving(tmp_path, entry["asset"])
+    be = pinstore.GitHubReleaseBackend("owner/repo", run=run, bundles=[entry])
+    got = be.get(good)
+    src = type("S", (), {"sha256": good["sha256"], "content_sha256": None, "dataset": "X"})()
+    assert got == other_data and pinstore.satisfies(good, got, src) is False
+
+
+def test_objects_outside_every_bundle_still_come_from_their_own_release(tmp_path):
+    objs = _objects(2)
+    entry = _bundle(tmp_path, objs[:1])
+    run, calls, _ = _download_runner([(0, "")])
+    be = pinstore.GitHubReleaseBackend("owner/repo", run=run, bundles=[entry])
+    be.get(objs[1][0])
+    assert calls[0][:4] == ["gh", "release", "download", "T1"] and "--pattern" not in calls[0]
+
+
+@pytest.mark.parametrize("err, cause", [
+    ("HTTP 403: API rate limit exceeded for installation. If you reach out to GitHub Support", "rate limited"),
+    ("HTTP 403: Resource not accessible by integration", "permission denied"),
+    ("HTTP 404: Not Found (https://api.github.com/repos/o/r/releases/tags/T1)", "not found")])
+def test_a_failed_download_names_its_cause_and_is_not_retried(err, cause):
+    run, calls, _ = _download_runner([(1, err)] * 3)
+    be = pinstore.GitHubReleaseBackend("owner/repo", run=run, sleep=lambda s: None, log=lambda *a: None)
+    with pytest.raises(RuntimeError, match=cause):
+        be._download("T1")
+    assert len(calls) == 1
+
+
+def test_bundles_are_add_only():
+    check = _script("check_pin_changes").check_store
+    b = {"release": "B1", "asset": "b.tar.gz", "sha256": "1" * 64, "size": 1, "objects": [], "created_at": "t",
+         "note": "n"}
+    base = {"objects": [], "bundles": [b]}
+    assert check(base, {"objects": [], "bundles": [b, {**b, "sha256": "2" * 64}]}) == []   # appending is fine
+    assert check(base, {"objects": [], "bundles": []})                                      # removal is not
+    assert check(base, {"objects": [], "bundles": [{**b, "size": 2}]})                       # nor an edit
+
+
+def test_real_index_restores_every_current_pin_from_one_bundle():
+    """The committed index: one recorded bundle covers the current object of every pin, so a fresh CI runner
+    restores all approved files with one bundle download."""
+    idx = json.loads((REPO / "data" / "pinned_store.json").read_text())
+    sel = load_selection(REPO / "data" / "source_selection.json")
+    current = {pinstore.current_object(idx, s)["sha256"] for s in sel.sources}
+    bundled = {x for b in idx.get("bundles", []) for x in b["objects"]}
+    assert current <= bundled, f"{len(current - bundled)} current objects are in no bundle"
+    assert pinstore.verify_index(sel, idx) == []
+
+
+def _bundle_home(home, monkeypatch, tmp_path, tamper: bool):
+    """Publish the synthetic pins to a local store, then serve their current objects as one bundle through a fake
+    `gh`, on a fresh machine (no local copies, no network). With ``tamper``, the bundle (whose own hash is recorded
+    correctly) still lists every object but omits one and alters another."""
+    store = tmp_path / "store"
+    assert publish(home, monkeypatch, store) == 0
+    idx = pinstore.load_index()
+    current = [o for o in idx["objects"] if o["status"] == "current"]
+    objs = [(o, (store / o["sha256"]).read_bytes()) for o in current]
+    if tamper:
+        objs = [(objs[0][0], b"tampered bytes")] + objs[2:]  # objs[0] altered, objs[1] missing
+    entry = _bundle(tmp_path, objs) | {"objects": sorted(o["sha256"] for o in current)}
+    for p in (home / "data" / "raw").rglob("*"):
+        if p.is_file():
+            p.unlink()
+    _no_network(monkeypatch)
+    run, calls = _serving(tmp_path, entry["asset"])
+    be = pinstore.GitHubReleaseBackend("owner/repo", run=run, bundles=[entry])
+    return pinstore.restore(index=idx, backend=be, strict=True, log=lambda *_: None), calls, current
+
+
+def test_a_fresh_restore_from_a_bundle_verifies_every_pin_with_one_download(home, monkeypatch, tmp_path):
+    rep, calls, _ = _bundle_home(home, monkeypatch, tmp_path, tamper=False)
+    assert rep["ok"] and sorted(rep["restored"]) == sorted(s.source_id for s in load_selection().sources)
+    assert len(calls) == 1 and "--pattern" in calls[0]
+    for s in load_selection().sources:  # every restored file is its approved bytes
+        data = rawstore.local_path_for(s.dataset, s.url).read_bytes()
+        assert hashlib.sha256(data).hexdigest() == s.sha256 or \
+            rawstore.content_sha256(s.dataset, data) == s.content_sha256
+
+
+def test_a_bundle_missing_or_altering_a_listed_object_fails_closed(home, monkeypatch, tmp_path):
+    rep, _, current = _bundle_home(home, monkeypatch, tmp_path, tamper=True)
+    bad = {current[0]["source_id"], current[1]["source_id"]}
+    assert not rep["ok"] and set(rep["rejected"]) == bad
+    for s in load_selection().sources:
+        if s.source_id in bad:
+            assert not rawstore.local_path_for(s.dataset, s.url).exists()  # nothing substituted, nothing written
+
+
+# ------------------------------------------------------------------------------------------ names and re-pin coverage
+@pytest.mark.parametrize("field, value", [("asset", "../escape.tar.gz"), ("asset", "dir/x.tar.gz"), ("asset", "*.tar.gz"),
+                                          ("asset", ".hidden.tar.gz"), ("asset", ""), ("release", "../tag"),
+                                          ("release", "tag name")])
+def test_unsafe_bundle_names_are_refused_before_gh_is_called(tmp_path, field, value):
+    objs = _objects(1)
+    entry = _bundle(tmp_path, objs) | {field: value}
+    calls: list = []
+    be = pinstore.GitHubReleaseBackend("owner/repo", run=calls.append, bundles=[entry])
+    with pytest.raises(RuntimeError, match="not a plain name"):
+        be.get(objs[0][0])
+    assert calls == []
+
+
+def test_an_unsafe_release_tag_for_an_unbundled_object_is_refused_before_gh_is_called():
+    calls: list = []
+    be = pinstore.GitHubReleaseBackend("owner/repo", run=calls.append)
+    with pytest.raises(RuntimeError, match="not a plain name"):
+        be.get({"sha256": "0" * 64, "release": "../../x", "size": 1})
+    assert calls == []
+
+
+def _real_index():
+    import copy
+    return (copy.deepcopy(json.loads((REPO / "data" / "pinned_store.json").read_text())),
+            load_selection(REPO / "data" / "source_selection.json"))
+
+
+def test_store_verify_fails_while_a_current_pin_is_in_no_bundle():
+    """A future approved re-pin: until a new verified bundle lists its new object, store-verify (a CI step) fails;
+    registering such a bundle clears it (a later bundle takes precedence)."""
+    idx, sel = _real_index()
+    src = sel.sources[0]
+    obj = pinstore.current_object(idx, src)
+    idx["bundles"][0]["objects"].remove(obj["sha256"])  # as if this pin had moved to an object no bundle lists
+    problems = pinstore.verify_index(sel, idx)
+    assert any(src.source_id in p and "in no bundle" in p and "publish_store_bundle.py" in p for p in problems)
+    idx["bundles"].append({**idx["bundles"][0], "release": "pinned-bytes-bundle-next", "sha256": "1" * 64,
+                           "objects": [obj["sha256"]]})
+    assert pinstore.verify_index(sel, idx) == []
+
+
+def test_store_verify_flags_names_that_are_not_plain():
+    idx, sel = _real_index()
+    idx["bundles"][0]["asset"] = "../x.tar.gz"
+    idx["objects"][0]["release"] = "a/b"
+    problems = pinstore.verify_index(sel, idx)
+    assert any("asset is not a plain name" in p for p in problems)
+    assert any("release name 'a/b' is not a plain name" in p for p in problems)
+
+
+def test_a_local_store_is_not_held_to_bundle_coverage(home, monkeypatch, tmp_path):
+    assert publish(home, monkeypatch, tmp_path / "store") == 0  # a local-dir store has no bundles
+    assert pinstore.verify_index() == []
+
+
+def test_publish_store_bundle_refuses_an_unsafe_release_name_before_any_download(monkeypatch):
+    mod = _script("publish_store_bundle")
+    monkeypatch.setattr(sys, "argv", ["publish_store_bundle", "--release", "../evil", "--dry-run"])
+    monkeypatch.setattr(pinstore.GitHubReleaseBackend, "_fetch", lambda *a, **k: pytest.fail("no download expected"))
+    assert mod.main() == 2
+
+
+def test_the_repin_procedure_requires_a_new_bundle():
+    gov = (REPO / "docs" / "source-governance.md").read_text()
+    assert "publish_store_bundle.py" in gov and "fails while any current pin is in no bundle" in gov
+    assert "publish_store_bundle.py" in (REPO / "scripts" / "repin_source.py").read_text()

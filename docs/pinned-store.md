@@ -53,6 +53,54 @@ matters, mirror the same objects to a WORM bucket; the index format is unchanged
 It applies to future releases only. The first store release (`pinned-bytes-2026-09-27`) was published before it was
 switched on, so its assets can still be deleted by an admin until they are republished into an immutable release.
 
+## Bundles: restoring within the API quota (2026-09-28)
+
+**Incident.** CI stopped at "Restore approved publisher bytes" with `HTTP 403: API rate limit exceeded for
+installation`. It happened on the v4 freeze commit `0b667e2` (all four jobs), and again on `main` `fb1a9ab`: run
+`36496536232`, both Python versions, and its re-run in the same quota window.
+
+**Cause, from the logs and a request trace (`GH_DEBUG=api`):**
+- For a private repository, `gh release download` makes one REST call to look up the release, then **one REST call per
+  asset**; the redirect to storage is not an API call. The store's release holds 310 assets, so one restore spent about
+  311 calls of the workflow token's hourly quota.
+- Every push ran the CI workflow twice (push and pull_request) with two Python versions: four restores, and a fifth
+  when `publisher-refresh` was triggered. That is about 1,250–1,560 calls per push, so a few pushes in an hour
+  exhausted the quota.
+- This was rate limiting, not a permissions problem ("Resource not accessible by integration") or a missing asset
+  (which fails the SHA-256 check or reports "not found").
+
+**Fix.** The approved bytes of every current pin are also published as **one bundle asset**, in a new release
+(`pinned-bytes-bundle-2026-09-28`; the store stays add-only), and recorded under `bundles` in
+`data/pinned_store.json`:
+- **Bundle:** release, asset name, SHA-256 `547b3a1e…`, size 96,562,948 bytes, the 307 object keys, and a note.
+- **Restore:** it downloads the bundle once (**two REST calls**), refuses it unless it hashes to the recorded value,
+  and extracts only regular members named by a SHA-256 key the bundle lists. It then verifies **every object against
+  its key and its current pin**, as before, and fails closed.
+- **Unbundled objects:** anything outside a bundle (a later re-pin, a superseded object) comes from its own release as
+  before.
+- **Building it:** `scripts/publish_store_bundle.py` took every object from the store itself (not from a publisher),
+  checked it against its key and pin, and built a deterministic archive (the same objects give the same SHA-256). It
+  published the archive, downloaded it back to check all 307 objects, and only then recorded it.
+- **Integrity:** `scripts/check_pin_changes.py` keeps bundle entries add-only, and `store-verify` checks their fields.
+- **Error messages:** a failed download now names its cause: rate limited, permission denied, not found, transient
+  (retried at most twice) or other.
+- **Plain names only:** release tags and asset names read from the index must be plain names (letters, digits, `.`,
+  `_`, `-`, starting with a letter or digit). `store-verify` checks them, and the backend checks them again before
+  any `gh` call or path use. A name that fails is refused, and nothing is restored.
+- **Every current pin must be in a bundle.** `store-verify`, and therefore CI, fails otherwise, so a new approved pin
+  must include publishing and registering a new verified bundle (`docs/source-governance.md`, "Accepting a new
+  version", step 5). A later bundle takes precedence for the objects it lists.
+- **Recovery:** if a bundle asset is deleted or altered, every restore fails closed; nothing is substituted. Recover
+  by publishing and registering a new bundle from the per-asset release, which remains the source. Enabling release
+  immutability prevents edits to published assets.
+
+**Verified (fresh home, no cache, 2026-09-28).**
+- **Restore:** from 0 local files, `restore` put all 307 approved files in place in 4 s, with **1 `gh` invocation and
+  2 REST API calls**. Each file was verified against its pin.
+- **Build:** `build-data` reproduced `data_version` `8c14c217f5570d32` (0 failed sources). `build-index` reproduced
+  `corpus_version` `221b6ea0f21e006d` (597 chunks, all 198 market notices).
+- **Publishers:** `publisher-downloads --expect-none` reported none.
+
 ## Reuse terms (licensing assessment; not legal advice)
 
 **AEMO** (all AEMO_PDF, NEMWeb, MMS Data Model and market-notice files):

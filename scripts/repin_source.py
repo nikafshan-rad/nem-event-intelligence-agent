@@ -15,6 +15,9 @@ docs/source-governance.md). Accepting it is an explicit reviewer action:
    git-ignored: publisher files are not redistributed, and a GitHub Actions cache is not an archive).
 5. ``data/SOURCES.md`` is regenerated. The pin change then goes through a pull request, where CI checks that every
    changed pin carries such a history entry (``scripts/check_pin_changes.py``).
+6. Before that pull request can pass CI, the newly approved bytes must be in the store
+   (``scripts/publish_pinned_store.py``) **and** in a newly published, verified and registered bundle
+   (``scripts/publish_store_bundle.py``): ``make store-verify`` fails while any current pin is in no bundle.
 
 Usage:
   python scripts/repin_source.py --source-id aemo_so_op_3705 --expect <sha256> \\
@@ -150,8 +153,11 @@ def main() -> int:
     print(json.dumps({"source_id": args.source_id, "old": entry["superseded"][-1]["sha256"], "new_sha256": digest,
                       "new_content_sha256": entry.get("content_sha256") if api else None, "size": len(body),
                       "approved_by": args.approved_by, "old_bytes": kept}, indent=2))
-    print("RE-PINNED. Open a pull request with data/source_selection.json and data/SOURCES.md; rebuild with "
-          "`make data` / `make index`.")
+    print("RE-PINNED. Next, before CI can pass:\n"
+          "  1. python scripts/publish_pinned_store.py --release pinned-bytes-<date> --target <commit>\n"
+          "  2. python scripts/publish_store_bundle.py --release pinned-bytes-bundle-<date>   (a new verified bundle)\n"
+          "  3. make store-verify, then rebuild with make restore-pinned / make data / make index\n"
+          "  4. open a pull request with data/source_selection.json, data/SOURCES.md and data/pinned_store.json")
     return 0
 
 
