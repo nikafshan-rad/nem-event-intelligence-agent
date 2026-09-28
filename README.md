@@ -26,14 +26,14 @@ capture. The same question in Replay mode, which uses no language model and is l
 | Ingestion with per-row provenance, UTC/DST handling, revisions, idempotent rebuild | built, verified | G1, `tests/data`, `tests/time` |
 | 8 typed read-only tools, as-of rules, forecast-error arithmetic in code | built, verified | G2, `tests/tools` |
 | Hybrid RAG (SQLite FTS5 + model2vec embeddings), eligibility filters, injection handling | built, verified | G3, `tests/retrieval` |
-| Scripted replay controller, and a live OpenAI Responses API function-calling controller | both verified. Live: gpt-5-mini on the real API, gates L0–L6 (per-case traces, costs and failures) | G4, `tests/provider`, [`docs/live-gates.md`](docs/live-gates.md) |
+| Scripted replay controller, and a live OpenAI Responses API function-calling controller | Replay: verified. **Live: experimental**: it runs on the real API (gpt-5-mini, gates L0–L6), but its answer quality is not fully validated (see the next rows) | G4, `tests/provider`, [`docs/live-gates.md`](docs/live-gates.md) |
 | Independent validators (numbers, quotes, as-of, metrics, causality, injection) + approval-gated local write | built, verified | G5, `make safety` |
 | 40-case evaluation, two baselines, held-out split | built, measured (replay) | G6, [`artifacts/eval/report.md`](artifacts/eval/report.md) |
 | FastAPI + Streamlit UI + API smoke test | built, verified | G7, [`docs/demo.md`](docs/demo.md) |
 | Approved-bytes store: builds that restore every approved publisher file, verified by SHA-256, without contacting AEMO/NASA | built, verified 2026-09-27 (fresh machine, no cache) | [`docs/pinned-store.md`](docs/pinned-store.md) |
 | Separate day-ahead quantile experiment (our model, not AEMO's) | built, measured | G8, [`artifacts/ml/report.md`](artifacts/ml/report.md) |
 | Live answer in the UI (real model, real data) | verified 2026-09-28: the model's answer passed validation, and the screenshot and redacted trace come from the same run | [`docs/live-gates.md`](docs/live-gates.md) L4, `artifacts/live/L4/` |
-| **Live evaluation (hosted model)** | **v4 passed its pre-registered bars**: 20 independent held-out cases, frozen before the run and run once. Safety H1–H5 all 0; expected status 18/20; intent and tools 20/20; gold labels 15/18 (bar 15, met exactly); relevance 17/20 (bar 16). The pass rule's regression safety condition was **not evaluated** (the regression was not run), so L3 is recorded as passed on v4 only. Margins are thin; v2 and v3 had failed. The 40-case hosted evaluation is **UNVERIFIED** (not run) | [`docs/live-gates.md`](docs/live-gates.md) L3, [`eval/holdout_v4/`](eval/holdout_v4/) |
+| **Live evaluation (hosted model)** | **Experimental; the full L3 rule is unverified.** On the third independent held-out set (v4, 20 cases, frozen before the run and run once) Live met every pre-registered v4 criterion, narrowly: safety H1–H5 all 0; expected status 18/20 (bar 16); intent and tools 20/20 (bar 18); gold labels 15/18 (bar 15, met exactly); relevance 17/20 (bar 16, counting two answers with gaps). 3 of 20 answers were not usable (2 facts-only fallbacks, 1 non-answer). The rule's regression safety condition was **not run**. v2 and v3 failed. The 40-case hosted evaluation is **UNVERIFIED** (not run) | [`docs/live-gates.md`](docs/live-gates.md) L3, [`eval/holdout_v4/`](eval/holdout_v4/) |
 | **GitHub Actions CI** | configured (lint, mypy, real-data build, tests, eval, safety on Python 3.12 and 3.14); the result is shown in the pull request checks | [`.github/workflows/ci.yml`](.github/workflows/ci.yml) |
 
 ## The question it answers
@@ -216,83 +216,63 @@ Held-out split = 21 of 40 cases (split by event group; no event group appears in
   model MAE **159.7 MW** vs seasonal-naive 173.6 MW and persistence 185.3 MW; q10–q90 coverage 0.796 (target 0.80).
   This is this project's model, not an AEMO forecast.
 
-### Live results (hosted model; measured separately, never pooled with Replay)
+### Live results (experimental; hosted model; measured separately, never pooled with Replay)
 
-gpt-5-mini. Pass criteria were declared before the first paid run and never changed. Details, per-case traces and a
-manual check of every answer are in [`docs/live-gates.md`](docs/live-gates.md) L3.
+gpt-5-mini through the OpenAI Responses API. Each held-out set was written and gold-checked by independent agents,
+frozen by SHA-256 with its pass rule before any paid call, and run once. Per-case records, costs and a manual check of
+every answer are in [`docs/live-gates.md`](docs/live-gates.md), L3.
 
-**Held-out evidence.** A 14-case set:
-- written by an independent agent that had no access to the failure analysis, prompts, code or Live outputs;
-- gold-checked by a second independent agent;
-- frozen by SHA-256 before the run, and run once ([`eval/holdout_v2/`](eval/holdout_v2/)).
+**Current status (v1.0): experimental.**
+- On held-out v4, Live met every pre-registered v4 criterion, narrowly.
+- **The full L3 rule is unverified.** It also requires a regression run with no safety violation, and that run was not
+  done.
+- Live is not fully validated. Replay results are never evidence of Live quality.
 
-| Criterion (bar) | **Held-out v2, 14 cases (prompts v8)** |
+| Criterion (bar) | **Held-out v4, 20 cases (prompts v11)** |
 | --- | --- |
-| Writes / forbidden calls / causal claims / as-of leaks (0) | 0 / 0 / 0 / 0 |
+| Writes / forbidden calls / causal claims / as-of leaks / injection followed or quoted (0) | 0 / 0 / 0 / 0 / 0 |
 | Numbers presented as facts traced to evidence (100%) | 100% |
-| Injection followed / quoted (0) | 0 / 0 |
-| Facts-only fallbacks | 1/14 |
-| Expected status (≥ 12/14) | 13/14 |
-| Correct intent and required tools (≥ 13/14) | 13/14 |
-| Gold labels hit by the model's own answer (≥ 11/13) | **8/13: FAIL** |
-| Relevant, judged by hand (≥ 12/14) | **10/14: FAIL** |
-| Cost / median latency | USD 0.369 / 82 s |
+| Expected status (≥ 16/20) | 18/20 |
+| Correct intent and required tools (≥ 18/20) | 20/20 |
+| Gold labels hit by the model's own answer (≥ 15/18) | 15/18 (met exactly) |
+| Relevant, judged by hand (≥ 16/20) | 17/20, counting two answers with gaps (strictly, 15/20) |
+| Regression run, no safety violation (required by the rule) | **not run: unverified** |
+| Cost / median latency | USD 0.476 / 98 s |
 
-**Gate: FAIL.** Safety held throughout, but answers are not yet reliably complete or on target.
+Incomplete or unusable v4 answers:
+- **W10, W14: facts-only fallbacks.** Document statements cited citation IDs that did not exist, so the validator
+  rejected them, and the one repair repeated the mistake.
+- **W20: a non-answer.** It ignored an injected instruction correctly, but never said what operational demand includes
+  or excludes.
+- **W04, W19: gaps.**
+  - W04 gives both total-demand values, but not the rise between them.
+  - W19 omits that each lack-of-reserve forecast had been cancelled before the day.
 
-**Development and regression evidence** (not held out). The frozen ten informed the fixes; the fresh eight were run
-once before and are now also regression data.
+**History: earlier held-out sets (both FAIL).** The fixes between sets were developed on the failures below. Each set
+became development data once run.
 
-| | Frozen ten, run 3 (v7) | Fresh eight (v7) | Regression, all 18 (v8) |
-| --- | --- | --- | --- |
-| Safety (H1–H5) | all 0 | all 0 | all 0 |
-| Fallbacks | 1/10 | 2/8 | 1/18 |
-| Expected status | 9/10 | 6/8 | 17/18 |
+| Criterion | v2, 14 cases (prompts v8) | v3, 20 cases (prompts v10) |
+| --- | --- | --- |
+| Safety (H1–H5) | all 0 | all 0 |
+| Expected status | 13/14 (bar 12) | 16/20 (bar 16) |
+| Intent and required tools | 13/14 (bar 13) | 20/20 (bar 18) |
+| Gold labels | **8/13: FAIL** (bar 11) | **13/18: FAIL** (bar 15) |
+| Relevance | **10/14: FAIL** (bar 12) | **15/20: FAIL** (bar 16) |
 
-The Live failures that remain, from the held-out set:
-- **Measure substitution.** Asked for dispatch *total demand*, answers give half-hour *operational* demand, and vice
-  versa. The labels are correct, but it is the wrong quantity (H02, H03, H14).
-- **Question interpretation.** A forecast's *issue time* was read as an as-of cutoff, so it used the wrong run (H05,
-  which fell back).
-- **Retrieval completeness.** The passage that answers the question was not retrieved, and a neighbouring topic was
-  answered instead (H07, H14).
-- **Tool gap.** The total count of qualifying intervals has no evidence ID, so it cannot be cited (H02).
-- **Routing and bounds.** A notice question routed as an event review keeps the 3-call search bound, so not every
-  requested region is searched; the answer says so instead of guessing (ADV02).
-- **Omitted evidence.** Decisive evidence can be left out: the Hazelwood notice's outage came after the spike (H13).
-- **Not run:** the full 40-case hosted evaluation.
+- **v2 failures:**
+  - demand-measure substitution;
+  - a forecast's issue time read as an as-of cutoff;
+  - the answering passage not retrieved;
+  - an uncitable interval count;
+  - notice-question routing;
+  - an omitted decisive notice time.
+- **v3 failures:**
+  - two sound answers rejected by false positives in new notice-time checks;
+  - "issued at about <time>" read as a cutoff;
+  - an uncitable low-price threshold.
 
-After held-out v2, with tests but **not yet measured in Live** (`docs/live-gates.md`, "After held-out v2"):
-- the TOTALDEMAND around price extremes, and citable interval counts;
-- the requested measure passed to the model, with substitution rejected;
-- a forecast's issue time kept separate from as-of;
-- POE and definitional retrieval fixes, and a controller retrieval of the question;
-- notice questions routed as document questions;
-- quotations checked against their cited passage;
-- when a question asks whether something in a market notice caused the event, the controller sets the notice's time
-  against the event's intervals (before, between or after), and an answer that leaves this out is rejected. The
-  trigger matched 24/30 blind paraphrases (2/30 false positives). Any stated before/between/after is checked against
-  the notice's own time and the dispatch prices, in UTC.
-
-A new independent 20-case set, `eval/holdout_v3/`, was written, gold-checked (20/20), frozen with its pass rule and
-run once. **L3 remains FAIL:**
-- Safety held (H1–H5 all 0), expected status was 16/20 and intent/tools 20/20.
-- Gold labels were hit in 13/18 (bar 15) and relevance was 15/20 (bar 16).
-- Two of the four fallbacks were caused by false positives in this PR's new notice-time checks.
-- The 18-case regression had no safety violation.
-
-Details are in `docs/live-gates.md`, "Results: held-out set v3".
-
-The v3 failures have since been fixed without a Live run: the notice-time false positives, "issued at about", the
-citable low-price threshold, the schema for document answers, and the POE10/POE90 range for a named run. Each fix has
-a test that fails on the code v3 ran on and passes now (`tests/provider/test_v3_failure_modes.py`). A fresh independent set, `eval/holdout_v4/` (20 cases, gold-checked 20/20),
-was frozen with its pass rule and interruption rule and **run once**. It met every pre-registered v4 criterion,
-narrowly: gold labels 15/18 (bar 15), relevance 17/20 (bar 16). The regression condition was not evaluated. The
-remaining failures (citation-ID mismatches in two document answers, one non-answer) are in `docs/live-gates.md`,
-"Results: held-out set v4".
-
-Each of these seven failure modes has a behaviour test that fails on the code as it was run on held-out v2 (`431b9d6`)
-and passes now (`tests/provider/test_v2_failure_modes.py`; logs in `artifacts/logs/v2_failure_modes_*.log`).
+Each of these has a behaviour test that fails on the code the set ran on and passes now
+(`tests/provider/test_v2_failure_modes.py`, `tests/provider/test_v3_failure_modes.py`).
 
 Fixed during the evaluation, each with tests:
 - routing of definition and as-of forecast questions;
@@ -327,9 +307,10 @@ Fixed during the evaluation, each with tests:
 
 - Replay measures tools, retrieval, validators and templates, not a language model. Live quality is measured
   separately (above).
-  - Live met every safety criterion in every run. On independent held-out sets it failed the declared quality bars
-    twice (v2: gold 8/13, relevance 10/14; v3: gold 13/18, relevance 15/20), then met them narrowly on v4 (gold 15/18
-    at the bar, relevance 17/20 by the developer's judgement). The pass rule's regression condition was not evaluated.
+  - **Live is experimental.** It met every safety criterion in every run. On independent held-out sets it failed the
+    declared quality bars twice (v2: gold 8/13, relevance 10/14; v3: gold 13/18, relevance 15/20), then met them
+    narrowly on v4 (gold 15/18 at the bar, relevance 17/20 by the developer's judgement). The full L3 rule is
+    unverified: its regression condition was not run. 3 of 20 v4 answers were not usable.
   - Validators check numbers, quotes, times, units, interval lengths and wording, not whether an explanation is apt
     or whether a description such as "immediately before" is true.
   - The full hosted evaluation is **UNVERIFIED**.
