@@ -2115,3 +2115,22 @@ About USD 0.08 of the task cap would remain.
 
 **Disclosure:** v4 uses the same 8 events, data and document corpus as every earlier set. Its questions are new, but
 the events have been used in development.
+
+## Held-out set v4: frozen, not run
+
+Prepared and verified with approval, with **no Live call**. Files: `eval/holdout_v4/`.
+
+| Item | Value |
+| --- | --- |
+| Pass rule and interruption rule | `PASS_RULE.md`, SHA-256 `60040623c61e5ca7769f6781930b92926b87f5f116bea7071f7dea1586185830`, pushed in `67849c9` (14:04:52Z) **before the writer started**, with `scripts/live_resumable.py` |
+| Cases | **20** (W01–W20: 4 event, 4 forecast of which 2 as-of, 4 document, 3 notice, 2 ambiguous/unavailable, 2 causal-bait, 1 injection) |
+| Writer | independent agent, kit only, without the repository, analyses, prompts, code, Live outputs or the 74 earlier questions (hashed overlap checker only) |
+| Gold verification | independent agent, own queries: **20/20 PASS**, no revision (16 row-backed numbers, 3 counts, 8 citations) |
+| Blind check | 16/16 rows and 8/8 snippets resolve in the repository; all cases build a request; no overlap with the 74 earlier questions or prompts v11 |
+| `cases.json` SHA-256 | `4529201404c74b9b5686c286caa52b536d1e784f92bd7f1400e9b0ea9f2e3e18` |
+| `BRIEF.md` / `DATA.md` / `VERIFICATION.json` / `PROVENANCE.md` | `9856f424…` / `22276efd…` / `bdf0a557…` / in the freeze commit |
+| Q3 bar | G = 18, so ≥ 15 |
+| Code under test | the commit that adds `cases.json` (prompts v11, gpt-5-mini) |
+| Budget | USD 1.14 at most (v4 cap counted + 0.74; regression cap counted-after-v4 + 0.40, at most counted-at-start + 1.14); ledger now USD 3.8157 of 5.00, so USD 1.1843 remains |
+
+**The paid runs have not been started and await separate approval.**

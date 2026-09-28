@@ -285,7 +285,8 @@ Details are in `docs/live-gates.md`, "Results: held-out set v3".
 
 The v3 failures have since been fixed without a Live run: the notice-time false positives, "issued at about", the
 citable low-price threshold, the schema for document answers, and the POE10/POE90 range for a named run. Each fix has
-a test that fails on the code v3 ran on and passes now (`tests/provider/test_v3_failure_modes.py`).
+a test that fails on the code v3 ran on and passes now (`tests/provider/test_v3_failure_modes.py`). A fresh independent set, `eval/holdout_v4/` (20 cases, gold-checked 20/20),
+is frozen with its pass rule and interruption rule. It has **not been run**.
 
 Each of these seven failure modes has a behaviour test that fails on the code as it was run on held-out v2 (`431b9d6`)
 and passes now (`tests/provider/test_v2_failure_modes.py`; logs in `artifacts/logs/v2_failure_modes_*.log`).
