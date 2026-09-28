@@ -25,6 +25,8 @@ EXPECTED = {
     "time_mislabelled": "TIME_NOT_IN_EVIDENCE",
     "claim_other_region": "CLAIM_REGION_MISMATCH",
     "interval_mislabelled": "CLAIM_INTERVAL_MISMATCH",
+    "hypothesis_time_unzoned": "TIME_ZONE_MISSING",
+    "part_of_day_from_utc": "TIME_OF_DAY_UNVERIFIED",
     "unsupported_causality": "UNSUPPORTED_CAUSALITY",
     "unhedged_hypothesis": "HYPOTHESIS_UNHEDGED",
     "injection_echo": "INJECTION_ECHO",
@@ -170,3 +172,72 @@ def test_numbers_must_be_described_at_their_own_resolution(selection):
     relabelled = [c.model_copy(update={"text": "half-hour RRP"}) if c is five else c for c in base.report.numeric_claims]
     assert interval_codes("No numbers here.", relabelled) == [f"{five.claim_id}: labelled 30-minute but "
                                                              f"{five.evidence_id} is a 5-minute value"]
+
+
+def test_times_in_hypotheses_need_a_zone_and_a_verified_instant(selection):
+    """L3 live, EV09: "invoked from 11:00 (see notice c1) ... in the 11:15–11:25 UTC window" set a notice's NEM time
+    beside UTC times. Times in hypotheses and their tests are now checked like times in the summary."""
+    from nem_agent.evaluation.adversarial import _base
+    from nem_agent.report import Hypothesis
+    from nem_agent.validation import _known_instants, validate
+
+    base = _base(selection)
+
+    def codes(statement, test="Offer data for the peak interval."):
+        r = base.report.model_copy(update={"possible_explanations": [Hypothesis(
+            statement=statement, what_would_test_it=test)]})
+        return [(x.code, x.detail) for x in validate(r, base.registry, window=base.resolution.window,
+                                                   records=base.records).violations
+                if x.code in ("TIME_ZONE_MISSING", "TIME_NOT_IN_EVIDENCE", "TIME_OF_DAY_UNVERIFIED")]
+    # the observed error: a bare clock time next to UTC times
+    assert [c for c, _ in codes("Constraint automation invoked from 11:00 might have limited imports in the "
+                                "16:30–16:40 UTC window.")] == ["TIME_ZONE_MISSING"]
+    # zoned times that tools returned pass, including ranges and the region's local zone
+    assert not codes("Imports might have been limited between 16:30 and 16:40 UTC, around 2026-07-31 02:05 ACST.")
+    # a zoned time no tool returned, and an unzoned time in the hypothesis's test, are rejected (file publication
+    # times are tool instants too, so the unreturned time is chosen from outside the known set)
+    known = {u.strftime("%H:%M") for u in _known_instants(base.registry, base.records, base.report,
+                                                         base.resolution.window)}
+    unknown = next(f"{h:02d}:{m:02d}" for h in range(24) for m in range(1, 60, 2) if f"{h:02d}:{m:02d}" not in known)
+    assert [c for c, _ in codes(f"Supply may have tightened at {unknown} UTC.")] == ["TIME_NOT_IN_EVIDENCE"]
+    assert [c for c, _ in codes("Supply may have tightened.", test="Check unit trips from 11:00.")] == \
+        ["TIME_ZONE_MISSING"]
+
+
+def test_part_of_day_words_need_a_region_local_time_that_shows_them(selection):
+    """L3 live: EV09 called 05:30–17:30 UTC "the morning window"; EV02 called a 02:05 ACST peak "afternoon"."""
+    from nem_agent.evaluation.adversarial import _base
+    from nem_agent.report import Hypothesis
+    from nem_agent.validation import validate
+
+    base = _base(selection)
+
+    def tod(statement=None, headline=None):
+        upd = {"possible_explanations": [Hypothesis(statement=statement, what_would_test_it="Offer data.")]} \
+            if statement else {}
+        if headline:
+            upd["headline"] = headline
+        r = base.report.model_copy(update=upd)
+        return [x.detail for x in validate(r, base.registry, window=base.resolution.window, records=base.records
+                                           ).violations if x.code == "TIME_OF_DAY_UNVERIFIED"]
+    assert tod("Forecasts may have run low in the morning window.")                     # no time at all
+    assert tod("Forecasts may have run low in the morning window 05:30–17:30 UTC.")     # 15:00 and 03:00 ACST
+    assert tod(headline="Prices may have spiked in the afternoon half-hour containing the peak.")
+    assert tod("Prices may have stayed high through the afternoon, peaking at 16:35 UTC.")  # 02:05 ACST
+    # correct: the region-local time shows the part of the day
+    assert not tod("Prices may have stayed high overnight, peaking at 2026-07-31 02:05 ACST.")
+    assert not tod("Prices may have stayed high overnight, peaking at 16:35 UTC.")     # 02:05 ACST is overnight
+
+
+def test_time_checks_leave_document_answers_to_the_support_check():
+    """A definition may paraphrase 'evening peak' from its passage; clock-time rules apply to event and forecast
+    answers, where times refer to tool data."""
+    from nem_agent.agent.request import InvestigateRequest
+    from nem_agent.service import investigate
+    from nem_agent.validation import validate
+
+    res = investigate(InvestigateRequest(question="What does operational demand mean?", mode="replay"), write_trace=False)
+    r = res.report.model_copy(update={"headline": res.report.headline + " It is reported for the evening peak."})
+    got = {x.code for x in validate(r, res.registry, records=res.records).violations}
+    assert not got & {"TIME_OF_DAY_UNVERIFIED", "TIME_ZONE_MISSING"} and "narrative_clock_times" not in \
+        validate(r, res.registry, records=res.records).checks_run

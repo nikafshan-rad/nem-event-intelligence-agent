@@ -30,7 +30,7 @@ from typing import Any
 from .evidence import EvidenceRegistry
 from .report import InvestigationReport
 from .retrieval.corpus import INJECTION_RE
-from .timeutil import NEM_TZ, parse_iso
+from .timeutil import NEM_TZ, REGION_TZ, parse_iso, region_zone
 
 CAUSAL_RE = re.compile(r"\b(caused|causes|causing|cause of|due to|because of|led to|leads to|resulted in|result of|"
                        r"drove|driven by|triggered|responsible for|was the reason|explains why)\b", re.I)
@@ -129,6 +129,11 @@ def narrative_numbers(text: str, ids: frozenset[str] = frozenset()) -> list[floa
     return out
 
 
+def _hypothesis_tests(r: InvestigationReport) -> list[tuple[str, str]]:
+    return [(f"possible_explanations[{i}].what_would_test_it", h.what_would_test_it)
+            for i, h in enumerate(r.possible_explanations)]
+
+
 def _narratives(r: InvestigationReport) -> list[tuple[str, str]]:
     out = [("headline", r.headline)] + [(f"summary[{i}]", s) for i, s in enumerate(r.summary)]
     out += [(f"possible_explanations[{i}]", h.statement) for i, h in enumerate(r.possible_explanations)]
@@ -142,6 +147,28 @@ ZONE_OFFSET_MIN = {"UTC": 0, "Z": 0, "AEST": 600, "AEDT": 660, "ACST": 570, "ACD
 DATETIME_RE = re.compile(r"\b(\d{4}-\d{2}-\d{2})[ T](\d{1,2}):(\d{2})(?::\d{2})?\s*(UTC|Z|AEST|AEDT|ACST|ACDT|AWST|NEM)\b")
 SENTENCE_RE = re.compile(r"(?<=[.;!?])\s+")
 ISO_Z_RE = re.compile(r"\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?Z\b")
+_CLOCK = r"\b([01]?\d|2[0-3]):([0-5]\d)(?::[0-5]\d)?\b"
+_ZONE = r"(UTC(?:[+-]\d{1,2}(?::?\d{2})?)?|Z|AEST|AEDT|ACST|ACDT|AWST|NEM)\b"
+# a clock time, optionally a range ("11:15–11:25", "between 15:00 and 18:00"), optionally followed by its zone
+CLOCK_RE = re.compile(_CLOCK + r"(?:\s*(?:–|—|-|to|and|until)\s*" + _CLOCK + r")?(?:\s*" + _ZONE + r")?")
+PAREN_OFFSET_RE = re.compile(r"\(UTC[+-]\d{1,2}:?\d{0,2}\)")
+PART_OF_DAY = {"morning": (5, 12), "midday": (11, 14), "noon": (11, 14), "afternoon": (12, 18), "evening": (17, 22),
+               "overnight": (20, 7), "night": (20, 6), "dawn": (4, 7), "dusk": (17, 20)}
+PART_OF_DAY_RE = re.compile(r"\b(" + "|".join(PART_OF_DAY) + r")s?\b", re.I)
+
+
+def _zone_offset(zone: str) -> int:
+    """Minutes east of UTC for a zone label (UTC, Z, AEST ... or an explicit UTC+10 / UTC+0930)."""
+    m = re.fullmatch(r"UTC([+-])(\d{1,2})(?::?(\d{2}))?", zone)
+    if m:
+        return (1 if m[1] == "+" else -1) * (int(m[2]) * 60 + int(m[3] or 0))
+    return ZONE_OFFSET_MIN[zone]
+
+
+def _in_band(hour: int, lo: int, hi: int) -> bool:
+    return lo <= hour < hi if lo < hi else (hour >= lo or hour < hi)
+
+
 _DASH = "[-\u2010\u2011\u2012\u2013 ]?"
 DURATION_RES = ((30, re.compile(rf"\bhalf{_DASH}hour|\b30{_DASH}min", re.I)),
                 (5, re.compile(rf"\b(?:5|five){_DASH}min", re.I)))
@@ -274,7 +301,7 @@ def validate(report: InvestigationReport, registry: EvidenceRegistry, *, as_of: 
     #    time must be an instant the tools or the request produced (times without a date are not checked)
     res.checks_run.append("narrative_times")
     known = _known_instants(registry, records, report, window)
-    for where, text in _narratives(report):
+    for where, text in _narratives(report) + _hypothesis_tests(report):
         for sentence in SENTENCE_RE.split(QUOTED_RE.sub(" ", text)):
             times = []
             for m in DATETIME_RE.finditer(sentence):
@@ -299,6 +326,50 @@ def validate(report: InvestigationReport, registry: EvidenceRegistry, *, as_of: 
                 if utc not in known:
                     V.append(Violation("TIME_NOT_IN_EVIDENCE", "critical",
                                        f"{where}: '{label}' ({utc:%Y-%m-%dT%H:%MZ}) is not a time any tool returned"))
+
+    # -- clock times and parts of the day in event and forecast answers (headline, summary, hypotheses and their
+    #    tests). A clock time needs an explicit zone and must be an instant a tool produced in that zone; a word such
+    #    as "morning" or "night" needs a time in the same sentence whose region-local hour shows it. Otherwise the
+    #    description is removed. L3 live: EV09 put a notice's "11:00" (NEM time) beside UTC times and called
+    #    05:30–17:30 UTC "the morning window"; EV02 called a 02:05 ACST peak "afternoon". Only the clock is compared
+    #    for times written without a date.
+    if report.intent in ("market_event_review", "forecast_review"):
+        res.checks_run.append("narrative_clock_times")
+        tz = region_zone(report.region) if report.region in REGION_TZ else NEM_TZ
+        ref = window[0] if window else (min(known) if known else None)
+        local_off = int((tz.utcoffset(ref) or timedelta(minutes=600)).total_seconds() // 60) if ref else 600
+        clocks: dict[int, set[str]] = {}
+        for where, text in _narratives(report) + _hypothesis_tests(report):
+            for sentence in SENTENCE_RE.split(QUOTED_RE.sub(" ", text)):
+                s = PAREN_OFFSET_RE.sub(" ", sentence)
+                local_hours: list[int] = []
+                for m in DATETIME_RE.finditer(s):
+                    day_s, hh, mm, zone = m.groups()
+                    u = datetime.fromisoformat(f"{day_s}T{int(hh):02d}:{mm}:00+00:00") - timedelta(minutes=_zone_offset(zone))
+                    local_hours.append(u.astimezone(tz).hour)
+                for m in CLOCK_RE.finditer(DATETIME_RE.sub(" ", s)):
+                    h1, m1, h2, m2, zone = m.groups()
+                    if zone is None:
+                        V.append(Violation("TIME_ZONE_MISSING", "critical",
+                                           f"{where}: '{m.group(0).strip()}' has no time zone"))
+                        continue
+                    off = _zone_offset(zone)
+                    known_clock = clocks.setdefault(off, {(u + timedelta(minutes=off)).strftime("%H:%M") for u in known})
+                    for hh, mm in ((h1, m1), (h2, m2)):
+                        if hh is None:
+                            continue
+                        clock = f"{int(hh):02d}:{mm}"
+                        if clock not in known_clock:
+                            V.append(Violation("TIME_NOT_IN_EVIDENCE", "critical",
+                                               f"{where}: '{clock} {zone}' is not a time any tool returned"))
+                        local_hours.append(((int(hh) * 60 + int(mm) - off + local_off) // 60) % 24)
+                for word in sorted({w.lower() for w in PART_OF_DAY_RE.findall(s)}):
+                    band_lo, band_hi = PART_OF_DAY[word]
+                    if not any(_in_band(h, band_lo, band_hi) for h in local_hours):
+                        shown = ", ".join(f"{h:02d}h" for h in sorted(set(local_hours))) or "none"
+                        V.append(Violation("TIME_OF_DAY_UNVERIFIED", "critical",
+                                           f"{where}: '{word}' is not shown by a region-local time in the sentence "
+                                           f"(local hours stated: {shown})"))
 
     # -- a number stated with an interval length ("half-hour", "5-minute") must come from evidence of that resolution
     res.checks_run.append("narrative_intervals")

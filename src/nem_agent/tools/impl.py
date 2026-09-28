@@ -591,7 +591,9 @@ def get_weather_context(ctx: ToolContext, a: A.WeatherArgs) -> ToolOutput:
 
 
 # ------------------------------------------------------------------------------------------ documents
-NOTICE_TIME_RE = re.compile(r"\b([01]\d|2[0-3])([0-5]\d) hrs\b(?:,? (?:on )?(\d{2})/(\d{2})/(\d{4}))?")
+# "1630 hrs" and, in 4 of 198 notices, "11:00 hrs" (L3 live, EV09: notice 144650's "from 11:00 hrs" had no UTC
+# equivalent, and the model set it beside UTC times)
+NOTICE_TIME_RE = re.compile(r"\b([01]\d|2[0-3]):?([0-5]\d) hrs\b(?:,? (?:on )?(\d{2})/(\d{2})/(\d{4}))?")
 CLOCK_TIME_BASIS = ("AEMO market notices write clock times as 'HHMM hrs' in NEM market time (UTC+10, no daylight "
                     "saving); each notice's clock_times gives the UTC and region-local equivalents. Tool timestamps "
                     "ending in Z are UTC.")

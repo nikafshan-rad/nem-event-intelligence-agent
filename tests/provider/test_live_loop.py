@@ -23,7 +23,8 @@ def ev(selection):
 
 def _route(ev, intent="market_event_review"):
     return {"intent": intent, "region": ev.region, "event_date": "2026-07-31", "as_of_utc": None,
-            "needs_clarification": False, "clarification": None, "out_of_scope": False}
+            "needs_clarification": False, "clarification_reason": None, "clarification": None,
+            "out_of_scope": False}
 
 
 def _w(ev):
@@ -429,3 +430,45 @@ def test_every_repair_states_the_quote_rule_and_forbids_new_details():
     assert "double quotation marks" in msg and "Do not add numbers, times or notice details" in msg
     assert "published_findings already shows" in REPAIR_HINTS["DOC_CLAIM_UNSUPPORTED"]
     assert "5MPD" in REPAIR_HINTS["NUMERIC_UNTRACKED"]
+
+
+def test_definition_question_runs_retrieval_although_the_model_asked_for_a_region():
+    """L3 live, DOC03: the model's request for a region and date made a definition question end in
+    needs_clarification. End to end through the service, the definition is now answered from retrieval."""
+    route = {"intent": "source_explanation", "region": None, "event_date": None, "as_of_utc": None,
+             "needs_clarification": True, "clarification_reason": "missing_region_or_date",
+             "clarification": "Which region and date?", "out_of_scope": False}
+    turn = [("retrieve_public_evidence", {"query": "operational demand definition", "region": None,
+                                          "event_start_utc": None, "event_end_utc": None, "as_of_utc": None,
+                                          "top_k": 3, "doc_types": ["definition"]})]
+
+    def report(kw):
+        hit = next(v["result"] for v in outputs(kw).values() if v["status"] == "ok")["results"][0]
+        quote = hit["text"][:80]
+        return {"status": "answered", "headline": "AEMO's definition", "summary": [f"“{quote}” [s01]"],
+                "observation_evidence_ids": [], "numeric_claims": [], "possible_explanations": [],
+                "published_findings": [], "citations": [{"citation_id": "s01", "chunk_id": hit["chunk_id"],
+                                                         "quote": quote, "supports": "definition"}],
+                "uncertainties": [], "missing_evidence": [], "forecast_mae_evidence_id": None}
+    fake = FakeModel(route, [turn], report)
+    res = investigate(InvestigateRequest(question="What does operational demand mean in the dispatch data?",
+                                         mode="live"), live_client=fake, write_trace=False)
+    assert res.resolution.status == "ok" and res.resolution.intent == "source_explanation"
+    assert [r.name for r in res.records] == ["retrieve_public_evidence"]
+    assert res.report.status in ("answered", "answered_with_caveats") and res.report.citations
+    notes = next(e["policy_notes"] for e in res.trace.as_dict()["events"] if e["name"] == "model_decision")
+    assert any("needs no region or date" in n for n in notes)
+
+
+def test_repair_shows_the_failing_hypothesis_test_and_hints_for_time_codes():
+    from nem_agent.agent.live import REPAIR_HINTS, repair_message
+    from nem_agent.validation import ValidationResult, Violation
+
+    rep = type("R", (), {"headline": "h", "summary": [], "published_findings": [],
+                         "possible_explanations": [type("H", (), {"statement": "s", "what_would_test_it":
+                                                                  "Check unit trips from 11:00."})()]})()
+    res = ValidationResult(violations=[Violation("TIME_ZONE_MISSING", "critical",
+                                                 "possible_explanations[0].what_would_test_it: '11:00' has no time zone")])
+    msg = repair_message(res, rep)
+    assert 'in: "Check unit trips from 11:00."' in msg and "clock_times" in msg
+    assert {"TIME_ZONE_MISSING", "TIME_OF_DAY_UNVERIFIED"} <= set(REPAIR_HINTS)

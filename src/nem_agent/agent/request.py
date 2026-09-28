@@ -17,7 +17,7 @@ from ..selection import EventSelection, Selection
 from ..timeutil import REGION_TZ, UTC, local_day_window, parse_iso, region_zone
 from .playbook import INTENTS, Intent
 
-ROUTER_VERSION = "scripted-router/1"
+ROUTER_VERSION = "scripted-router/2"  # 2: as-of forecast questions are forecast reviews
 
 
 class InvestigateRequest(BaseModel):
@@ -99,6 +99,16 @@ def extract_as_of(text: str, region: str | None, day: date | None) -> datetime |
     return None
 
 
+AS_OF_Q_RE = re.compile(r"\b(as of|known at|known by|available by)\b", re.I)
+FORECAST_WORD_RE = re.compile(r"\bforecasts?\b|\bpoe ?(10|50|90)\b", re.I)
+
+
+def asks_forecast_as_of(question: str) -> bool:
+    """An as-of question about forecasts asks what issued forecasts said at that time: a forecast review, even when it
+    also names an event or a price spike (L3 live: AMB06 was routed as an event review; the replay router tied)."""
+    return bool(AS_OF_Q_RE.search(question) and FORECAST_WORD_RE.search(question))
+
+
 def route(question: str) -> tuple[Intent | None, dict[str, object]]:
     """Scripted keyword router. Returns (intent or None when out of scope, diagnostics)."""
     q = question.lower()
@@ -119,6 +129,8 @@ def route(question: str) -> tuple[Intent | None, dict[str, object]]:
     if best == 0:
         return None, {"scores": scores, "router": ROUTER_VERSION}
     ranked = sorted(scores, key=lambda k: (-scores[k], INTENTS.index(k)))
+    if ranked[0] == "market_event_review" and asks_forecast_as_of(question):
+        return "forecast_review", {"scores": scores, "router": ROUTER_VERSION, "rule": "as-of forecast question"}
     return ranked[0], {"scores": scores, "router": ROUTER_VERSION}
 
 

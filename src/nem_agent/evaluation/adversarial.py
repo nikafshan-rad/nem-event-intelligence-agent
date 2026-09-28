@@ -131,6 +131,20 @@ def build_fixtures(selection: Any) -> list[Fixture]:
     add("interval_mislabelled", "CLAIM_INTERVAL_MISMATCH", "a 5-minute value labelled as a half-hour value",
         half_hour_label)
 
+    def unzoned_hypothesis_time(r: InvestigationReport, g: EvidenceRegistry) -> InvestigationReport:
+        return r.model_copy(update={"possible_explanations": [*r.possible_explanations, Hypothesis(
+            statement="Constraint automation invoked from 11:00 might have limited imports around the peak.",
+            what_would_test_it="Constraint binding records for the peak interval.")]})
+    add("hypothesis_time_unzoned", "TIME_ZONE_MISSING", "a notice's clock time in a hypothesis without its zone",
+        unzoned_hypothesis_time)
+
+    def part_of_day_from_utc(r: InvestigationReport, g: EvidenceRegistry) -> InvestigationReport:
+        return r.model_copy(update={"possible_explanations": [*r.possible_explanations, Hypothesis(
+            statement="Prices may have stayed high through the afternoon, peaking at 16:35 UTC.",
+            what_would_test_it="Offer data for the peak interval.")]})
+    add("part_of_day_from_utc", "TIME_OF_DAY_UNVERIFIED", "a UTC clock read as the region's time of day",
+        part_of_day_from_utc)
+
     def unknown_chunk(r: InvestigationReport, g: EvidenceRegistry) -> InvestigationReport:
         c = r.citations[0].model_copy(update={"citation_id": "sY", "chunk_id": "made_up#0"})
         return r.model_copy(update={"citations": [*r.citations, c]})

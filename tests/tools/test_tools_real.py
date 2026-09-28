@@ -223,3 +223,14 @@ def test_market_events_respect_the_request_cutoff(mk, ev):
     # without a cutoff the peak is found, as before
     full = mk("market_event_review").call("find_market_events", {**win(ev), "kind": "high_price"})
     assert max(e["peak_rrp"]["value"] for e in full.view["episodes"]) == ev.peak_rrp
+
+
+def test_notice_clock_times_read_the_colon_form():
+    """L3 live, EV09: a notice's "from 11:00 hrs" had no UTC equivalent (only "1100 hrs" was parsed)."""
+    from nem_agent.tools.impl import notice_clock_times
+
+    got = notice_clock_times("AEMO has invoked automated constraint set X from 11:00 hrs until further notice.",
+                             "2026-07-28", "VIC1")
+    assert [(g["utc"], g["nem_time"]) for g in got] == [("2026-07-28T01:00:00Z", "2026-07-28 11:00 NEM (UTC+10)")]
+    assert notice_clock_times("At 1630 hrs 30/07/2026 there was an outage.", None, "SA1")[0]["utc"] == \
+        "2026-07-30T06:30:00Z"

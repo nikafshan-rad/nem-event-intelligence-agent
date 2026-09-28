@@ -75,6 +75,9 @@ class RouteDecision(_S):
     event_date: str | None = Field(description="YYYY-MM-DD in the region's local time")
     as_of_utc: str | None
     needs_clarification: bool
+    clarification_reason: Literal["several_regions", "several_dates", "missing_region_or_date",
+                                  "unclear_question"] | None = Field(
+        description="why clarification is needed; null when needs_clarification is false")
     clarification: str | None
     out_of_scope: bool
 
@@ -282,7 +285,14 @@ REPAIR_HINTS = {
                                 "double quotation marks.",
     "CITATION_UNKNOWN_CHUNK": "Cite only chunk_ids returned by retrieve_public_evidence in this investigation.",
     "TIME_NOT_IN_EVIDENCE": "Copy clock times from a *_local or *_utc field of a tool output or the context, with the "
-                            "zone as given; never convert or shift a time yourself.",
+                            "zone as given; never convert or shift a time yourself. If no tool returned the time, "
+                            "remove it.",
+    "TIME_ZONE_MISSING": "Give every clock time its zone exactly as a tool returned it (e.g. '16:35 UTC' or "
+                         "'2026-07-31 02:05 ACST'); a notice's 'HHMM hrs' is NEM time: use that notice's clock_times "
+                         "(utc or local). If you cannot, remove the time.",
+    "TIME_OF_DAY_UNVERIFIED": "Remove words such as morning, afternoon, evening or night, or state in the same sentence "
+                              "the region-local time (from a *_local field) that shows it; a UTC time says nothing "
+                              "about the time of day in the region.",
     "CLAIM_REGION_MISMATCH": "Only state numbers for the investigated region.",
     "CLAIM_INTERVAL_MISMATCH": "Describe each number at its tool's resolution: a 5-minute value (dispatch RRP, "
                                "including the hourly samples of it) is not a half-hour value, and half-hour "
@@ -299,7 +309,8 @@ REPAIR_HINTS = {
 
 def _where_text(report: Any, detail: str) -> str | None:
     """The narrative item a violation points at (e.g. 'summary[4]'), so the repair can see the exact sentence."""
-    m = re.match(r"(headline|summary|possible_explanations|published_findings)(?:\[(\d+)\])?", detail)
+    m = re.match(r"(headline|summary|possible_explanations|published_findings)(?:\[(\d+)\])?(\.what_would_test_it)?",
+                 detail)
     if report is None or not m:
         return None
     if m.group(1) == "headline":
@@ -309,7 +320,7 @@ def _where_text(report: Any, detail: str) -> str | None:
     if i >= len(items):
         return None
     item = items[i]
-    return str(getattr(item, "statement", item))
+    return str(getattr(item, "what_would_test_it" if m.group(3) else "statement", item))
 
 
 def repair_message(result: Any, report: Any = None) -> str:
@@ -410,6 +421,7 @@ class LiveController:
                 date.fromisoformat(dec.event_date)
             except ValueError:
                 return dec.model_copy(update={"event_date": None, "needs_clarification": True,
+                                              "clarification_reason": "missing_region_or_date",
                                               "clarification": "The event date could not be parsed."})
         if dec.as_of_utc:
             try:

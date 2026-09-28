@@ -815,3 +815,156 @@ The task-wide ledger holds 193 model-call reservations from 2026-09-28T01:56Z on
 - **Live verification pending:** the `find_market_events` as-of fix is verified offline only.
 - **UI:** the published screenshot predates the fix for the demand chart's forecast-legend entry.
 - **Hosted CI:** reported in the PR.
+
+## L3 follow-up (PR #5 review): routing and time language, then re-evaluation
+
+### State before any change or paid call
+
+Checked 2026-09-28 on branch `feat/live-llm-path`:
+- **Code:** HEAD `1c1a39b`, the same as origin, with a clean working tree.
+- **PR #5:** open and not merged; all four CI checks green.
+- **Saved L3 results:** run 1 in `artifacts/live/L3-run1/` (10 cases, 2 fallbacks) and run 2 in `artifacts/live/L3/`
+  (10 cases, 0 fallbacks). `artifacts/live/L3-fresh/` is empty.
+- **Ledger:** USD 1.1147 settled, USD 1.1770 counted with two unsettled reservations. **USD 3.8230 remains** of
+  the 5.00 cap. There have been no paid calls since 05:33Z. The ledger was not reset.
+
+### Routing failures: diagnosis (traces `tr-238c1f38d247`, DOC03; `tr-39e9c7ad4917`, AMB06)
+
+**DOC03**, "What is TOTALDEMAND in the dispatch region summary data?", ended in `needs_clarification` after one call.
+
+The route model returned `source_explanation` with `needs_clarification: true` and "…for a specific region or date?
+please specify the region … and the date". Two causes:
+1. The route prompt (v2–v6) said "if … a data question lacks a region or date, set needs_clarification", but never
+   said that a definition question needs neither. A question naming a data table reads as a "data question".
+2. In code, `service.investigate` applied the model's `needs_clarification` on top of a resolved "ok". The
+   deterministic resolver already allows definition questions without a region or date
+   (`source_explanation and ≤ 1 region and ≤ 1 date → ok`), so a model guess overrode a rule the code already had.
+
+Run 1 routed the same question correctly, so this is nondeterministic behaviour of an under-specified rule.
+
+**AMB06**, "As of 2026-07-30T06:00:00Z, what was the weather forecast … during the SA1 event … and what did demand
+forecasts say?", was routed to `market_event_review` in run 2 and to `forecast_review` in run 1.
+- The prompt had no rule for a question that names an event but asks what forecasts said as of a time.
+- The scripted Replay router has the same flaw: forecast and event keywords tie 3–3, and list order picks event
+  review. That is why Replay also misrouted AMB06.
+
+A third, latent mechanism was found while reading the code. When the model picked one region, `service.investigate`
+injected it, so the resolver never saw a second region named in the question. Several-region detection therefore
+depended on the model setting its flag.
+
+### Routing fixes (no evaluation question, gold label, threshold or validator changed)
+
+- **Route policy in code** (`service.route_policy`):
+  - The model classifies and extracts; code applies the resolver's rules.
+  - If the question names several regions or dates (found in the text by the same extractors Replay uses), the
+    model's region and date are not injected, so the resolver asks for clarification.
+  - A clarification request with reason `missing_region_or_date` is not applied to a definition or document
+    question. Every other reason (`several_regions`, `several_dates`, `unclear_question`, and missing region or date
+    on data questions) and every out-of-scope decision is applied unchanged.
+  - An as-of question about forecasts is routed to `forecast_review` even if it names an event
+    (`asks_forecast_as_of`). An intent set explicitly by the user is never overridden.
+- **Route schema:** a structured `clarification_reason` field.
+- **Route prompt v7:** intent rules and clarification reasons. Its example uses a field no evaluation question
+  mentions; a check found no 6-word overlap with any of the 40 questions.
+- **Scripted router** (`scripted-router/2`): the same as-of forecast rule.
+  - **Replay change:** AMB06 is now routed `forecast_review`. Held-out routing went from 17/20 to 18/20 and macro-F1
+    from 0.833 to 0.868. The traceability and citation denominators changed with AMB06's report (108/108 and 50/50).
+    Every other row is unchanged and every eval gate is still true.
+- **Consistency check (labels read, nothing tuned):**
+  - The several-regions/dates rule fires on 1 of 40 questions (AMB01, expected `needs_clarification`).
+  - The as-of forecast rule fires on 4 (FC02, FC08, AMB06 and ADV03, all labelled `forecast_review`).
+- **Tests:**
+  - `tests/agent/test_route_policy.py`:
+    - the DOC03 mechanism, and an unclear definition request that is still clarified;
+    - a data question without region or date that is still clarified;
+    - two regions named while the model picked one;
+    - the AMB06 mechanism;
+    - an as-of *price* question, a forecast question without as-of, and an explicit user intent (none overridden);
+    - out of scope still refused; the scripted router.
+  - `test_definition_question_runs_retrieval_although_the_model_asked_for_a_region`: end to end with a fake
+    transport.
+
+### Time language: diagnosis
+
+Every observed error was invisible to the validator. The validator checked only *dated* times (`YYYY-MM-DD HH:MM
+ZONE`) in the headline, summary and hypothesis statements. It checked nothing in `what_would_test_it`, no undated
+clock time, and no part-of-day word.
+- **EV09 run 2**, hypothesis 1: "Constraint automation invoked from 11:00 (see notice c1) … in the 11:15–11:25 UTC
+  window".
+  - "11:00" is the notice's "from 11:00 hrs", which is NEM time (01:00 UTC), ten hours before the UTC window.
+  - The retrieval tool gives UTC and local equivalents only for "HHMM hrs". This notice writes "11:00 hrs", as do 4
+    of 198 notices, so the model had no equivalent to copy.
+- **EV09 run 2**, hypothesis 4: "the morning window" for a 05:30–17:30 UTC comparison window, which is 15:30–03:30
+  AEST.
+- **EV02 run 1** headline: "afternoon half-hour containing the peak" for 02:05 ACST (16:35 UTC read as local time).
+
+### Time language: fixes (stricter checks; nothing relaxed)
+
+- **New critical checks** for market-event and forecast answers: headline, summary, hypothesis statements *and*
+  their `what_would_test_it`, outside quotes.
+  - `TIME_ZONE_MISSING`: a clock time (including ranges such as "11:15–11:25", "between 15:00 and 18:00") without an
+    explicit zone.
+  - `TIME_NOT_IN_EVIDENCE`, extended: a zoned clock time must be a clock time some tool returned in that zone.
+    Undated times are compared by clock only, which is a documented limit; dated times keep the existing
+    exact-instant and claim-tied checks, now also applied to hypothesis tests.
+  - `TIME_OF_DAY_UNVERIFIED`: morning, afternoon, evening, night, overnight, midday, dawn or dusk need a zoned time
+    in the same sentence whose **region-local** hour falls in that part of the day. Otherwise the word must go.
+  - Document answers are out of scope for these checks: their times come from passages, and they remain under the
+    support check.
+- **Tool fix:** the retrieval tool reads the "HH:MM hrs" notice form, so such notices also get UTC and local
+  equivalents. The NEM-time basis was checked against publication times for the 3 notices whose phrase can be
+  dated: each was published 8–87 minutes after the time it states.
+- **Prompt v7 and repair hints:** state the rule for hypotheses and their tests: copy the zone a tool returned, use a
+  notice's `clock_times`, or leave the time out. The repair turn now shows the failing `what_would_test_it` text.
+- **Tests:**
+  - `test_times_in_hypotheses_need_a_zone_and_a_verified_instant`: the EV09 wording is rejected; correct zoned times
+    and ranges pass; a time no tool returned, and an unzoned time in a hypothesis test, are rejected.
+  - `test_part_of_day_words_need_a_region_local_time_that_shows_them`: the EV09 and EV02 wordings are rejected;
+    "overnight" with 02:05 ACST (or 16:35 UTC) passes.
+  - `test_time_checks_leave_document_answers_to_the_support_check`, `test_notice_clock_times_read_the_colon_form`
+    and `test_repair_shows_the_failing_hypothesis_test_and_hints_for_time_codes`.
+  - Two new synthetic safety fixtures, `hypothesis_time_unzoned` and `part_of_day_from_utc`, bring the safety suite
+    to 20/20 detected.
+- **Replay:** no report is flagged by the new checks. The only Replay row that changed is AMB06, from the routing fix.
+
+**Checks after these changes (no paid call):**
+- lint and mypy clean;
+- **217 tests passed**, including the store-rebuild test, in one sandboxed run;
+- offline eval PASS with every gate true;
+- safety suite PASS (20/20).
+
+### Contamination check for the eight "fresh" cases (before running them)
+
+**The interrupted EV07 run exposed no output.**
+- The ledger shows three settled calls at 03:44Z:
+  - route: 422 in / 223 out tokens;
+  - first tool turn: 2,541 / 1,001;
+  - second tool turn: 12,646 / 3,012.
+- A synthesis call was reserved and never settled.
+- The process was stopped before the trace was written: no file in `artifacts/traces/` mentions EV07's question, and
+  `artifacts/live/L3-fresh/` is empty.
+- The run's console output was filtered to completed-case lines, so nothing about EV07 was printed.
+- The ledger holds costs and token counts only. No route decision, tool output or draft from EV07 was seen by the
+  development process.
+
+**But the eight cases are not blind.**
+- During the previous L3 work (2026-09-28, before L3 run 2's results were reviewed), their questions, expected
+  fields and Replay results were printed into the development session, to prepare the manual review.
+- In this follow-up, the two routing rules were checked against the labels of all 40 cases. That includes AMB01
+  (affected by the several-regions rule) and ADV03 (affected by the as-of forecast rule).
+- No fix was designed from these eight cases: the rules come from DOC03 and AMB06 in the frozen ten. They are
+  nevertheless **"not previously run in Live" rather than "untouched"**.
+- Their results are reported below, split into:
+  - EV07 (partially run before);
+  - AMB01 and ADV03 (routing rules checked against their labels);
+  - the other five (EV10, FC07, FC10, DOC04, ADV02).
+
+### Re-evaluation plan (criteria unchanged from "Criteria and case list" above)
+
+1. **L3 run 3:** the same frozen ten cases, prompts v7, label `L3-run3`. Reported separately from runs 1 and 2.
+2. **L3 fresh:** the original eight `test` cases, label `L3-fresh`, reported with the contamination split above.
+   It is a separate result, not pooled with the ten.
+3. **Budget:** about USD 0.25 per set; the task ledger stops paid calls before the USD 5.00 cap.
+
+The gate rule is unchanged: L3 passes only if H1–H5 and Q1–Q4 genuinely hold. A fallback is not a model answer, and
+neither the L4 screenshot nor green CI counts as Live evaluation evidence.
