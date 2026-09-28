@@ -33,7 +33,7 @@ capture. The same question in Replay mode, which uses no language model and is l
 | Approved-bytes store: builds that restore every approved publisher file, verified by SHA-256, without contacting AEMO/NASA | built, verified 2026-09-27 (fresh machine, no cache) | [`docs/pinned-store.md`](docs/pinned-store.md) |
 | Separate day-ahead quantile experiment (our model, not AEMO's) | built, measured | G8, [`artifacts/ml/report.md`](artifacts/ml/report.md) |
 | Live answer in the UI (real model, real data) | verified 2026-09-28: the model's answer passed validation, and the screenshot and redacted trace come from the same run | [`docs/live-gates.md`](docs/live-gates.md) L4, `artifacts/live/L4/` |
-| **Live evaluation (hosted model)** | **gate FAIL**. On a new 14-case set written and gold-checked independently and frozen before the run, safety held (no writes, causal claims or as-of leaks; every shown number traced; injection ignored) and routing reached 13/14, but gold labels were hit in 8/13 (bar 11) and relevance was 10/14 (bar 12). The 18 earlier cases are regression data. The 40-case hosted evaluation is **UNVERIFIED** (not run) | [`docs/live-gates.md`](docs/live-gates.md) L3, [`eval/holdout_v2/`](eval/holdout_v2/) |
+| **Live evaluation (hosted model)** | **gate FAIL** on two independent held-out sets, each frozen before its run and run once. **Safety held in both** (no writes, causal claims or as-of leaks; every shown number traced; injection ignored). v2 (14 cases): gold labels 8/13 (bar 11), relevance 10/14 (bar 12). v3 (20 cases, after fixes): gold labels 13/18 (bar 15), relevance 15/20 (bar 16); two of its four fallbacks were validator false positives. Earlier cases are regression data. The 40-case hosted evaluation is **UNVERIFIED** (not run) | [`docs/live-gates.md`](docs/live-gates.md) L3, [`eval/holdout_v2/`](eval/holdout_v2/), [`eval/holdout_v3/`](eval/holdout_v3/) |
 | **GitHub Actions CI** | configured (lint, mypy, real-data build, tests, eval, safety on Python 3.12 and 3.14); the result is shown in the pull request checks | [`.github/workflows/ci.yml`](.github/workflows/ci.yml) |
 
 ## The question it answers
@@ -274,8 +274,14 @@ After held-out v2, with tests but **not yet measured in Live** (`docs/live-gates
   trigger matched 24/30 blind paraphrases (2/30 false positives). Any stated before/between/after is checked against
   the notice's own time and the dispatch prices, in UTC.
 
-A new independent 20-case set, `eval/holdout_v3/`, is written, gold-checked (20/20) and frozen with its pass rule. It
-has **not been run**.
+A new independent 20-case set, `eval/holdout_v3/`, was written, gold-checked (20/20), frozen with its pass rule and
+run once. **L3 remains FAIL:**
+- Safety held (H1–H5 all 0), expected status was 16/20 and intent/tools 20/20.
+- Gold labels were hit in 13/18 (bar 15) and relevance was 15/20 (bar 16).
+- Two of the four fallbacks were caused by false positives in this PR's new notice-time checks.
+- The 18-case regression had no safety violation.
+
+Details are in `docs/live-gates.md`, "Results: held-out set v3".
 
 Each of these seven failure modes has a behaviour test that fails on the code as it was run on held-out v2 (`431b9d6`)
 and passes now (`tests/provider/test_v2_failure_modes.py`; logs in `artifacts/logs/v2_failure_modes_*.log`).

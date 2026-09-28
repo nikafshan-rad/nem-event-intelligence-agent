@@ -1,0 +1,740 @@
+{
+  "question": "As of 2026-07-30T12:00:00Z, what was AEMO's most recent available operational-demand forecast for South Australia for the half-hour ending 2026-07-30T17:00:00Z (POE10, POE50 and POE90), and had any actual operational demand for that half-hour been published by then?",
+  "request": {},
+  "expected": {
+    "intent": "forecast_review",
+    "status_in": [
+      "answered",
+      "answered_with_caveats"
+    ],
+    "required_tools": [
+      "get_forecast_runs",
+      "get_actual_demand",
+      "compare_forecast_actual",
+      "retrieve_public_evidence"
+    ]
+  },
+  "score": {
+    "case_id": "H04",
+    "category": "forecast",
+    "split": "holdout_v2",
+    "status": "answered_with_caveats",
+    "status_ok": true,
+    "accepted": true,
+    "routed_intent": "forecast_review",
+    "expected_intent": "forecast_review",
+    "required_tools": [
+      "get_forecast_runs",
+      "get_actual_demand",
+      "compare_forecast_actual",
+      "retrieve_public_evidence"
+    ],
+    "required_tools_executed": [
+      "get_forecast_runs",
+      "get_actual_demand",
+      "compare_forecast_actual",
+      "retrieve_public_evidence"
+    ],
+    "blocked_calls": 0,
+    "n_claims": 4,
+    "n_citations": 5,
+    "critical_final": 0,
+    "fallback_applied": false,
+    "gold_numbers_hit": 1,
+    "gold_numbers_total": 1,
+    "as_of_leaks": 0,
+    "latency_ms": 148252.0,
+    "model_calls": 5,
+    "input_tokens": 54145,
+    "output_tokens": 11988,
+    "cost_usd": 0.036591,
+    "trace_id": "tr-dded8c8ebedd",
+    "forbidden_calls": 0,
+    "claim_violations_final": 0,
+    "citation_violations_final": 0,
+    "generator": "live-model:gpt-5-mini",
+    "case_note_files_written": 0,
+    "ledger_cost_usd": 0.036591
+  },
+  "route": {
+    "intent": "forecast_review",
+    "region": "SA1",
+    "event_date": "2026-07-31",
+    "as_of_utc": "2026-07-30T12:00:00Z",
+    "needs_clarification": false,
+    "clarification_reason": null,
+    "clarification": null,
+    "out_of_scope": false
+  },
+  "tools": [
+    {
+      "name": "get_forecast_runs",
+      "call_id": "call_XVZDDkQFEyXSjyRWUOm5K12L",
+      "status": "ok",
+      "args": {
+        "region": "SA1",
+        "target_start_utc": "2026-07-30T11:00:00Z",
+        "target_end_utc": "2026-07-30T23:00:00Z",
+        "as_of_utc": "2026-07-30T12:00:00Z",
+        "max_runs": 8
+      },
+      "blocked_reason": null,
+      "policy_notes": [],
+      "source_ids": [
+        "OPDEM_FORECAST_HH:PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607281500_20260728143224:L918",
+        "OPDEM_FORECAST_HH:PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607281500_20260728143224:L919",
+        "OPDEM_FORECAST_HH:PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607281500_20260728143224:L920",
+        "OPDEM_FORECAST_HH:PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607281500_20260728143224:L921",
+        "OPDEM_FORECAST_HH:PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607281500_20260728143224:L922",
+        "OPDEM_FORECAST_HH:PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607281500_20260728143224:L923",
+        "OPDEM_FORECAST_HH:PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607281500_20260728143224:L924",
+        "OPDEM_FORECAST_HH:PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607281500_20260728143224:L925",
+        "OPDEM_FORECAST_HH:PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607281500_20260728143224:L926",
+        "OPDEM_FORECAST_HH:PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607281500_20260728143224:L927",
+        "OPDEM_FORECAST_HH:PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607281500_20260728143224:L928",
+        "OPDEM_FORECAST_HH:PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607281500_20260728143224:L929"
+      ],
+      "n_source_ids": 192,
+      "output_excerpt": "{\"status\": \"ok\", \"result\": {\"region\": \"SA1\", \"targets_utc\": [\"2026-07-30T11:00:00Z\", \"2026-07-30T23:00:00Z\"], \"as_of_utc\": \"2026-07-30T12:00:00Z\", \"definition\": \"OPERATIONAL_DEMAND (half-hour average, MW, interval-ending)\", \"runs_in_snapshot\": 133, \"runs_eligible\": 106, \"runs_excluded_created_after_as_of\": 22, \"runs_excluded_created_but_not_proven_public_by_as_of\": 5, \"availability_rule\": \"available_at = file creation + 166 min\", \"poe_note\": \"POE10/POE90 are AEMO-published values derived from POE50 by scaling factors (SO_OP_3710); they are not calibrated intervals and not this project's quantiles.\", \"runs\": [{\"run_id\": \"PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607281500_20260728143224\", \"issued_at_utc\": \"2026-07-28T04:27:00Z\", \"published_at_utc\": \"2026-07-28T04:32:24Z\", \"available_at_utc\":",
+      "retrieval_candidates": null
+    },
+    {
+      "name": "get_actual_demand",
+      "call_id": "call_nW6iwWEh1mvvIkzfLQlkKEAe",
+      "status": "ok",
+      "args": {
+        "region": "SA1",
+        "start_utc": "2026-07-30T04:30:00Z",
+        "end_utc": "2026-07-31T05:00:00Z",
+        "revision_policy": "latest_available",
+        "as_of_utc": "2026-07-30T12:00:00Z"
+      },
+      "blocked_reason": null,
+      "policy_notes": [],
+      "source_ids": [
+        "OPDEM_ACTUAL_HH:PUBLIC_ACTUAL_OPERATIONAL_DEMAND_HH_202607301500_20260730150006:L5",
+        "OPDEM_ACTUAL_HH:PUBLIC_ACTUAL_OPERATIONAL_DEMAND_HH_202607301530_20260730153008:L5",
+        "OPDEM_ACTUAL_HH:PUBLIC_ACTUAL_OPERATIONAL_DEMAND_HH_202607301600_20260730160006:L5",
+        "OPDEM_ACTUAL_HH:PUBLIC_ACTUAL_OPERATIONAL_DEMAND_HH_202607301630_20260730163006:L5",
+        "OPDEM_ACTUAL_HH:PUBLIC_ACTUAL_OPERATIONAL_DEMAND_HH_202607301700_20260730170006:L5",
+        "OPDEM_ACTUAL_HH:PUBLIC_ACTUAL_OPERATIONAL_DEMAND_HH_202607301730_20260730173006:L5",
+        "OPDEM_ACTUAL_HH:PUBLIC_ACTUAL_OPERATIONAL_DEMAND_HH_202607301800_20260730180006:L5",
+        "OPDEM_ACTUAL_HH:PUBLIC_ACTUAL_OPERATIONAL_DEMAND_HH_202607301830_20260730183006:L5",
+        "OPDEM_ACTUAL_HH:PUBLIC_ACTUAL_OPERATIONAL_DEMAND_HH_202607301900_20260730190006:L5"
+      ],
+      "n_source_ids": 9,
+      "output_excerpt": "{\"status\": \"ok\", \"result\": {\"region\": \"SA1\", \"window_utc\": [\"2026-07-30T04:30:00Z\", \"2026-07-31T05:00:00Z\"], \"as_of_utc\": \"2026-07-30T12:00:00Z\", \"definition\": \"Average 30-minute measured operational demand MW value (unadjusted)\", \"revision_policy\": \"latest_available\", \"revisions_used\": {\"initial\": 9, \"updated\": 0}, \"intervals_where_updated_differs_from_initial\": 0, \"excluded_not_yet_available_at_as_of\": 89, \"n_intervals\": 9, \"max\": {\"interval_end_utc\": \"2026-07-30T09:00:00Z\", \"interval_end_local\": \"2026-07-30 18:30 ACST (UTC+0930)\", \"operational_demand_mw\": 2146.0, \"evidence_id\": \"ev0585\"}, \"series\": [{\"interval_end_utc\": \"2026-07-30T05:00:00Z\", \"operational_demand_mw\": 1231.0, \"evidence_id\": \"ev0577\", \"revision\": \"initial\"}, {\"interval_end_utc\": \"2026-07-30T05:30:00Z\", \"operational_deman",
+      "retrieval_candidates": null
+    },
+    {
+      "name": "compare_forecast_actual",
+      "call_id": "call_8H1SlFyAeZAIsBof40XsqjyT",
+      "status": "unavailable",
+      "args": {
+        "region": "SA1",
+        "target_start_utc": "2026-07-30T11:00:00Z",
+        "target_end_utc": "2026-07-30T23:00:00Z",
+        "run_selector": "latest_available_as_of",
+        "min_lead_hours": null,
+        "run_id": null,
+        "as_of_utc": "2026-07-30T12:00:00Z",
+        "actual_revision": "latest_available",
+        "actual_metric": "OPERATIONAL_DEMAND"
+      },
+      "blocked_reason": null,
+      "policy_notes": [],
+      "source_ids": [],
+      "n_source_ids": 0,
+      "output_excerpt": "{\"status\": \"unavailable\", \"result\": {\"reason\": \"no aligned forecast/actual pairs\", \"details\": [\"2026-07-30T11:30:00Z: no actual (latest_available) provably public by as_of\", \"2026-07-30T12:00:00Z: no actual (latest_available) provably public by as_of\", \"2026-07-30T12:30:00Z: no actual (latest_available) provably public by as_of\", \"2026-07-30T13:00:00Z: no actual (latest_available) provably public by as_of\", \"2026-07-30T13:30:00Z: no actual (latest_available) provably public by as_of\", \"2026-07-30T14:00:00Z: no actual (latest_available) provably public by as_of\", \"2026-07-30T14:30:00Z: no actual (latest_available) provably public by as_of\", \"2026-07-30T15:00:00Z: no actual (latest_available) provably public by as_of\", \"2026-07-30T15:30:00Z: no actual (latest_available) provably public by as",
+      "retrieval_candidates": null
+    },
+    {
+      "name": "retrieve_public_evidence",
+      "call_id": "call_4YnthtXaOPEn8Acj7dL6Dy87",
+      "status": "ok",
+      "args": {
+        "query": "operational demand forecast SA1 POE50 POE10 POE90 2026-07-30",
+        "region": "SA1",
+        "event_start_utc": "2026-07-30T04:30:00Z",
+        "event_end_utc": "2026-07-31T05:00:00Z",
+        "as_of_utc": "2026-07-30T12:00:00Z",
+        "top_k": 5,
+        "doc_types": [
+          "market_notice",
+          "procedure"
+        ]
+      },
+      "blocked_reason": null,
+      "policy_notes": [],
+      "source_ids": [
+        "aemo_so_op_3710#p5c6",
+        "aemo_so_op_3710#p7c14",
+        "aemo_so_op_3704#p6c11",
+        "aemo_so_op_3710#p4c2",
+        "aemo_so_op_3710#p5c5"
+      ],
+      "n_source_ids": 5,
+      "output_excerpt": "{\"status\": \"ok\", \"result\": {\"query\": \"operational demand forecast SA1 POE50 POE10 POE90 2026-07-30\", \"filters\": {\"region\": \"SA1\", \"event_window\": [\"2026-07-30T04:30:00Z\", \"2026-07-31T05:00:00Z\"], \"as_of_utc\": \"2026-07-30T12:00:00Z\", \"doc_types\": [\"market_notice\", \"procedure\"]}, \"n_results\": 5, \"excluded_by_eligibility\": {\"doc_type_filtered\": 144, \"published_after_as_of\": 329, \"wrong_region\": 54, \"wrong_date\": 6}, \"search_scope\": {\"searched\": true, \"region\": \"SA1\", \"event_window_utc\": [\"2026-07-30T04:30:00Z\", \"2026-07-31T05:00:00Z\"], \"as_of_utc\": \"2026-07-30T12:00:00Z\", \"held_for_region_and_window\": 9, \"published_after_as_of\": 129, \"returned\": 0, \"selected_not_held\": 0, \"outcome\": \"9 notice(s) held for this region and window, none among the top results\"}, \"note\": \"Retrieved text is untruste",
+      "retrieval_candidates": [
+        {
+          "chunk_id": "aemo_so_op_3710#p5c6",
+          "doc_type": "procedure",
+          "score": 0.03425,
+          "event_region": null,
+          "event_date": null,
+          "eligibility_reason": "general reference document published before as_of"
+        },
+        {
+          "chunk_id": "aemo_so_op_3710#p7c14",
+          "doc_type": "procedure",
+          "score": 0.03404,
+          "event_region": null,
+          "event_date": null,
+          "eligibility_reason": "general reference document published before as_of"
+        },
+        {
+          "chunk_id": "aemo_so_op_3704#p6c11",
+          "doc_type": "procedure",
+          "score": 0.03351,
+          "event_region": null,
+          "event_date": null,
+          "eligibility_reason": "general reference document published before as_of"
+        },
+        {
+          "chunk_id": "aemo_so_op_3710#p4c2",
+          "doc_type": "procedure",
+          "score": 0.03351,
+          "event_region": null,
+          "event_date": null,
+          "eligibility_reason": "general reference document published before as_of"
+        },
+        {
+          "chunk_id": "aemo_so_op_3710#p5c5",
+          "doc_type": "procedure",
+          "score": 0.03351,
+          "event_region": null,
+          "event_date": null,
+          "eligibility_reason": "general reference document published before as_of"
+        }
+      ]
+    }
+  ],
+  "model_calls": [
+    {
+      "name": "route",
+      "duration_ms": 6912.8,
+      "cost_usd": 0.001347,
+      "status": "completed",
+      "incomplete": null,
+      "input_tokens": 806,
+      "output_tokens": 573,
+      "reasoning_tokens": 448,
+      "cached_tokens": 0,
+      "function_calls": []
+    },
+    {
+      "name": "tools",
+      "duration_ms": 13292.5,
+      "cost_usd": 0.002543,
+      "status": "completed",
+      "incomplete": null,
+      "input_tokens": 2506,
+      "output_tokens": 1131,
+      "reasoning_tokens": 704,
+      "cached_tokens": 1536,
+      "function_calls": [
+        "get_forecast_runs",
+        "get_actual_demand",
+        "compare_forecast_actual",
+        "retrieve_public_evidence"
+      ]
+    },
+    {
+      "name": "tools",
+      "duration_ms": 35418.2,
+      "cost_usd": 0.00867,
+      "status": "completed",
+      "incomplete": null,
+      "input_tokens": 15095,
+      "output_tokens": 2736,
+      "reasoning_tokens": 2240,
+      "cached_tokens": 2560,
+      "function_calls": []
+    },
+    {
+      "name": "synthesis",
+      "duration_ms": 63178.5,
+      "cost_usd": 0.014766,
+      "status": "completed",
+      "incomplete": null,
+      "input_tokens": 16295,
+      "output_tokens": 5346,
+      "reasoning_tokens": 3392,
+      "cached_tokens": 0,
+      "function_calls": []
+    },
+    {
+      "name": "repair",
+      "duration_ms": 29224.7,
+      "cost_usd": 0.009265,
+      "status": "completed",
+      "incomplete": null,
+      "input_tokens": 19443,
+      "output_tokens": 2202,
+      "reasoning_tokens": 1792,
+      "cached_tokens": 0,
+      "function_calls": []
+    }
+  ],
+  "drafts": {
+    "synthesis:draft": {
+      "status": "answered_with_caveats",
+      "headline": "AEMO's most-recent available SA1 operational-demand forecast for the half-hour ending 2026-07-31 02:30 ACST (2026-07-30T17:00:00Z) was POE50 1519.0 MW (ev0538), POE10 1616.0 MW (ev0539) and POE90 1422.0 MW (ev0540); no actual operational demand for that half-hour was provably public by 2026-07-30T12:00:00Z.",
+      "summary": [
+        "The latest forecast run available as of 2026-07-30T12:00:00Z (PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607301930_20260730190159) gives for target_end_local \"2026-07-31 02:30 ACST (UTC+0930)\": POE50 1519.0 MW (ev0538), POE10 1616.0 MW (ev0539) and POE90 1422.0 MW (ev0540).",
+        "get_actual_demand returned the latest published operational demand as of 2026-07-30T12:00:00Z as interval_end_local \"2026-07-30 18:30 ACST (UTC+0930)\" operational_demand 2146.0 MW (ev0585); intervals after that (including the half-hour ending 2026-07-31 02:30 ACST) were not provably public by the as-of cutoff.",
+        "compare_forecast_actual reported no aligned forecast/actual pairs provably public by 2026-07-30T12:00:00Z for the target window, so no forecast-actual error was computable at that as-of time."
+      ],
+      "document_statements": [],
+      "observation_evidence_ids": [
+        "ev0538",
+        "ev0539",
+        "ev0540",
+        "ev0585"
+      ],
+      "numeric_claims": [
+        {
+          "claim_id": "n1",
+          "text": "POE50 for half-hour ending 2026-07-31 02:30 ACST",
+          "value": 1519.0,
+          "unit": "MW",
+          "evidence_id": "ev0538",
+          "rounding": 0.0
+        },
+        {
+          "claim_id": "n2",
+          "text": "POE10 for half-hour ending 2026-07-31 02:30 ACST",
+          "value": 1616.0,
+          "unit": "MW",
+          "evidence_id": "ev0539",
+          "rounding": 0.0
+        },
+        {
+          "claim_id": "n3",
+          "text": "POE90 for half-hour ending 2026-07-31 02:30 ACST",
+          "value": 1422.0,
+          "unit": "MW",
+          "evidence_id": "ev0540",
+          "rounding": 0.0
+        },
+        {
+          "claim_id": "n4",
+          "text": "Latest published operational demand (maximum in returned window) as of 2026-07-30T12:00:00Z",
+          "value": 2146.0,
+          "unit": "MW",
+          "evidence_id": "ev0585",
+          "rounding": 0.0
+        }
+      ],
+      "possible_explanations": [
+        {
+          "statement": "The absence of a provably-public actual for the half-hour ending 2026-07-31 02:30 ACST (UTC+0930) may reflect that AEMO had published actual operational demand only up to interval_end_local \"2026-07-30 18:30 ACST (UTC+0930)\" by the as-of time (ev0585).",
+          "supporting_evidence_ids": [
+            "ev0585"
+          ],
+          "what_would_test_it": "Request get_actual_demand provable-as-of a later as_of_utc (after 2026-07-30T12:00:00Z) and check whether the interval for 2026-07-31 02:30 ACST (UTC+0930) appears as a published interval."
+        },
+        {
+          "statement": "AEMO's 10% and 90% POE forecasts are derived from the 50% POE forecast by scaling factors (SO_OP_3710) and this may explain why POE10 and POE90 are presented together with POE50 rather than as independent quantiles [c2].",
+          "supporting_evidence_ids": [],
+          "what_would_test_it": "Inspect SO_OP_3710 [c2] and forecast metadata for the run PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607301930_20260730190159 to confirm the scaling factors and their application to the POE50 values."
+        }
+      ],
+      "published_findings": [],
+      "citations": [
+        {
+          "citation_id": "c1",
+          "chunk_id": "aemo_so_op_3710#p5c6",
+          "quote": "The Demand Forecasting System or DFS generates the 10%, 50% and 90% POE demand forecasts to be used in pre-dispatch and STPASA processes.",
+          "supports": "Explains that DFS produces 10%, 50% and 90% POE forecasts."
+        },
+        {
+          "citation_id": "c2",
+          "chunk_id": "aemo_so_op_3710#p7c14",
+          "quote": "Exceedance Forecasts The 10% and 90% POE forecasts are derived from the 50% POE forecast. The 10% and 90% POE forecast are produced by multiplying the 50% POE forecast by a scaling factor.",
+          "supports": "States that POE10 and POE90 are derived from POE50 using scaling factors."
+        },
+        {
+          "citation_id": "c3",
+          "chunk_id": "aemo_so_op_3704#p6c11",
+          "quote": "In accordance with NER 4.9.1 AEMO must produce the most probable (50% probability of exceedance) energy demand for each region for each 30-minute period.",
+          "supports": "Describes AEMO's requirement to produce a 50% POE forecast for each 30-minute period."
+        },
+        {
+          "citation_id": "c4",
+          "chunk_id": "aemo_so_op_3710#p4c2",
+          "quote": "Table 1 Glossary Term Definition AWEFS Australian Wind Energy Forecast System ASEFS Australian Solar Energy Forecasting System ASEFS2 Australian Solar Energy Forecasting System (Phase 2) DFS Demand Forecasting System NER National Electricity Rules NEM National Electricity Market POE Probability of Exceedance PV Photovoltaic SCADA Supervisory Control And Data Acquisition STPASA Short Term Projected Assessment of System Adequacy",
+          "supports": "Provides glossary definitions including POE and DFS used in the forecasting procedure."
+        },
+        {
+          "citation_id": "c5",
+          "chunk_id": "aemo_so_op_3710#p5c5",
+          "quote": "(f) AEMO produces 10%, 50% and 90% probability of exceedence (POE) forecasts for all timeframes.",
+          "supports": "Confirms that AEMO publishes 10%, 50% and 90% POE forecasts."
+        }
+      ],
+      "uncertainties": [
+        "compare_forecast_actual returned no aligned forecast/actual pairs provably public by 2026-07-30T12:00:00Z for the target window; this leaves unresolved whether an actual for the half-hour ending 2026-07-31 02:30 ACST existed but was not provably public by that as-of time.",
+        "No MAE or other forecast-actual error metric could be computed for the requested forecast_targets_utc because aligned actuals were not provably public as of the as-of timestamp."
+      ],
+      "missing_evidence": [
+        "Provably-public actual operational demand value for the half-hour ending 2026-07-31 02:30 ACST (2026-07-30T17:00:00Z) as of 2026-07-30T12:00:00Z.",
+        "A computed MAE (compare_forecast_actual) for the forecast_targets_utc: no MAE evidence_id is available because compare_forecast_actual reported no aligned pairs provably public by the as-of time."
+      ],
+      "forecast_mae_evidence_id": null
+    },
+    "repair:draft": {
+      "status": "answered_with_caveats",
+      "headline": "AEMO's most-recent available SA1 operational-demand forecast for the half-hour ending 2026-07-31 02:30 ACST (2026-07-30T17:00:00Z) was POE50 1519.0 MW (ev0538), POE10 1616.0 MW (ev0539) and POE90 1422.0 MW (ev0540); no actual operational demand for that half-hour was provably public by 2026-07-30T12:00:00Z.",
+      "summary": [
+        "The forecast run PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607301930_20260730190159 gives for target_end_local \"2026-07-31 02:30 ACST (UTC+0930)\": POE50 1519.0 MW (ev0538), POE10 1616.0 MW (ev0539) and POE90 1422.0 MW (ev0540).",
+        "get_actual_demand returned interval_end_local \"2026-07-30 18:30 ACST (UTC+0930)\" operational_demand 2146.0 MW (ev0585); intervals after that (including the half-hour ending 2026-07-31 02:30 ACST (UTC+0930)) were not provably public.",
+        "compare_forecast_actual reported no aligned forecast/actual pairs provably public by 2026-07-30T12:00:00Z for the target window, so no forecast-actual error was computable at that as-of time."
+      ],
+      "document_statements": [],
+      "observation_evidence_ids": [
+        "ev0538",
+        "ev0539",
+        "ev0540",
+        "ev0585"
+      ],
+      "numeric_claims": [
+        {
+          "claim_id": "n1",
+          "text": "POE50 for half-hour ending 2026-07-31 02:30 ACST",
+          "value": 1519.0,
+          "unit": "MW",
+          "evidence_id": "ev0538",
+          "rounding": 0.0
+        },
+        {
+          "claim_id": "n2",
+          "text": "POE10 for half-hour ending 2026-07-31 02:30 ACST",
+          "value": 1616.0,
+          "unit": "MW",
+          "evidence_id": "ev0539",
+          "rounding": 0.0
+        },
+        {
+          "claim_id": "n3",
+          "text": "POE90 for half-hour ending 2026-07-31 02:30 ACST",
+          "value": 1422.0,
+          "unit": "MW",
+          "evidence_id": "ev0540",
+          "rounding": 0.0
+        },
+        {
+          "claim_id": "n4",
+          "text": "Latest published operational demand (maximum in returned window) as of 2026-07-30T12:00:00Z",
+          "value": 2146.0,
+          "unit": "MW",
+          "evidence_id": "ev0585",
+          "rounding": 0.0
+        }
+      ],
+      "possible_explanations": [
+        {
+          "statement": "The absence of a provably-public actual for the half-hour ending 2026-07-31 02:30 ACST (UTC+0930) may reflect that AEMO had published actual operational demand only up to interval_end_local \"2026-07-30 18:30 ACST (UTC+0930)\" by the as-of time (ev0585).",
+          "supporting_evidence_ids": [
+            "ev0585"
+          ],
+          "what_would_test_it": "Request get_actual_demand provable-as-of a later as_of_utc (after 2026-07-30T12:00:00Z) and check whether the interval for 2026-07-31 02:30 ACST (UTC+0930) appears as a published interval."
+        },
+        {
+          "statement": "AEMO's higher and lower POE forecasts are derived from the central POE forecast by scaling factors (see SO_OP_3710) and this may explain why those POE series are presented together rather than as independent quantiles [c2].",
+          "supporting_evidence_ids": [],
+          "what_would_test_it": "Inspect SO_OP_3710 [c2] and forecast metadata for the run PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607301930_20260730190159 to confirm the scaling factors and their application to the POE50 values."
+        }
+      ],
+      "published_findings": [],
+      "citations": [
+        {
+          "citation_id": "c1",
+          "chunk_id": "aemo_so_op_3710#p5c6",
+          "quote": "The Demand Forecasting System or DFS generates the 10%, 50% and 90% POE demand forecasts to be used in pre-dispatch and STPASA processes.",
+          "supports": "Explains that DFS produces 10%, 50% and 90% POE forecasts."
+        },
+        {
+          "citation_id": "c2",
+          "chunk_id": "aemo_so_op_3710#p7c14",
+          "quote": "Exceedance Forecasts The 10% and 90% POE forecasts are derived from the 50% POE forecast. The 10% and 90% POE forecast are produced by multiplying the 50% POE forecast by a scaling factor.",
+          "supports": "States that POE10 and POE90 are derived from POE50 using scaling factors."
+        },
+        {
+          "citation_id": "c3",
+          "chunk_id": "aemo_so_op_3704#p6c11",
+          "quote": "In accordance with NER 4.9.1 AEMO must produce the most probable (50% probability of exceedance) energy demand for each region for each 30-minute period.",
+          "supports": "Describes AEMO's requirement to produce a 50% POE forecast for each 30-minute period."
+        },
+        {
+          "citation_id": "c4",
+          "chunk_id": "aemo_so_op_3710#p4c2",
+          "quote": "Table 1 Glossary Term Definition AWEFS Australian Wind Energy Forecast System ASEFS Australian Solar Energy Forecasting System ASEFS2 Australian Solar Energy Forecasting System (Phase 2) DFS Demand Forecasting System NER National Electricity Rules NEM National Electricity Market POE Probability of Exceedance PV Photovoltaic SCADA Supervisory Control And Data Acquisition STPASA Short Term Projected Assessment of System Adequacy",
+          "supports": "Provides glossary definitions including POE and DFS used in the forecasting procedure."
+        },
+        {
+          "citation_id": "c5",
+          "chunk_id": "aemo_so_op_3710#p5c5",
+          "quote": "(f) AEMO produces 10%, 50% and 90% probability of exceedence (POE) forecasts for all timeframes.",
+          "supports": "Confirms that AEMO publishes 10%, 50% and 90% POE forecasts."
+        }
+      ],
+      "uncertainties": [
+        "compare_forecast_actual returned no aligned forecast/actual pairs provably public by 2026-07-30T12:00:00Z for the target window; this leaves unresolved whether an actual for the half-hour ending 2026-07-31 02:30 ACST existed but was not provably public by that as-of time.",
+        "No MAE or other forecast-actual error metric could be computed for the requested forecast_targets_utc because aligned actuals were not provably public as of the as-of timestamp."
+      ],
+      "missing_evidence": [
+        "Provably-public actual operational demand value for the half-hour ending 2026-07-31 02:30 ACST (2026-07-30T17:00:00Z) as of 2026-07-30T12:00:00Z.",
+        "A computed MAE (compare_forecast_actual) for the forecast_targets_utc: no MAE evidence_id is available because compare_forecast_actual reported no aligned pairs provably public by the as-of time."
+      ],
+      "forecast_mae_evidence_id": null
+    }
+  },
+  "validation": {
+    "pre_repair": [
+      [
+        "NUMERIC_UNTRACKED",
+        "possible_explanations[1]: number 10 is not a registered claim"
+      ],
+      [
+        "NUMERIC_UNTRACKED",
+        "possible_explanations[1]: number 90 is not a registered claim"
+      ],
+      [
+        "NUMERIC_UNTRACKED",
+        "possible_explanations[1]: number 50 is not a registered claim"
+      ],
+      [
+        "TIME_NOT_IN_EVIDENCE",
+        "summary[0]: 2026-07-30T12:00:00Z does not match the evidence time of the number(s) stated with it (2026-07-30T16:30Z, 2026-07-30T17:00Z)"
+      ],
+      [
+        "TIME_NOT_IN_EVIDENCE",
+        "summary[1]: 2026-07-30T12:00:00Z does not match the evidence time of the number(s) stated with it (2026-07-30T08:30Z, 2026-07-30T09:00Z)"
+      ]
+    ],
+    "final_candidate": [],
+    "repair_attempted": true,
+    "fallback_applied": false,
+    "final_passed": true,
+    "shown": []
+  },
+  "report": {
+    "status": "answered_with_caveats",
+    "headline": "AEMO's most-recent available SA1 operational-demand forecast for the half-hour ending 2026-07-31 02:30 ACST (2026-07-30T17:00:00Z) was POE50 1519.0 MW (ev0538), POE10 1616.0 MW (ev0539) and POE90 1422.0 MW (ev0540); no actual operational demand for that half-hour was provably public by 2026-07-30T12:00:00Z.",
+    "summary": [
+      "The forecast run PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607301930_20260730190159 gives for target_end_local \"2026-07-31 02:30 ACST (UTC+0930)\": POE50 1519.0 MW (ev0538), POE10 1616.0 MW (ev0539) and POE90 1422.0 MW (ev0540).",
+      "get_actual_demand returned interval_end_local \"2026-07-30 18:30 ACST (UTC+0930)\" operational_demand 2146.0 MW (ev0585); intervals after that (including the half-hour ending 2026-07-31 02:30 ACST (UTC+0930)) were not provably public.",
+      "compare_forecast_actual reported no aligned forecast/actual pairs provably public by 2026-07-30T12:00:00Z for the target window, so no forecast-actual error was computable at that as-of time."
+    ],
+    "numeric_claims": [
+      {
+        "claim_id": "n1",
+        "text": "POE50 for half-hour ending 2026-07-31 02:30 ACST",
+        "value": 1519.0,
+        "unit": "MW",
+        "evidence_id": "ev0538",
+        "rounding": 0.0
+      },
+      {
+        "claim_id": "n2",
+        "text": "POE10 for half-hour ending 2026-07-31 02:30 ACST",
+        "value": 1616.0,
+        "unit": "MW",
+        "evidence_id": "ev0539",
+        "rounding": 0.0
+      },
+      {
+        "claim_id": "n3",
+        "text": "POE90 for half-hour ending 2026-07-31 02:30 ACST",
+        "value": 1422.0,
+        "unit": "MW",
+        "evidence_id": "ev0540",
+        "rounding": 0.0
+      },
+      {
+        "claim_id": "n4",
+        "text": "Latest published operational demand (maximum in returned window) as of 2026-07-30T12:00:00Z",
+        "value": 2146.0,
+        "unit": "MW",
+        "evidence_id": "ev0585",
+        "rounding": 0.0
+      }
+    ],
+    "possible_explanations": [
+      {
+        "statement": "The absence of a provably-public actual for the half-hour ending 2026-07-31 02:30 ACST (UTC+0930) may reflect that AEMO had published actual operational demand only up to interval_end_local \"2026-07-30 18:30 ACST (UTC+0930)\" by the as-of time (ev0585).",
+        "certainty": "hypothesis",
+        "supporting_evidence_ids": [
+          "ev0585"
+        ],
+        "what_would_test_it": "Request get_actual_demand provable-as-of a later as_of_utc (after 2026-07-30T12:00:00Z) and check whether the interval for 2026-07-31 02:30 ACST (UTC+0930) appears as a published interval."
+      },
+      {
+        "statement": "AEMO's higher and lower POE forecasts are derived from the central POE forecast by scaling factors (see SO_OP_3710) and this may explain why those POE series are presented together rather than as independent quantiles [c2].",
+        "certainty": "hypothesis",
+        "supporting_evidence_ids": [],
+        "what_would_test_it": "Inspect SO_OP_3710 [c2] and forecast metadata for the run PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607301930_20260730190159 to confirm the scaling factors and their application to the POE50 values."
+      }
+    ],
+    "published_findings": [],
+    "citations": [
+      {
+        "citation_id": "c1",
+        "chunk_id": "aemo_so_op_3710#p5c6",
+        "doc_id": "aemo_so_op_3710",
+        "title": "SO_OP_3710 Load Forecasting",
+        "url": "https://www.aemo.com.au/-/media/files/electricity/nem/security_and_reliability/power_system_ops/procedures/so_op_3710-load-forecasting.pdf",
+        "section": "2.1. Demand Forecasting System (DFS)",
+        "page": 5,
+        "publication_date": "2023-05-29T14:00:00Z",
+        "doc_type": "procedure",
+        "quote": "The Demand Forecasting System or DFS generates the 10%, 50% and 90% POE demand forecasts to be used in pre-dispatch and STPASA processes.",
+        "supports": "Explains that DFS produces 10%, 50% and 90% POE forecasts."
+      },
+      {
+        "citation_id": "c2",
+        "chunk_id": "aemo_so_op_3710#p7c14",
+        "doc_id": "aemo_so_op_3710",
+        "title": "SO_OP_3710 Load Forecasting",
+        "url": "https://www.aemo.com.au/-/media/files/electricity/nem/security_and_reliability/power_system_ops/procedures/so_op_3710-load-forecasting.pdf",
+        "section": "6. Calculation of 10% and 90% Probability of",
+        "page": 7,
+        "publication_date": "2023-05-29T14:00:00Z",
+        "doc_type": "procedure",
+        "quote": "Exceedance Forecasts The 10% and 90% POE forecasts are derived from the 50% POE forecast. The 10% and 90% POE forecast are produced by multiplying the 50% POE forecast by a scaling factor.",
+        "supports": "States that POE10 and POE90 are derived from POE50 using scaling factors."
+      },
+      {
+        "citation_id": "c3",
+        "chunk_id": "aemo_so_op_3704#p6c11",
+        "doc_id": "aemo_so_op_3704",
+        "title": "SO_OP_3704 Pre-dispatch procedure",
+        "url": "https://www.aemo.com.au/-/media/files/electricity/nem/security_and_reliability/power_system_ops/procedures/so_op_3704-predispatch.pdf",
+        "section": "3.2.1. Forecast demand",
+        "page": 6,
+        "publication_date": "2026-04-01T13:59:59Z",
+        "doc_type": "procedure",
+        "quote": "In accordance with NER 4.9.1 AEMO must produce the most probable (50% probability of exceedance) energy demand for each region for each 30-minute period.",
+        "supports": "Describes AEMO's requirement to produce a 50% POE forecast for each 30-minute period."
+      },
+      {
+        "citation_id": "c4",
+        "chunk_id": "aemo_so_op_3710#p4c2",
+        "doc_id": "aemo_so_op_3710",
+        "title": "SO_OP_3710 Load Forecasting",
+        "url": "https://www.aemo.com.au/-/media/files/electricity/nem/security_and_reliability/power_system_ops/procedures/so_op_3710-load-forecasting.pdf",
+        "section": "1.2.1. Glossary",
+        "page": 4,
+        "publication_date": "2023-05-29T14:00:00Z",
+        "doc_type": "procedure",
+        "quote": "Table 1 Glossary Term Definition AWEFS Australian Wind Energy Forecast System ASEFS Australian Solar Energy Forecasting System ASEFS2 Australian Solar Energy Forecasting System (Phase 2) DFS Demand Forecasting System NER National Electricity Rules NEM National Electricity Market POE Probability of Exceedance PV Photovoltaic SCADA Supervisory Control And Data Acquisition STPASA Short Term Projected Assessment of System Adequacy",
+        "supports": "Provides glossary definitions including POE and DFS used in the forecasting procedure."
+      },
+      {
+        "citation_id": "c5",
+        "chunk_id": "aemo_so_op_3710#p5c5",
+        "doc_id": "aemo_so_op_3710",
+        "title": "SO_OP_3710 Load Forecasting",
+        "url": "https://www.aemo.com.au/-/media/files/electricity/nem/security_and_reliability/power_system_ops/procedures/so_op_3710-load-forecasting.pdf",
+        "section": "2. General Principles",
+        "page": 5,
+        "publication_date": "2023-05-29T14:00:00Z",
+        "doc_type": "procedure",
+        "quote": "(f) AEMO produces 10%, 50% and 90% probability of exceedence (POE) forecasts for all timeframes.",
+        "supports": "Confirms that AEMO publishes 10%, 50% and 90% POE forecasts."
+      }
+    ],
+    "uncertainties": [
+      "compare_forecast_actual returned no aligned forecast/actual pairs provably public by 2026-07-30T12:00:00Z for the target window; this leaves unresolved whether an actual for the half-hour ending 2026-07-31 02:30 ACST existed but was not provably public by that as-of time.",
+      "No MAE or other forecast-actual error metric could be computed for the requested forecast_targets_utc because aligned actuals were not provably public as of the as-of timestamp."
+    ],
+    "missing_evidence": [
+      "Provably-public actual operational demand value for the half-hour ending 2026-07-31 02:30 ACST (2026-07-30T17:00:00Z) as of 2026-07-30T12:00:00Z.",
+      "A computed MAE (compare_forecast_actual) for the forecast_targets_utc: no MAE evidence_id is available because compare_forecast_actual reported no aligned pairs provably public by the as-of time.",
+      "compare_forecast_actual: unavailable \u2014 2026-07-30T11:30:00Z: no actual (latest_available) provably public by as_of"
+    ],
+    "as_of": "2026-07-30T12:00:00Z",
+    "event_window": {
+      "start_utc": "2026-07-30T04:30:00Z",
+      "end_utc": "2026-07-31T05:00:00Z",
+      "start_local": "2026-07-30 14:00 ACST (UTC+0930)",
+      "end_local": "2026-07-31 14:30 ACST (UTC+0930)",
+      "timezone": "Australia/Adelaide"
+    },
+    "search_scope": [
+      {
+        "call_id": "call_4YnthtXaOPEn8Acj7dL6Dy87",
+        "query": "operational demand forecast SA1 POE50 POE10 POE90 2026-07-30",
+        "region": "SA1",
+        "event_window_utc": [
+          "2026-07-30T04:30:00Z",
+          "2026-07-31T05:00:00Z"
+        ],
+        "as_of_utc": "2026-07-30T12:00:00Z",
+        "document_types": [
+          "market_notice",
+          "procedure"
+        ],
+        "results": 5,
+        "market_notices": "searched: 9 notice(s) held for this region and window, none among the top results"
+      }
+    ],
+    "observations": [
+      {
+        "metric": "opdemand_forecast_poe50",
+        "value": 1519.0,
+        "unit": "MW",
+        "valid_at_utc": "2026-07-30T17:00:00Z",
+        "valid_at_local": "2026-07-31 02:30 ACST (UTC+0930)",
+        "evidence_id": "ev0538",
+        "source_row_ids": [
+          "OPDEM_FORECAST_HH:PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607301930_20260730190159:L806"
+        ]
+      },
+      {
+        "metric": "opdemand_forecast_poe10",
+        "value": 1616.0,
+        "unit": "MW",
+        "valid_at_utc": "2026-07-30T17:00:00Z",
+        "valid_at_local": "2026-07-31 02:30 ACST (UTC+0930)",
+        "evidence_id": "ev0539",
+        "source_row_ids": [
+          "OPDEM_FORECAST_HH:PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607301930_20260730190159:L806"
+        ]
+      },
+      {
+        "metric": "opdemand_forecast_poe90",
+        "value": 1422.0,
+        "unit": "MW",
+        "valid_at_utc": "2026-07-30T17:00:00Z",
+        "valid_at_local": "2026-07-31 02:30 ACST (UTC+0930)",
+        "evidence_id": "ev0540",
+        "source_row_ids": [
+          "OPDEM_FORECAST_HH:PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607301930_20260730190159:L806"
+        ]
+      },
+      {
+        "metric": "opdemand_actual",
+        "value": 2146.0,
+        "unit": "MW",
+        "valid_at_utc": "2026-07-30T09:00:00Z",
+        "valid_at_local": "2026-07-30 18:30 ACST (UTC+0930)",
+        "evidence_id": "ev0585",
+        "source_row_ids": [
+          "OPDEM_ACTUAL_HH:PUBLIC_ACTUAL_OPERATIONAL_DEMAND_HH_202607301900_20260730190006:L5"
+        ]
+      }
+    ]
+  }
+}
