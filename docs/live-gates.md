@@ -968,3 +968,41 @@ clock time, and no part-of-day word.
 
 The gate rule is unchanged: L3 passes only if H1–H5 and Q1–Q4 genuinely hold. A fallback is not a model answer, and
 neither the L4 screenshot nor green CI counts as Live evaluation evidence.
+
+### L3 run 3, attempt 1: aborted by an API timeout (no case result)
+
+- **What happened:** `python scripts/live_diagnose.py --cases … --label L3-run3` (commit `fa37465`, prompts v7)
+  crashed on its first case, EV02.
+  - Route and three tool turns completed (USD 0.0137 settled).
+  - The synthesis request then hit the SDK's 60-second timeout. The SDK's built-in retry (`max_retries=1`) sent it a
+    second time, which also timed out after about 122 s in total, and `openai.APITimeoutError` ended the script.
+  - No case result and no trace were saved (`artifacts/live/L3-run3/` was empty). The log is
+    `artifacts/logs/l3_run3_attempt1_timeout.log`.
+- **Budget-accounting flaw found:**
+  - The controller settled the failed call at **USD 0** ("a failed request is not billed"). A request that timed out
+    after being sent may still have been processed and billed.
+  - The SDK's hidden retry was a second request that the ledger never reserved.
+  - A scan of every saved trace found **3 earlier calls longer than the 60-second timeout** (114 s, 110 s and 119 s).
+    In each, a first attempt must have timed out and a hidden retry succeeded, and the ledger recorded only the
+    retry's usage.
+  - Affected runs: L2 run 2 FC01 synthesis, L3 run 2 FC08 tools turn, L4 run 2 synthesis.
+- **Fix:**
+  - The SDK makes no retries (`max_retries=0`), so every request is reserved and settled by the controller.
+  - The default timeout is 300 s. Observed call durations: p50 18 s, p95 50 s, maximum 119 s.
+  - A failed call is settled at **USD 0 only when the provider rejected it (HTTP 4xx)**. After a timeout, a
+    connection error or a 5xx it stays at its worst case.
+  - A failed call is written to the trace (`<stage>:error`).
+  - `live_diagnose.py` records an API failure for that case, with its ledger cost, and continues.
+  - Tests:
+    - `test_a_failed_call_stays_counted_unless_the_provider_rejected_it` (timeout, 5xx, 4xx);
+    - `test_charges_count_towards_the_task_budget`;
+    - `test_the_sdk_never_retries_behind_the_ledger`.
+- **Ledger correction:** entries were appended, nothing edited or reset. A new `charge` entry kind counts towards the
+  cap; five charges, each with a note, total **USD 0.1874**:
+  - the worst case of each of the 3 unrecorded first attempts (USD 0.0439, 0.0221, 0.0403);
+  - both attempts of the timed-out EV02 synthesis (2 × USD 0.0406).
+
+  Ledger after the correction: **USD 1.3781 counted, USD 3.6219 remaining.** The earlier per-run costs in this
+  document are the settled usage; these charges are the conservative allowance for attempts whose billing is unknown.
+- **Consequence for L3:** attempt 1 produced no result. Run 3 is repeated from its first case under the same label and
+  the same frozen ten.

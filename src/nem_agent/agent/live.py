@@ -140,8 +140,10 @@ class OpenAITransport:
     def __init__(self, timeout_s: float | None = None, client: Any = None) -> None:
         from openai import OpenAI
 
-        self.client = client or OpenAI(timeout=timeout_s or float(os.environ.get("NEM_AGENT_API_TIMEOUT_S", "60")),
-                                       max_retries=1)
+        # No SDK retries: a hidden retry is a second billed request the ledger never reserved (L3 run 3: a 60 s timeout
+        # and one retry sent a synthesis request twice). Each attempt is reserved and settled by the controller.
+        self.client = client or OpenAI(timeout=timeout_s or float(os.environ.get("NEM_AGENT_API_TIMEOUT_S", "300")),
+                                       max_retries=0)
 
     def create(self, **kwargs: Any) -> dict[str, Any]:
         resp = self.client.responses.create(**kwargs)
@@ -383,8 +385,14 @@ class LiveController:
         t0 = time.monotonic()
         try:
             resp = self.client.create(model=self.model, store=False, max_output_tokens=max_out, **kwargs)
-        except Exception:
-            budget.settle(rid, 0.0)  # a failed request is not billed
+        except Exception as exc:
+            # Only a request the provider rejected (HTTP 4xx) is known not to be billed. After a timeout, a connection
+            # error or a 5xx it may have been processed, so it stays counted at its worst case.
+            code = getattr(exc, "status_code", None)
+            unbilled = isinstance(code, int) and 400 <= code < 500
+            budget.settle(rid, 0.0 if unbilled else worst)
+            trace.add("model", f"{stage}:error", error=type(exc).__name__, status_code=code,
+                      settled_usd=0.0 if unbilled else worst, duration_ms=round((time.monotonic() - t0) * 1000, 1))
             raise
         cost = budget.call_cost(self.model, resp.get("usage"))
         budget.settle(rid, cost if cost is not None else worst, resp.get("usage"))

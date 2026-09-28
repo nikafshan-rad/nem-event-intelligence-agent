@@ -472,3 +472,52 @@ def test_repair_shows_the_failing_hypothesis_test_and_hints_for_time_codes():
     msg = repair_message(res, rep)
     assert 'in: "Check unit trips from 11:00."' in msg and "clock_times" in msg
     assert {"TIME_ZONE_MISSING", "TIME_OF_DAY_UNVERIFIED"} <= set(REPAIR_HINTS)
+
+
+class _Failing:
+    """A transport whose call fails after (timeout) or without (HTTP 4xx) the provider processing it."""
+
+    def __init__(self, status_code=None):
+        self.status_code = status_code
+
+    def create(self, **kw):
+        exc = RuntimeError("Request timed out." if self.status_code is None else "Bad request")
+        if self.status_code is not None:
+            exc.status_code = self.status_code  # type: ignore[attr-defined]
+        raise exc
+
+
+@pytest.mark.parametrize("status_code, billed", [(None, True), (500, True), (400, False)])
+def test_a_failed_call_stays_counted_unless_the_provider_rejected_it(status_code, billed):
+    """L3 run 3: a synthesis call timed out after the request was sent and was settled at USD 0. A timeout, a
+    connection error or a 5xx may still be billed, so the reservation stays at its worst case; only a 4xx is not."""
+    from nem_agent import budget
+    from nem_agent.agent.live import LiveController
+    from nem_agent.evidence import EvidenceRegistry
+    from nem_agent.report import Versions
+    from nem_agent.trace import Trace
+
+    live = LiveController(None, EvidenceRegistry(), Versions(code="t", data="t", corpus="t", prompt="t", model=None,
+                                                             controller="live"), client=_Failing(status_code))
+    trace = Trace()
+    with pytest.raises(RuntimeError):
+        live._call(trace, "synthesis", input=[{"role": "user", "content": "x"}])
+    entries = [json.loads(ln) for ln in budget.ledger_path().read_text().splitlines()]
+    worst = next(e["usd"] for e in entries if e["kind"] == "reserve")
+    assert budget.spent() == pytest.approx(worst if billed else 0.0, abs=1e-9)
+    err = next(e for e in trace.events if e["name"] == "synthesis:error")
+    assert err["settled_usd"] == (worst if billed else 0.0)
+
+
+def test_charges_count_towards_the_task_budget():
+    from nem_agent import budget
+
+    budget.charge("gpt-5-mini", "synthesis", 0.04, "hidden SDK retry")
+    assert budget.spent() == pytest.approx(0.04)
+
+
+def test_the_sdk_never_retries_behind_the_ledger(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "placeholder-not-a-key")  # the client is only constructed; no request is sent
+    monkeypatch.delenv("NEM_AGENT_API_TIMEOUT_S", raising=False)
+    t = OpenAITransport()
+    assert t.client.max_retries == 0 and t.client.timeout == 300

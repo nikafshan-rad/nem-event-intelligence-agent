@@ -4,7 +4,9 @@ Each model call first **reserves** its worst-case cost (a generous estimate of t
 ``max_output_tokens``, all at list price) in an append-only ledger under an exclusive file lock. The call is refused
 when the amount already spent or reserved plus that reservation would exceed the cap. After the call the reservation is
 **settled** at the actual cost from the reported usage (cached input at the cached rate). A reservation that is never
-settled (a crash) stays counted, so the ledger over-counts rather than under-counts.
+settled (a crash) stays counted, so the ledger over-counts rather than under-counts. A request whose outcome is
+unknown (a timeout or a connection error after it was sent) is settled at its worst case, because the provider may
+still have processed and billed it. A **charge** records such a cost for an attempt the ledger never reserved.
 
 Cap: ``NEM_AGENT_TOTAL_BUDGET_USD`` (default ``config.LIVE_TOTAL_BUDGET_USD``). Ledger: ``NEM_AGENT_BUDGET_LEDGER``
 (default ``artifacts/live_budget/ledger.jsonl``, git-ignored). No key or prompt text is written to the ledger.
@@ -82,12 +84,16 @@ def _committed(fh: Any) -> float:
     fh.seek(0)
     reserved: dict[str, float] = {}
     settled: dict[str, float] = {}
+    charged = 0.0
     for ln in fh.read().splitlines():
         if not ln.strip():
             continue
         e = json.loads(ln)
-        (settled if e["kind"] == "settle" else reserved)[e["id"]] = float(e["usd"])
-    return sum(settled.values()) + sum(v for k, v in reserved.items() if k not in settled)
+        if e["kind"] == "charge":
+            charged += float(e["usd"])
+        else:
+            (settled if e["kind"] == "settle" else reserved)[e["id"]] = float(e["usd"])
+    return sum(settled.values()) + sum(v for k, v in reserved.items() if k not in settled) + charged
 
 
 def spent() -> float:
@@ -117,5 +123,14 @@ def settle(rid: str, actual_usd: float, usage: dict[str, Any] | None = None) -> 
                              "input_tokens": u.get("input_tokens"), "output_tokens": u.get("output_tokens"),
                              "cached_tokens": (u.get("input_tokens_details") or {}).get("cached_tokens"),
                              "at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")}) + "\n")
+        fh.flush()
+        os.fsync(fh.fileno())
+
+
+def charge(model: str, stage: str, usd: float, note: str) -> None:
+    """Record a possible cost the ledger never reserved (e.g. a hidden SDK retry), at its worst case."""
+    with _locked() as fh:
+        fh.write(json.dumps({"id": uuid.uuid4().hex, "kind": "charge", "usd": usd, "model": model, "stage": stage,
+                             "note": note, "at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")}) + "\n")
         fh.flush()
         os.fsync(fh.fileno())

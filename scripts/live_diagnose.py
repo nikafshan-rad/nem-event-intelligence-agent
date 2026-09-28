@@ -102,12 +102,21 @@ def main() -> int:
     start = budget.spent()
     summary = []
     for cid in ids:
+        before = budget.spent()
         try:
             rec = diagnose(cases[cid])
         except budget.BudgetExceeded as exc:
             print(f"[{cid}] STOPPED: {exc}")
             summary.append({"case_id": cid, "stopped": str(exc)})
             break
+        except Exception as exc:  # an API failure ends this case, not the run; what it cost stays in the ledger
+            err = {"case_id": cid, "error": f"{type(exc).__name__}: {str(exc)[:200]}",
+                   "ledger_cost_usd": round(budget.spent() - before, 6)}
+            print(f"[{cid}] ERROR {err['error']} (ledger cost {err['ledger_cost_usd']} USD, counted at worst case)")
+            (out_dir / f"{cid}.error.json").write_text(json.dumps(err, indent=2) + "\n")
+            summary.append(err)
+            continue
+        rec["score"]["ledger_cost_usd"] = round(budget.spent() - before, 6)
         (out_dir / f"{cid}.json").write_text(json.dumps(rec, indent=2, default=str) + "\n")
         s = rec["score"]
         summary.append(s | {"validation": rec.get("validation", {})})
