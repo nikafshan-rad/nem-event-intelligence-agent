@@ -30,8 +30,8 @@ AEMO data, with every number traced to a source row and every quote checked agai
 
 ### Verification status
 
-- **CI:** passed on `main` `ab08fe6` (lint, type check, real-data build from the approved-bytes store, tests, Replay
-  evaluation, safety suite; Python 3.12 and 3.14).
+- **CI:** passed on `main` `c5faf6c` (lint, type check, real-data build from the approved-bytes store, tests, Replay
+  evaluation, safety suite; Python 3.12 and 3.14). The release-notes change after it touches documentation only.
 - **Offline:** 305 tests pass; the Replay evaluation and the safety suite (24/24) pass.
 - **Live, held-out v4:** 20 cases written and gold-checked by independent agents, frozen with the pass rule before
   any paid call, run once.
