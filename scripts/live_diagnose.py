@@ -81,7 +81,7 @@ def diagnose(case: dict[str, Any]) -> dict[str, Any]:
                                    v.get("after_fallback", v.get("initial", {})).get("violations", [])]}
     rec["report"] = {k: rep.get(k) for k in ("status", "headline", "summary", "numeric_claims", "possible_explanations",
                                               "published_findings", "citations", "uncertainties", "missing_evidence",
-                                              "as_of", "event_window")}
+                                              "as_of", "event_window", "search_scope")}
     rec["report"]["observations"] = [{k: o.get(k) for k in ("metric", "value", "unit", "valid_at_utc", "valid_at_local",
                                                            "evidence_id", "source_row_ids")} for o in rep["observations"]]
     return rec

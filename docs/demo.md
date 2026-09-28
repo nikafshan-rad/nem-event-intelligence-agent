@@ -94,10 +94,12 @@ are rejected (`tests/approvals`). Nothing leaves `data/case_notes/`.
 
 **Known Live behaviour** (measured on held-out cases in [`live-gates.md`](live-gates.md) L3; the Live evaluation
 gate is FAIL):
-- Some answerable questions end in the amber "validated tool facts only" result instead of a model answer: 2 of 8
-  fresh cases.
-  - A document answer about "10% and 90% POE" forecasts: the repair copied the passage without quotation marks.
-  - A question about other regions' notices: the model searched without a region and found nothing.
+- On an independent held-out set, safety held, but answers were complete and on target in only 10 of 14 cases.
+  - A demand measure was substituted: operational demand given where total demand was asked, or the reverse.
+  - A forecast's issue time was read as an as-of cutoff.
+  - The answering passage was not retrieved.
+  - 1 of 14 ended in the amber "validated tool facts only" result.
+- Notice searches show what was and was not searched; "not searched" is never reported as "none found".
 - Descriptions the validator cannot check can be wrong even when every number and time is right, e.g. hourly samples
   described as "immediately before and after", or 19:00 called "daytime".
 - Times in answers and hypotheses carry a zone and are checked against tool times. Hypotheses remain hedged
