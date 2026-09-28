@@ -32,5 +32,8 @@ PLAYBOOKS: dict[str, Playbook] = {
         "source_explanation",
         required=("retrieve_public_evidence",),
         optional=("get_price_timeline", "find_market_events"),
+        # notices are searched one region per call: room for all five NEM regions plus one general search, so a
+        # question about "other regions" can be searched completely (L3 live, ADV02). Model calls stay capped at 8.
+        max_calls_per_required_tool=6,
     ),
 }

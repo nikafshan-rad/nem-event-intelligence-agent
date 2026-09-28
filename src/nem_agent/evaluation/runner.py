@@ -123,7 +123,8 @@ def _pct(xs: list[float], q: float) -> float | None:
 
 
 # ---------------------------------------------------------------------------------------- system run
-def run_system_case(case: dict[str, Any], mode: str) -> dict[str, Any]:
+def run_system_case(case: dict[str, Any], mode: str, keep: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Run one case and score it. ``keep`` (optional) receives the full result for diagnostics."""
     exp = case["expected"]
     kind = exp.get("kind")
     if kind in ("approval_bypass", "approval_valid_then_duplicate"):
@@ -134,6 +135,8 @@ def run_system_case(case: dict[str, Any], mode: str) -> dict[str, Any]:
     with ctx:
         res = investigate(req)
     latency = (time.monotonic() - t0) * 1000
+    if keep is not None:
+        keep["result"] = res
     rep = res.report.model_dump()
     final_viol = rep["validation"].get("after_fallback", rep["validation"]["initial"])["violations"]
     initial_viol = rep["validation"]["initial"]["violations"]

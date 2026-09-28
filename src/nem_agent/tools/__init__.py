@@ -21,7 +21,8 @@ class ToolSpec:
 TOOLS: dict[str, ToolSpec] = {s.name: s for s in [
     ToolSpec("find_market_events", A.FindMarketEventsArgs, impl.find_market_events,
              "Find 5-minute intervals in a region/window whose dispatch price meets a project analysis threshold "
-             "(high: RRP >= threshold; low: RRP < threshold). Returns grouped episodes with evidence ids."),
+             "(high: RRP >= threshold; low: RRP < threshold). Returns grouped episodes with evidence ids. Optional "
+             "as_of_utc hides intervals not yet public at that time."),
     ToolSpec("get_price_timeline", A.PriceTimelineArgs, impl.get_price_timeline,
              "5-minute regional dispatch price (RRP) and dispatch context (TOTALDEMAND, NETINTERCHANGE) for a bounded "
              "window (max 48 h). Optional as_of_utc hides intervals not yet public at that time."),

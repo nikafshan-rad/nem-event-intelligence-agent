@@ -95,6 +95,18 @@ class Versions(_M):
     controller: str
 
 
+class SearchScope(_M):
+    """One document search as it was actually executed (built by the controller from the tool call, not the model)."""
+    call_id: str
+    query: str
+    region: str | None
+    event_window_utc: list[str | None]
+    as_of_utc: str | None
+    document_types: list[str] | None
+    results: int
+    market_notices: str = Field(description="'searched: <outcome>', 'not searched: <reason>' or 'not requested'")
+
+
 class InvestigationReport(_M):
     schema_version: Literal["1"] = "1"
     question: str
@@ -113,6 +125,7 @@ class InvestigationReport(_M):
     missing_evidence: list[str] = Field(default_factory=list)
     citations: list[Citation] = Field(default_factory=list)
     numeric_claims: list[NumericClaim] = Field(default_factory=list)
+    search_scope: list[SearchScope] = Field(default_factory=list, description="document searches actually executed")
     source_manifest: dict[str, Any] = Field(default_factory=dict)
     status: Status
     trace_id: str

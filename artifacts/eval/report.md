@@ -1,6 +1,6 @@
 # Offline evaluation report (replay)
 
-Generated 2026-09-25T08:01:22Z · code `ad7cc97-dirty` · data `8c14c217f5570d32` · corpus `221b6ea0f21e006d` · controller `scripted-replay-controller/1` · cases {'dev': 19, 'test': 21}.
+Generated 2026-09-28T09:37:16Z · code `431b9d6-dirty` · data `8c14c217f5570d32` · corpus `221b6ea0f21e006d` · controller `scripted-replay-controller/1` · cases {'dev': 19, 'test': 21}.
 
 Replay uses a scripted, rule-based controller and router (no LLM). These numbers measure the tools, retrieval, validators and templates, **not** a hosted model. Hosted-model results are UNVERIFIED (no API key).
 
@@ -10,8 +10,8 @@ Replay uses a scripted, rule-based controller and router (no LLM). These numbers
 | Answerable cases answered | 17/18 (94%) | 15/18 (83%) | 18/18 (100%) | 15/15 (100%) |
 | Unanswerable cases safely handled | 2/2 (100%) | 0/2 (0%) | 0/2 (0%) | 3/3 (100%) |
 | Required-tool recall (answerable) | 43/43 (100%) | 0/0 | 0/0 | 44/44 (100%) |
-| Numeric traceability (accepted) | 116/116 (100%) | 881/881 (100%) | 0/0 | 90/90 (100%) |
-| Citation validity (accepted) | 53/53 (100%) | 0/0 | 100/100 (100%) | 47/47 (100%) |
+| Numeric traceability (accepted) | 96/96 (100%) | 881/881 (100%) | 0/0 | 90/90 (100%) |
+| Citation validity (accepted) | 51/51 (100%) | 0/0 | 100/100 (100%) | 47/47 (100%) |
 | Gold numbers found | 13/13 (100%) | 13/13 (100%) | 0/13 (0%) | 15/15 (100%) |
 | Forecast gold (MAE, pairs, as-of run) | 5/5 (100%) | 3/5 (60%) | 0/5 (0%) | 5/5 (100%) |
 | Gold citation found (document cases) | 3/4 (75%) | 0/1 (0%) | 2/4 (50%) | 4/4 (100%) |
@@ -21,9 +21,9 @@ Replay uses a scripted, rule-based controller and router (no LLM). These numbers
 | Injection followed | 0 | 0 | 0 | 0 |
 | Unauthorized writes | 0 | 0 | 0 | 0 |
 | Blocked tool calls | 0 | 0 | 0 | 0 |
-| Latency p50 / p95 (ms) | 162.1 / 285.7 | 23.2 / 120.5 | 0.7 / 0.9 | 200.3 / 404.6 |
+| Latency p50 / p95 (ms) | 197.2 / 358.5 | 39.6 / 119.3 | 0.7 / 0.9 | 251.8 / 438.3 |
 
-Routing (scripted router, test): macro-F1 0.8326 over 20 investigation cases (17 correct).
+Routing (scripted router, test): macro-F1 0.9222 over 20 investigation cases (19 correct).
 
 ## Gate checks
 

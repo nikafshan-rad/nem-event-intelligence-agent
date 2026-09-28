@@ -110,6 +110,67 @@ def build_fixtures(selection: Any) -> list[Fixture]:
     add("paraphrased_finding", "FINDING_NOT_QUOTED", "a notice paraphrased as a finding instead of quoted verbatim",
         paraphrase)
 
+    def mislabelled_time(r: InvestigationReport, g: EvidenceRegistry) -> InvestigationReport:
+        # Observed in a live gpt-5-mini run: the 16:35 UTC peak written as "2026-07-30 16:30 ACST".
+        c = first_claim(r, "$/MWh")
+        return r.model_copy(update={"summary": [*r.summary, f"The price was ${c.value:,.2f}/MWh at 2026-07-30 16:35 ACST."]})
+    add("time_mislabelled", "TIME_NOT_IN_EVIDENCE", "a UTC time relabelled as local time", mislabelled_time)
+
+    def other_region(r: InvestigationReport, g: EvidenceRegistry) -> InvestigationReport:
+        c = first_claim(r, "$/MWh")
+        ev = g.get(c.evidence_id)
+        assert ev is not None
+        ev.region = "VIC1"  # the claim's evidence now belongs to another region
+        return r
+    add("claim_other_region", "CLAIM_REGION_MISMATCH", "a number taken from another region's evidence", other_region)
+
+    def half_hour_label(r: InvestigationReport, g: EvidenceRegistry) -> InvestigationReport:
+        c = next(c for c in r.numeric_claims if (ev := g.get(c.evidence_id)) and ev.interval_minutes == 5
+                 and c.unit == "$/MWh")  # a 5-minute dispatch price presented as a half-hour price
+        return r.model_copy(update={"summary": [*r.summary, f"The half-hour price was ${c.value:,.2f}/MWh."]})
+    add("interval_mislabelled", "CLAIM_INTERVAL_MISMATCH", "a 5-minute value labelled as a half-hour value",
+        half_hour_label)
+
+    def fabricated_quote(r: InvestigationReport, g: EvidenceRegistry) -> InvestigationReport:
+        cid = r.citations[0].citation_id  # a real citation, but the quoted words are not in its passage
+        return r.model_copy(update={"summary": [*r.summary, f"“AEMO directed all generators to cut output at once.” [{cid}]"]})
+    add("quote_fabricated", "QUOTE_NOT_IN_SOURCE", "a fully quoted sentence the cited passage does not contain",
+        fabricated_quote)
+
+    def measure_substituted(r: InvestigationReport, g: EvidenceRegistry) -> InvestigationReport:
+        keep = [c for c in r.numeric_claims if (ev := g.get(c.evidence_id)) is None or ev.metric != "dispatch_totaldemand"]
+        return r.model_copy(update={"question": r.question + " What was total demand at the peak?",
+                                    "numeric_claims": keep})
+    add("measure_substituted", "MEASURE_SUBSTITUTED", "total demand asked, only operational demand given",
+        measure_substituted)
+
+    def notice_timing_omitted(r: InvestigationReport, g: EvidenceRegistry) -> InvestigationReport:
+        # the report cites the region's notices but never sets their times against the event (held-out H13)
+        return r.model_copy(update={"question": r.question + " Was it caused by the line outage in AEMO's notice?"})
+    add("notice_timing_omitted", "NOTICE_TIMING_OMITTED", "asked whether a notice's outage explains the spike; the "
+        "notice's time is never set against the event", notice_timing_omitted)
+
+    def notice_timing_reversed(r: InvestigationReport, g: EvidenceRegistry) -> InvestigationReport:
+        # notice 144693 gives 1630 hrs NEM time (06:30Z), before the last of the high-price intervals (22:20Z)
+        return r.model_copy(update={"summary": [*r.summary, "The line outage notice gives 2026-07-30 16:00 ACST, after "
+                                                "the last 5-minute interval at or above the analysis threshold."]})
+    add("notice_timing_reversed", "NOTICE_TIMING_CONTRADICTED", "a notice time stated after the last high-price "
+        "interval when it is before it", notice_timing_reversed)
+
+    def unzoned_hypothesis_time(r: InvestigationReport, g: EvidenceRegistry) -> InvestigationReport:
+        return r.model_copy(update={"possible_explanations": [*r.possible_explanations, Hypothesis(
+            statement="Constraint automation invoked from 11:00 might have limited imports around the peak.",
+            what_would_test_it="Constraint binding records for the peak interval.")]})
+    add("hypothesis_time_unzoned", "TIME_ZONE_MISSING", "a notice's clock time in a hypothesis without its zone",
+        unzoned_hypothesis_time)
+
+    def part_of_day_from_utc(r: InvestigationReport, g: EvidenceRegistry) -> InvestigationReport:
+        return r.model_copy(update={"possible_explanations": [*r.possible_explanations, Hypothesis(
+            statement="Prices may have stayed high through the afternoon, peaking at 16:35 UTC.",
+            what_would_test_it="Offer data for the peak interval.")]})
+    add("part_of_day_from_utc", "TIME_OF_DAY_UNVERIFIED", "a UTC clock read as the region's time of day",
+        part_of_day_from_utc)
+
     def unknown_chunk(r: InvestigationReport, g: EvidenceRegistry) -> InvestigationReport:
         c = r.citations[0].model_copy(update={"citation_id": "sY", "chunk_id": "made_up#0"})
         return r.model_copy(update={"citations": [*r.citations, c]})

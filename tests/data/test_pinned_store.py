@@ -181,3 +181,64 @@ def test_real_index_covers_every_pin_with_attribution_and_history():
     assert v97["sha256"] == "481012861541a8a7ba4349e090dada199be1fec1136ecf159a46a2fb715ea3cd"
     assert "3a7ea10c" in v97["provenance"] and [e["event"] for e in v97["approval"]][:2] == ["approved", "superseded"]
     assert all(o["publisher"] in ("AEMO", "NASA") and o["attribution"] for o in idx["objects"])
+
+
+def _download_runner(results):
+    """A fake `gh` that answers each `release download` with the next (returncode, stderr) and records the dirs."""
+    calls, dirs = [], []
+
+    def run(cmd):
+        calls.append(cmd)
+        dirs.append(Path(cmd[cmd.index("--dir") + 1]))
+        rc, err = results[len(calls) - 1]
+        if rc == 0:
+            (dirs[-1] / "a").write_bytes(b"x")
+        else:
+            (dirs[-1] / "partial").write_bytes(b"half")  # a failed attempt may leave a partial file behind
+        return subprocess.CompletedProcess(cmd, rc, "", err)
+    return run, calls, dirs
+
+
+def test_release_download_retries_transient_server_errors_only():
+    """CI on a0f9995: one HTTP 500 on a release asset failed the restore step outright."""
+    run, calls, dirs = _download_runner([(1, "HTTP 500 (https://api.github.com/repos/o/r/releases/assets/1)"),
+                                         (1, "read: connection reset by peer"), (0, "")])
+    waits, logs = [], []
+    be = pinstore.GitHubReleaseBackend("owner/repo", run=run, sleep=waits.append, log=logs.append)
+    d = be._download("T1")
+    assert len(calls) == 3 and waits == [10.0, 30.0] and len(logs) == 2
+    assert d == dirs[-1] and (d / "a").exists()
+    assert not dirs[0].exists() and not dirs[1].exists()  # partial downloads are discarded, never reused
+    assert be._download("T1") == d and len(calls) == 3    # downloaded once per run
+    flat = " ".join(" ".join(c) for c in calls)
+    assert "token" not in flat.lower()                    # authentication stays with gh (GH_TOKEN), not arguments
+
+
+@pytest.mark.parametrize("err", ["HTTP 404: Not Found (https://api.github.com/repos/o/r/releases/tags/T1)",
+                                 "HTTP 401: Bad credentials", "HTTP 403: Resource not accessible by integration",
+                                 "release not found"])
+def test_release_download_fails_at_once_on_permanent_errors(err):
+    run, calls, _ = _download_runner([(1, err)] * 3)
+    be = pinstore.GitHubReleaseBackend("owner/repo", run=run, sleep=lambda s: None, log=lambda *a: None)
+    with pytest.raises(RuntimeError, match="attempt 1 of 3"):
+        be._download("T1")
+    assert len(calls) == 1
+
+
+def test_release_download_gives_up_after_three_transient_errors():
+    run, calls, _ = _download_runner([(1, "HTTP 502 Bad Gateway")] * 3)
+    be = pinstore.GitHubReleaseBackend("owner/repo", run=run, sleep=lambda s: None, log=lambda *a: None)
+    with pytest.raises(RuntimeError, match="attempt 3 of 3"):
+        be._download("T1")
+    assert len(calls) == 3
+
+
+def test_restored_bytes_are_still_checked_against_their_sha256(tmp_path):
+    """A retried download changes nothing about verification: bytes that do not hash to the pin are rejected."""
+    obj = {"sha256": "0" * 64, "release": "T1", "size": 1}
+
+    class Backend:
+        def get(self, o):
+            return b"not the pinned bytes"
+    assert pinstore.satisfies(obj, Backend().get(obj), type("S", (), {"sha256": "0" * 64, "content_sha256": None,
+                                                                       "dataset": "X"})()) is False

@@ -30,7 +30,31 @@ from .embed import Embedder, load_model2vec
 EVENT_SPECIFIC = {"market_notice", "event_report"}
 DEFN_WORDS = {"definition", "define", "defined", "meaning", "explain", "explained", "term", "terms", "data", "s", "nem",
               "used", "use", "context", "field", "value"}
-DEFN_QUERY_RE = re.compile(r"\b(definition|define[sd]?|meaning|what (is|are|does)|mean(s)? by|explain)\b", re.I)
+def defn_phrase(query: str) -> str:
+    """The term a definition query asks about: a quoted phrase if there is one, else the remaining words, each once.
+
+    A live model wrote `operational demand definition "operational demand" AEMO definition`; without de-duplication
+    the phrase became "operational demand operational demand" and the definitional rerank missed the definition."""
+    quoted = (re.findall(r"[\"\u201c]([^\"\u201d]{2,80})[\"\u201d]", query)
+              # 'single-quoted' or ‘curly’ terms too, but not apostrophes inside words (AEMO's)
+              or re.findall(r"(?:^|(?<=[\s(]))['\u2018]([^'\u2019]{2,80})['\u2019](?=[\s?.,;:)]|$)", query))
+    words: list[str] = []
+    for t in re.findall(r"[a-z0-9_]+", (quoted[0] if quoted else query).lower()):
+        if t not in STOP | DEFN_WORDS and t not in words:
+            words.append(t)
+    return " ".join(words)
+
+
+DEFN_QUERY_RE = re.compile(r"\b(definition|define[sd]?|meaning|what (is|are|does)|mean(s)? by|explain|"
+                           r"what counts (towards|as)|in plain terms)\b", re.I)
+# "POE10" is one token to the keyword index, while AEMO's documents write "10% POE" (held-out H07 missed the passage)
+_POE_RE = re.compile(r"\bPOE ?(10|50|90)\b", re.I)
+
+
+def expand_query(query: str) -> str:
+    """Add AEMO's own spelling of terms a question may abbreviate, for matching only."""
+    extra = sorted({f"{m}% POE" for m in _POE_RE.findall(query)})
+    return f"{query} {' '.join(extra)} probability of exceedance" if extra else query
 STOP = {"the", "a", "an", "of", "and", "or", "in", "on", "for", "to", "is", "are", "was", "what", "does", "do", "how",
         "did", "this", "that", "with", "by", "at", "as", "be", "it", "from", "about", "which", "mean", "means", "aemo"}
 
@@ -64,6 +88,24 @@ def load_index(index_dir: Path | None = None) -> tuple[list[dict[str, Any]], Any
     if not m.exists():
         raise IndexMissingError(f"no document index at {d}; run `make index`")
     return _load(str(d), m.stat().st_mtime)
+
+
+def event_documents_in_scope(region: str | None, event_start: datetime | None, event_end: datetime | None,
+                             as_of: datetime | None, index_dir: Path | None = None) -> dict[str, int]:
+    """How many market notices and event reports the local corpus holds for a region and window, under the same
+    eligibility rules as ``search``: 'eligible' could be returned; 'published_after_as_of' exist but were not public."""
+    rows, _vecs, _emb, _m = load_index(index_dir)
+    out = {"eligible": 0, "published_after_as_of": 0}
+    for r in rows:
+        if r["doc_type"] not in EVENT_SPECIFIC:
+            continue
+        ok, why = eligibility(r, region=region, event_start=event_start, event_end=event_end, as_of=as_of,
+                              doc_types=None)
+        if ok:
+            out["eligible"] += 1
+        elif why == "published_after_as_of":
+            out["published_after_as_of"] += 1
+    return out
 
 
 def indexed_doc_ids(index_dir: Path | None = None) -> set[str]:
@@ -121,14 +163,15 @@ def search(query: str, *, region: str | None = None, event_start: datetime | Non
     d = index_dir or paths.index_dir()
     con = sqlite3.connect(d / "corpus.sqlite")
     allowed_rowids = {int(i) + 1 for i in allowed}
+    match_q = expand_query(query)
     bm = [(rid - 1, score) for rid, score in con.execute(
         "SELECT rowid, bm25(chunks_fts, 0.5, 3.0, 1.0) FROM chunks_fts WHERE chunks_fts MATCH ? ORDER BY 2 LIMIT 400",
-        [_fts_query(query)]) if rid in allowed_rowids][:30]
+        [_fts_query(match_q)]) if rid in allowed_rowids][:30]
     con.close()
-    phrase = " ".join(t for t in re.findall(r"[a-z0-9_]+", query.lower()) if t not in STOP | DEFN_WORDS)
+    phrase = defn_phrase(query)
     is_defn_query = bool(DEFN_QUERY_RE.search(query)) and bool(phrase)
     # Definition-style questions: the dense query also carries the templated form "<term> is defined as".
-    qv = emb.encode([query + (f". {phrase} is defined as" if is_defn_query else "")])[0]
+    qv = emb.encode([match_q + (f". {phrase} is defined as" if is_defn_query else "")])[0]
     mat, owner = vecs
     sims = mat @ qv
     best: dict[int, float] = {}

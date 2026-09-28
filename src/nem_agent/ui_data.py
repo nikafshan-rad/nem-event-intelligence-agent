@@ -88,11 +88,13 @@ def demand_chart(df: pd.DataFrame, region: str, tz_name: str, theme: str = "ligh
     colors = SERIES[theme]
     x = alt.X("t:T", title=f"Half-hour end, local time ({tz_name})", scale=alt.Scale(type="utc"),
               axis=alt.Axis(format="%d %b %H:%M", labelOverlap=True, grid=False))
-    color = alt.Color("series:N", title=None, scale=alt.Scale(domain=[LABEL_ACTUAL, LABEL_FORECAST],
-                                                             range=[colors["actual"], colors["forecast"]]),
+    # legend only for series that are drawn (a live run may fetch no forecasts); each keeps its fixed colour and dash
+    present = [s for s in (LABEL_ACTUAL, LABEL_FORECAST) if s in set(df["series"])]
+    hue = {LABEL_ACTUAL: colors["actual"], LABEL_FORECAST: colors["forecast"]}
+    stroke = {LABEL_ACTUAL: [1, 0], LABEL_FORECAST: [6, 3]}
+    color = alt.Color("series:N", title=None, scale=alt.Scale(domain=present, range=[hue[s] for s in present]),
                       legend=alt.Legend(orient="top", direction="horizontal", symbolType="stroke", symbolStrokeWidth=2))
-    dash = alt.StrokeDash("series:N", scale=alt.Scale(domain=[LABEL_ACTUAL, LABEL_FORECAST], range=[[1, 0], [6, 3]]),
-                          legend=None)
+    dash = alt.StrokeDash("series:N", scale=alt.Scale(domain=present, range=[stroke[s] for s in present]), legend=None)
     base = alt.Chart(df)
     lines = base.mark_line(interpolate="step-before", strokeWidth=2).encode(
         x=x, y=alt.Y("mw:Q", title="MW (half-hour average)", scale=alt.Scale(zero=False),
@@ -110,8 +112,9 @@ def demand_chart(df: pd.DataFrame, region: str, tz_name: str, theme: str = "ligh
         x=x, y="mw:Q", text=alt.Text("series:N"), color=alt.value("#52514e" if theme == "light" else "#c3c2b7"))
     # Streamlit sizes charts with autosize=fit: title, legend and axes come out of `height`, so leave room.
     return alt.layer(lines, points, labels).properties(
-        height=380, title=alt.TitleParams(f"{region} operational demand: actual vs latest AEMO forecast (half-hourly)",
-                                          anchor="start"))
+        height=380, title=alt.TitleParams(
+            f"{region} operational demand: actual vs latest AEMO forecast (half-hourly)" if LABEL_FORECAST in present
+            else f"{region} operational demand: actual (half-hourly; no forecast runs were retrieved)", anchor="start"))
 
 
 def observation_table(report: dict[str, Any]) -> pd.DataFrame:
@@ -119,3 +122,40 @@ def observation_table(report: dict[str, Any]) -> pd.DataFrame:
              "class": o["evidence_class"], "evidence": o["evidence_id"], "source row": ", ".join(o["source_row_ids"][:2]),
              "label": o["label"]} for o in report["observations"]]
     return pd.DataFrame(rows)
+
+
+def result_provenance(rep: dict[str, Any], usage: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Who wrote the report on screen, taken from the report itself (never from the UI's mode selector).
+
+    A replay report is always labelled REPLAY; a live report is labelled by what actually reached the user: the
+    model's validated answer, or the facts-only fallback shown when the model's answer failed validation.
+    """
+    v = rep.get("validation") or {}
+    versions = rep.get("versions") or {}
+    model = versions.get("model")
+    fallback = bool(v.get("fallback_applied"))
+    repaired = bool(v.get("repair_attempted"))
+    generated = str(rep.get("generator", "")).startswith("live-model:")
+    if rep.get("mode") != "live":
+        label, kind = "REPLAY — scripted controller over real data, no LLM", "replay"
+    elif fallback:
+        label, kind = (f"LIVE ({model}) — the model's answer failed validation; showing validated tool facts only",
+                       "live_fallback")
+    elif generated:
+        label, kind = f"LIVE — answer written by {model}, checked by the independent validator", "live_answer"
+    else:
+        label, kind = f"LIVE ({model or 'model'}) — routing only; no answer was generated", "live_no_answer"
+    if rep.get("mode") != "live":
+        validation = "passed" if v.get("final_passed", v.get("passed")) else "failed"
+    elif not generated:
+        validation = "no generated answer"
+    elif fallback:
+        validation = "rejected after one repair: facts-only fallback" if repaired else "rejected: facts-only fallback"
+    else:
+        validation = "passed after one repair" if repaired else "passed on the first draft"
+    u = usage or {}
+    return {"kind": kind, "label": label, "model": model, "prompt": versions.get("prompt"),
+            "generator": rep.get("generator"), "validation": validation,
+            "model_calls": u.get("model_calls", 0), "input_tokens": u.get("input_tokens", 0),
+            "output_tokens": u.get("output_tokens", 0), "cost_usd": u.get("cost_usd"),
+            "cost_note": u.get("cost_note")}

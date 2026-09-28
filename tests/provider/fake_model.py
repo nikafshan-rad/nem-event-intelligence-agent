@@ -46,11 +46,15 @@ class FakeModel:
         fmt = (kw.get("text") or {}).get("format", {}).get("name")
         if fmt == "RouteDecision":
             return msg(json.dumps(self.route))
-        if fmt == "ModelReport":
+        if fmt in ("ModelReport", "DocumentReport", "RepairPatch"):
             last = kw["input"][-1]
             if self.repair_fn and isinstance(last, dict) and "failed independent validation" in str(last.get("content")):
-                return msg(json.dumps(self.repair_fn(kw)))
-            return msg(json.dumps(self.report_fn(kw)))
+                out = self.repair_fn(kw)
+            else:
+                out = self.report_fn(kw)
+            # like a strict structured-output model, emit only the fields the requested schema defines
+            props = kw["text"]["format"]["schema"].get("properties", {})
+            return msg(json.dumps({k: v for k, v in out.items() if k in props}))
         if self.tool_turns:
             resp = calls(*self.tool_turns.pop(0))
             self.issued += resp["output"]

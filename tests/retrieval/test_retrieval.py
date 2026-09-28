@@ -138,3 +138,14 @@ def test_retrieval_metrics_are_measured(index_ready):
     assert r["recall_at_k"]["denominator"] + r["labelled_items_unavailable_in_corpus"] == 21
     assert r["hit_at_k"]["denominator"] + r["queries_unavailable_in_corpus"] == 15
     print(json.dumps({k: r[k] for k in ("recall_at_k", "hit_at_k", "mrr_at_k")}))
+
+
+def test_definition_phrase_survives_model_query_phrasing():
+    """L1 live run: the model's query repeated the term and the definitional rerank missed the definition."""
+    from nem_agent.retrieval.search import defn_phrase, search
+
+    q = 'operational demand definition "operational demand" AEMO definition'
+    assert defn_phrase(q) == "operational demand" and defn_phrase("What does operational demand mean?") == "operational demand"
+    hits, _ = search(q, region=None, event_start=None, event_end=None, as_of=None, top_k=5,
+                     doc_types=["definition", "procedure"])
+    assert hits[0]["chunk_id"] == "aemo_demand_terms#p9c11"

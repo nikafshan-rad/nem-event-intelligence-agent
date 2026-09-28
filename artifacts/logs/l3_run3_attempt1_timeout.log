@@ -1,0 +1,113 @@
+Traceback (most recent call last):
+  File "/workspaces/nem-event-intelligence-agent/.venv/lib/python3.14/site-packages/httpx2/_transports/default.py", line 98, in map_httpcore_exceptions
+    yield
+  File "/workspaces/nem-event-intelligence-agent/.venv/lib/python3.14/site-packages/httpx2/_transports/default.py", line 245, in handle_request
+    resp = self._pool.handle_request(req)
+  File "/workspaces/nem-event-intelligence-agent/.venv/lib/python3.14/site-packages/httpcore2/_sync/connection_pool.py", line 242, in handle_request
+    raise exc from None
+  File "/workspaces/nem-event-intelligence-agent/.venv/lib/python3.14/site-packages/httpcore2/_sync/connection_pool.py", line 224, in handle_request
+    response = connection.handle_request(pool_request.request)
+  File "/workspaces/nem-event-intelligence-agent/.venv/lib/python3.14/site-packages/httpcore2/_sync/connection.py", line 96, in handle_request
+    return self._connection.handle_request(request)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "/workspaces/nem-event-intelligence-agent/.venv/lib/python3.14/site-packages/httpcore2/_sync/http11.py", line 125, in handle_request
+    raise exc
+  File "/workspaces/nem-event-intelligence-agent/.venv/lib/python3.14/site-packages/httpcore2/_sync/http11.py", line 97, in handle_request
+    ) = self._receive_response_headers(**kwargs)
+        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "/workspaces/nem-event-intelligence-agent/.venv/lib/python3.14/site-packages/httpcore2/_sync/http11.py", line 167, in _receive_response_headers
+    event = self._receive_event(timeout=timeout)
+  File "/workspaces/nem-event-intelligence-agent/.venv/lib/python3.14/site-packages/httpcore2/_sync/http11.py", line 200, in _receive_event
+    data = self._network_stream.read(self.READ_NUM_BYTES, timeout=timeout)
+  File "/workspaces/nem-event-intelligence-agent/.venv/lib/python3.14/site-packages/httpcore2/_backends/sync.py", line 125, in read
+    with map_exceptions(exc_map):
+         ~~~~~~~~~~~~~~^^^^^^^^^
+  File "/home/codespace/.python/current/lib/python3.14/contextlib.py", line 162, in __exit__
+    self.gen.throw(value)
+    ~~~~~~~~~~~~~~^^^^^^^
+  File "/workspaces/nem-event-intelligence-agent/.venv/lib/python3.14/site-packages/httpcore2/_exceptions.py", line 17, in map_exceptions
+    raise to_exc(exc) from exc
+httpcore2.ReadTimeout: The read operation timed out
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/workspaces/nem-event-intelligence-agent/.venv/lib/python3.14/site-packages/openai/_base_client.py", line 1147, in request
+    response = self._send_request(
+        request,
+        stream=stream or self._should_stream_response_body(request=request),
+        **kwargs,
+    )
+  File "/workspaces/nem-event-intelligence-agent/.venv/lib/python3.14/site-packages/openai/_client.py", line 601, in _send_request
+    response = self._send_with_auth_retry(request, stream=stream, **kwargs)
+  File "/workspaces/nem-event-intelligence-agent/.venv/lib/python3.14/site-packages/openai/_client.py", line 580, in _send_with_auth_retry
+    response = super()._send_request(request, stream=stream, **kwargs)
+  File "/workspaces/nem-event-intelligence-agent/.venv/lib/python3.14/site-packages/openai/_base_client.py", line 1068, in _send_request
+    return self._client.send(request, stream=stream, **kwargs)
+           ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspaces/nem-event-intelligence-agent/.venv/lib/python3.14/site-packages/httpx2/_client.py", line 980, in send
+    response = self._send_handling_auth(
+        request,
+    ...<2 lines>...
+        history=[],
+    )
+  File "/workspaces/nem-event-intelligence-agent/.venv/lib/python3.14/site-packages/httpx2/_client.py", line 1008, in _send_handling_auth
+    response = self._send_handling_redirects(
+        request,
+        follow_redirects=follow_redirects,
+        history=history,
+    )
+  File "/workspaces/nem-event-intelligence-agent/.venv/lib/python3.14/site-packages/httpx2/_client.py", line 1043, in _send_handling_redirects
+    response = self._send_single_request(request)
+  File "/workspaces/nem-event-intelligence-agent/.venv/lib/python3.14/site-packages/httpx2/_client.py", line 1076, in _send_single_request
+    response = transport.handle_request(request)
+  File "/workspaces/nem-event-intelligence-agent/.venv/lib/python3.14/site-packages/httpx2/_transports/default.py", line 244, in handle_request
+    with map_httpcore_exceptions():
+         ~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/home/codespace/.python/current/lib/python3.14/contextlib.py", line 162, in __exit__
+    self.gen.throw(value)
+    ~~~~~~~~~~~~~~^^^^^^^
+  File "/workspaces/nem-event-intelligence-agent/.venv/lib/python3.14/site-packages/httpx2/_transports/default.py", line 115, in map_httpcore_exceptions
+    raise mapped_exc(message) from exc
+httpx2.ReadTimeout: The read operation timed out
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/workspaces/nem-event-intelligence-agent/scripts/live_diagnose.py", line 126, in <module>
+    raise SystemExit(main())
+                     ~~~~^^
+  File "/workspaces/nem-event-intelligence-agent/scripts/live_diagnose.py", line 106, in main
+    rec = diagnose(cases[cid])
+  File "/workspaces/nem-event-intelligence-agent/scripts/live_diagnose.py", line 49, in diagnose
+    row = run_system_case(case, "live", keep=keep)
+  File "/workspaces/nem-event-intelligence-agent/src/nem_agent/evaluation/runner.py", line 136, in run_system_case
+    res = investigate(req)
+  File "/workspaces/nem-event-intelligence-agent/src/nem_agent/service.py", line 121, in investigate
+    report = live.run(res)
+  File "/workspaces/nem-event-intelligence-agent/src/nem_agent/agent/live.py", line 495, in run
+    mrep, raw = self._structured(trace, "synthesis", ModelReport, prompt("system"), items)
+                ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspaces/nem-event-intelligence-agent/src/nem_agent/agent/live.py", line 404, in _structured
+    resp = self._call(trace, stage, instructions=instructions, input=input_items, text={"format": fmt})
+  File "/workspaces/nem-event-intelligence-agent/src/nem_agent/agent/live.py", line 385, in _call
+    resp = self.client.create(model=self.model, store=False, max_output_tokens=max_out, **kwargs)
+  File "/workspaces/nem-event-intelligence-agent/src/nem_agent/agent/live.py", line 147, in create
+    resp = self.client.responses.create(**kwargs)
+  File "/workspaces/nem-event-intelligence-agent/.venv/lib/python3.14/site-packages/openai/resources/responses/responses.py", line 1045, in create
+    return self._post(
+           ~~~~~~~~~~^
+        "/responses",
+        ^^^^^^^^^^^^^
+    ...<47 lines>...
+        stream_cls=Stream[ResponseStreamEvent],
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/workspaces/nem-event-intelligence-agent/.venv/lib/python3.14/site-packages/openai/_base_client.py", line 1439, in post
+    return cast(ResponseT, self.request(cast_to, opts, stream=stream, stream_cls=stream_cls))
+                           ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspaces/nem-event-intelligence-agent/.venv/lib/python3.14/site-packages/openai/_base_client.py", line 1165, in request
+    raise APITimeoutError(request=request) from err
+openai.APITimeoutError: Request timed out.
+exit=1

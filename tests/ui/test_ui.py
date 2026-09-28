@@ -56,3 +56,46 @@ def test_streamlit_page_runs_and_investigates(real_store):
     assert not at.exception
     assert any(m.label == "Status" and "answered" in m.value for m in at.metric)
     assert any("4,981.00/MWh" in s.value for s in at.subheader)
+
+
+def test_result_label_comes_from_the_report_not_the_selector(result):
+    """L0 finding: the badge followed the mode radio, so a replay report could sit under a LIVE label."""
+    from nem_agent.ui_data import result_provenance
+
+    rep = result.report.model_dump()
+    assert result_provenance(rep)["kind"] == "replay" and "no LLM" in result_provenance(rep)["label"]
+    live = rep | {"mode": "live", "generator": "live-model:gpt-5-mini",
+                  "versions": rep["versions"] | {"model": "gpt-5-mini", "prompt": "prompts/v5"}}
+    usage = {"model_calls": 5, "input_tokens": 100, "output_tokens": 50, "cost_usd": 0.01, "cost_note": "estimate"}
+    ok = result_provenance(live | {"validation": {"repair_attempted": True, "fallback_applied": False}}, usage)
+    assert ok["kind"] == "live_answer" and ok["validation"] == "passed after one repair" and ok["model_calls"] == 5
+    first = result_provenance(live | {"validation": {"repair_attempted": False, "fallback_applied": False}}, usage)
+    assert first["validation"] == "passed on the first draft"
+    fb = result_provenance(live | {"validation": {"repair_attempted": True, "fallback_applied": True}}, usage)
+    assert fb["kind"] == "live_fallback" and "facts only" in fb["label"] and "fallback" in fb["validation"]
+    routed = result_provenance(live | {"generator": "live-responses-controller/1", "status": "refused"}, usage)
+    assert routed["kind"] == "live_no_answer" and routed["validation"] == "no generated answer"
+
+
+def test_a_replay_result_is_never_shown_under_the_live_selector(real_store, monkeypatch):
+    from streamlit.testing.v1 import AppTest
+
+    monkeypatch.setenv("OPENAI_API_KEY", "placeholder-not-a-key")  # enables the selector; no live call is made
+    at = AppTest.from_file(str(ROOT / "app" / "streamlit_app.py"), default_timeout=120).run()
+    at.button[0].click().run()  # replay is the default mode
+    assert any("Result shown: REPLAY" in m.value for m in at.info)
+    at.sidebar.radio[0].set_value("live").run()  # switch the selector without running again
+    assert not at.exception
+    assert any("Result shown: REPLAY" in m.value for m in at.info)
+    assert not any("Result shown: LIVE" in m.value for m in [*at.info, *at.success, *at.warning])
+    assert any("produced in REPLAY mode" in m.value for m in at.warning)
+
+
+def test_demand_legend_lists_only_series_that_are_drawn(result):
+    """L4 live screenshot: the legend showed 'AEMO POE50 forecast' although the live run fetched no forecasts."""
+    _, ddf = frames(result.records, "SA1")
+    actual_only = ddf[ddf["series"] == LABEL_ACTUAL]
+    d = demand_chart(actual_only, "SA1", "Australia/Adelaide", "light").to_dict()
+    scale = d["layer"][0]["encoding"]["color"]["scale"]
+    assert scale["domain"] == [LABEL_ACTUAL] and scale["range"] == ["#2a78d6"]  # same colour as when both are drawn
+    assert "no forecast runs were retrieved" in d["title"]["text"]

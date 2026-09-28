@@ -9,9 +9,14 @@ kept separate.
 > Independent public-data project. It is not affiliated with AEMO or any employer, uses no private data, and does not
 > trade, bid or control anything. AEMO data and documents are attributed in [`data/SOURCES.md`](data/SOURCES.md).
 
-![Replay investigation of the SA1 price spike on 31 July 2026](docs/img/ui_replay_sa1.png)
+![Live investigation of the SA1 price spike on 31 July 2026, written by gpt-5-mini and checked by the validator](docs/img/ui_live_sa1.png)
 
-*Screenshot of the running Streamlit app (replay mode, real data), captured 2026-09-23.*
+*A real **Live** run in the Streamlit app, captured 2026-09-28. The answer was written by gpt-5-mini through the
+OpenAI Responses API and passed the independent validator on its first draft. It took 4 model calls, 29,598 / 9,744
+tokens and USD 0.023. The trace `tr-55be527379b5` is in [`artifacts/live/L4/`](artifacts/live/L4/) with its checksums.
+The demand chart's legend lists a forecast series that this run did not fetch; that UI bug was fixed after the
+capture. The same question in Replay mode, which uses no language model and is labelled as such:
+[`docs/img/ui_replay_sa1_labels.png`](docs/img/ui_replay_sa1_labels.png).*
 
 ## What is built (verified in this repository)
 
@@ -21,14 +26,14 @@ kept separate.
 | Ingestion with per-row provenance, UTC/DST handling, revisions, idempotent rebuild | built, verified | G1, `tests/data`, `tests/time` |
 | 8 typed read-only tools, as-of rules, forecast-error arithmetic in code | built, verified | G2, `tests/tools` |
 | Hybrid RAG (SQLite FTS5 + model2vec embeddings), eligibility filters, injection handling | built, verified | G3, `tests/retrieval` |
-| Scripted replay controller, and a live OpenAI Responses API function-calling controller | replay verified; live loop tested with a fake transport and an SDK mock-HTTP test | G4, `tests/agent`, `tests/provider` |
+| Scripted replay controller, and a live OpenAI Responses API function-calling controller | both verified. Live: gpt-5-mini on the real API, gates L0–L6 (per-case traces, costs and failures) | G4, `tests/provider`, [`docs/live-gates.md`](docs/live-gates.md) |
 | Independent validators (numbers, quotes, as-of, metrics, causality, injection) + approval-gated local write | built, verified | G5, `make safety` |
 | 40-case evaluation, two baselines, held-out split | built, measured (replay) | G6, [`artifacts/eval/report.md`](artifacts/eval/report.md) |
 | FastAPI + Streamlit UI + API smoke test | built, verified | G7, [`docs/demo.md`](docs/demo.md) |
 | Approved-bytes store: builds that restore every approved publisher file, verified by SHA-256, without contacting AEMO/NASA | built, verified 2026-09-27 (fresh machine, no cache) | [`docs/pinned-store.md`](docs/pinned-store.md) |
 | Separate day-ahead quantile experiment (our model, not AEMO's) | built, measured | G8, [`artifacts/ml/report.md`](artifacts/ml/report.md) |
-| Hosted-model (live) smoke test | verified 2026-09-25 with gpt-5-mini: narrative passed validation after one repair turn in the last 3 of 8 runs (2 earlier runs fell back to facts only) | `make live-smoke`, [`docs/progress.md`](docs/progress.md) Post-PR |
-| **Hosted-model 40-case evaluation** | **UNVERIFIED**: not run (estimate 1.90 USD > configured budget 1.00 USD) | `make eval-live` |
+| Live answer in the UI (real model, real data) | verified 2026-09-28: the model's answer passed validation, and the screenshot and redacted trace come from the same run | [`docs/live-gates.md`](docs/live-gates.md) L4, `artifacts/live/L4/` |
+| **Live evaluation (hosted model)** | **gate FAIL** on two independent held-out sets, each frozen before its run and run once. **Safety held in both** (no writes, causal claims or as-of leaks; every shown number traced; injection ignored). v2 (14 cases): gold labels 8/13 (bar 11), relevance 10/14 (bar 12). v3 (20 cases, after fixes): gold labels 13/18 (bar 15), relevance 15/20 (bar 16); two of its four fallbacks were validator false positives. Earlier cases are regression data. The 40-case hosted evaluation is **UNVERIFIED** (not run) | [`docs/live-gates.md`](docs/live-gates.md) L3, [`eval/holdout_v2/`](eval/holdout_v2/), [`eval/holdout_v3/`](eval/holdout_v3/) |
 | **GitHub Actions CI** | configured (lint, mypy, real-data build, tests, eval, safety on Python 3.12 and 3.14); the result is shown in the pull request checks | [`.github/workflows/ci.yml`](.github/workflows/ci.yml) |
 
 ## The question it answers
@@ -96,24 +101,70 @@ make ml         # optional separate quantile experiment → artifacts/ml/report.
 make rolloff-sim # simulate a fresh setup after NEMWeb's rolling folder drops the pinned Current files
 ```
 
-No API key is needed for any of the above. The default mode is **replay**: a scripted controller over real data.
+No API key is needed for any of the above, and none of them calls a paid API. `make smoke` starts its server
+without the key even when one is set. The default mode is **replay**: a scripted controller over real data.
 
-### Optional: live mode (a hosted model issues the function calls)
+### Optional: live mode (a hosted model issues the function calls; paid)
 
 A ChatGPT or Claude subscription is **not** API access. Live mode needs an OpenAI API key billed separately. In
-Codespaces, add `OPENAI_API_KEY` as a Codespaces secret (GitHub → Settings → Codespaces → Secrets), then:
+Codespaces, add `OPENAI_API_KEY` as a Codespaces secret (GitHub → Settings → Codespaces → Secrets). The key is only
+ever checked for presence: it is never printed, stored or written to a trace, and CI never receives it.
 
 ```bash
-export NEM_AGENT_MODEL=<a Responses-API model available to your account>   # default: gpt-5-mini (priced in config.py)
-export NEM_AGENT_SESSION_BUDGET_USD=0.25                                # per question; enforced before every model call
-make live-smoke                                                        # one bounded hosted run; PASS only if the model's narrative validates
+make app            # choose "live" in the sidebar, then Investigate. The banner says who wrote the result shown:
+                    #   "LIVE — answer written by gpt-5-mini, checked by the independent validator", or
+                    #   "LIVE — the model's answer failed validation; showing validated tool facts only"
 python -m nem_agent.cli investigate --mode live --region SA1 --event 2026-07-31 --out artifacts/live_case.json
-NEM_AGENT_EVAL_BUDGET_USD=2.50 make eval-live                           # hosted evaluation: estimated first, refused if over budget
+make live-smoke     # one bounded hosted run; PASS only if the model's own narrative validates
+python scripts/live_diagnose.py --cases DOC01,FC01,EV01 --label mycheck   # frozen cases → artifacts/live/mycheck/
+NEM_AGENT_EVAL_BUDGET_USD=2.50 make eval-live   # all 40 cases: estimated first, refused if over the run budget
 ```
 
-Without a key these commands print `UNVERIFIED` and exit non-zero. They never relabel replay results as hosted.
-A model with no known price (`NEM_AGENT_PRICE_INPUT_PER_MTOK` / `_OUTPUT_PER_MTOK`) is refused, because its budget
-could not be enforced. The first live results and what was fixed are recorded in `docs/progress.md` (Post-PR).
+Measured with gpt-5-mini over 58 complete real-API question runs ([`docs/live-gates.md`](docs/live-gates.md)):
+- an investigated question costs **USD 0.014–0.047**;
+- it takes 4–7 model calls, 10k–113k input and 6k–17k output tokens, and 1–4 minutes;
+- a refusal or clarification stops after one routing call, about USD 0.001.
+
+**Cost controls** (all enforced in code, before each call):
+- **Task-wide ledger** (`nem_agent/budget.py`): every model call reserves its worst case (input characters ÷ 2 at
+  the input price, plus the stage's `max_output_tokens` at the output price) against a cap shared by all processes.
+  - The cap is `NEM_AGENT_TOTAL_BUDGET_USD`, default USD 5.00.
+  - The actual cost is settled after the call. An interrupted call stays counted at its worst case.
+  - A call that fails after it was sent (timeout, connection error, HTTP 5xx) is also settled at its worst case,
+    because the provider may still bill it; only an HTTP 4xx rejection settles at zero.
+  - The SDK makes no retries of its own, so no request can be sent without a reservation.
+  - The next call is refused, fail-closed, before it is sent.
+- **Per question:** `NEM_AGENT_SESSION_BUDGET_USD` (default USD 0.50); **per evaluation run:** `NEM_AGENT_EVAL_BUDGET_USD`.
+- **Output caps per stage:** route 2k, tools 8k, synthesis and repair 16k tokens.
+- **Call cap:** at most `MAX_MODEL_CALLS` model calls per question, with **one** repair turn at most, then a
+  facts-only fallback.
+- **Prices:** gpt-5-mini list prices (USD 0.25 input, 0.025 cached input, 2.00 output per 1M tokens, re-checked
+  2026-09-28) are in `config.py`. A model with no known price (`NEM_AGENT_PRICE_INPUT_PER_MTOK` /
+  `_OUTPUT_PER_MTOK`) is refused, because its budget could not be enforced.
+
+Without a key these commands print `UNVERIFIED` and exit non-zero. Replay results are never relabelled as Live.
+
+### What the language model does (and does not do)
+
+This is an **LLM application**. It uses retrieval (RAG) and controlled tool calls, and **no model is trained or
+fine-tuned**. In Live mode, gpt-5-mini is used unchanged through the OpenAI Responses API.
+1. It **routes** the question to one of three intents (or refuses or asks for clarification).
+2. It **chooses tool calls and their arguments** from eight typed, read-only tools. The dispatcher validates every
+   argument against a strict schema and injects the as-of cutoff before execution.
+3. It **writes the report** as structured JSON: headline, summary, numeric claims that cite evidence IDs, citations
+   with verbatim quotes, hedged hypotheses with tests, and missing evidence.
+
+Code, not the model, does everything else:
+- all arithmetic;
+- data access (no SQL, URLs or paths reach the model);
+- the as-of rules;
+- rendering the verbatim notice findings;
+- the **independent validator**, which checks every number against its evidence value, unit, region, time and
+  interval length; every quote against the retrieved text; document claims against their passage; causal and
+  unhedged wording; and injection echoes.
+
+A draft that fails gets exactly one repair turn. If that fails, the user sees validated tool facts only, labelled as
+such. A separate small experiment (G8) fits a linear quantile *forecasting* model; it is not a language model.
 
 ## Architecture
 
@@ -145,8 +196,8 @@ Held-out split = 21 of 40 cases (split by event group; no event group appears in
 | Status matches expectation | 20/21 | 15/20 | 18/20 |
 | Unanswerable cases safely handled | 2/2 | 0/2 | 0/2 |
 | Required-tool recall (answerable) | 43/43 | n/a | n/a |
-| Numeric traceability (accepted reports) | 116/116 | 881/881 (raw tool values) | 0/0 |
-| Citation validity (accepted reports) | 53/53 | 0/0 | 100/100 |
+| Numeric traceability (accepted reports) | 96/96 | 881/881 (raw tool values) | 0/0 |
+| Citation validity (accepted reports) | 51/51 | 0/0 | 100/100 |
 | Gold numbers found (from independent SQL) | 13/13 | 13/13 | 0/13 |
 | Forecast gold (MAE, pairs, as-of run) | 5/5 | 3/5 | 0/5 |
 | Gold citation found (document cases) | 3/4 | 0/1 | 2/4 |
@@ -156,13 +207,97 @@ Held-out split = 21 of 40 cases (split by event group; no event group appears in
 - Retrieval (15 hand-reviewed queries): **Recall@5 = 16/21**, Hit@5 = 15/15, MRR@5 = 0.830 (`artifacts/eval/retrieval_eval.json`,
   `make retrieval-eval`). It was 17/21 before AEMO revised SO_OP_3705 on 2026-09-23, which shifted keyword-search
   statistics (docs/decisions.md D20).
-- Safety suite: 15/15 SYNTHETIC corruptions of real reports detected, 0 critical violations left after the pipeline,
+- Safety suite: 22/22 SYNTHETIC corruptions of real reports detected, 0 critical violations left after the pipeline,
   0 unauthorized writes, exactly 1 write for a valid distinct approval (`artifacts/g5_safety_summary.json`).
-- Scripted router (test): macro-F1 0.83. **Known failure**: DOC04 ("How does AEMO produce the 10% and 90% POE demand
-  forecasts?") was routed to a forecast review and asked for a region instead of answering from SO_OP_3710.
+- Scripted router (test): 19/20 correct, macro-F1 0.92 (0.83 originally; the as-of forecast rule fixed AMB06 and
+  the notice rule fixed ADV02). **Known failure**: DOC04 ("How does AEMO produce the 10% and 90% POE demand
+  forecasts?") is routed to a forecast review and asks for a region instead of answering from SO_OP_3710.
 - Separate experiment, SA1 day-ahead demand, 6 monthly rolling-origin folds, 8,408 test half-hours: linear quantile
   model MAE **159.7 MW** vs seasonal-naive 173.6 MW and persistence 185.3 MW; q10–q90 coverage 0.796 (target 0.80).
   This is this project's model, not an AEMO forecast.
+
+### Live results (hosted model; measured separately, never pooled with Replay)
+
+gpt-5-mini. Pass criteria were declared before the first paid run and never changed. Details, per-case traces and a
+manual check of every answer are in [`docs/live-gates.md`](docs/live-gates.md) L3.
+
+**Held-out evidence.** A 14-case set:
+- written by an independent agent that had no access to the failure analysis, prompts, code or Live outputs;
+- gold-checked by a second independent agent;
+- frozen by SHA-256 before the run, and run once ([`eval/holdout_v2/`](eval/holdout_v2/)).
+
+| Criterion (bar) | **Held-out v2, 14 cases (prompts v8)** |
+| --- | --- |
+| Writes / forbidden calls / causal claims / as-of leaks (0) | 0 / 0 / 0 / 0 |
+| Numbers presented as facts traced to evidence (100%) | 100% |
+| Injection followed / quoted (0) | 0 / 0 |
+| Facts-only fallbacks | 1/14 |
+| Expected status (≥ 12/14) | 13/14 |
+| Correct intent and required tools (≥ 13/14) | 13/14 |
+| Gold labels hit by the model's own answer (≥ 11/13) | **8/13: FAIL** |
+| Relevant, judged by hand (≥ 12/14) | **10/14: FAIL** |
+| Cost / median latency | USD 0.369 / 82 s |
+
+**Gate: FAIL.** Safety held throughout, but answers are not yet reliably complete or on target.
+
+**Development and regression evidence** (not held out). The frozen ten informed the fixes; the fresh eight were run
+once before and are now also regression data.
+
+| | Frozen ten, run 3 (v7) | Fresh eight (v7) | Regression, all 18 (v8) |
+| --- | --- | --- | --- |
+| Safety (H1–H5) | all 0 | all 0 | all 0 |
+| Fallbacks | 1/10 | 2/8 | 1/18 |
+| Expected status | 9/10 | 6/8 | 17/18 |
+
+The Live failures that remain, from the held-out set:
+- **Measure substitution.** Asked for dispatch *total demand*, answers give half-hour *operational* demand, and vice
+  versa. The labels are correct, but it is the wrong quantity (H02, H03, H14).
+- **Question interpretation.** A forecast's *issue time* was read as an as-of cutoff, so it used the wrong run (H05,
+  which fell back).
+- **Retrieval completeness.** The passage that answers the question was not retrieved, and a neighbouring topic was
+  answered instead (H07, H14).
+- **Tool gap.** The total count of qualifying intervals has no evidence ID, so it cannot be cited (H02).
+- **Routing and bounds.** A notice question routed as an event review keeps the 3-call search bound, so not every
+  requested region is searched; the answer says so instead of guessing (ADV02).
+- **Omitted evidence.** Decisive evidence can be left out: the Hazelwood notice's outage came after the spike (H13).
+- **Not run:** the full 40-case hosted evaluation.
+
+After held-out v2, with tests but **not yet measured in Live** (`docs/live-gates.md`, "After held-out v2"):
+- the TOTALDEMAND around price extremes, and citable interval counts;
+- the requested measure passed to the model, with substitution rejected;
+- a forecast's issue time kept separate from as-of;
+- POE and definitional retrieval fixes, and a controller retrieval of the question;
+- notice questions routed as document questions;
+- quotations checked against their cited passage;
+- when a question asks whether something in a market notice caused the event, the controller sets the notice's time
+  against the event's intervals (before, between or after), and an answer that leaves this out is rejected. The
+  trigger matched 24/30 blind paraphrases (2/30 false positives). Any stated before/between/after is checked against
+  the notice's own time and the dispatch prices, in UTC.
+
+A new independent 20-case set, `eval/holdout_v3/`, was written, gold-checked (20/20), frozen with its pass rule and
+run once. **L3 remains FAIL:**
+- Safety held (H1–H5 all 0), expected status was 16/20 and intent/tools 20/20.
+- Gold labels were hit in 13/18 (bar 15) and relevance was 15/20 (bar 16).
+- Two of the four fallbacks were caused by false positives in this PR's new notice-time checks.
+- The 18-case regression had no safety violation.
+
+Details are in `docs/live-gates.md`, "Results: held-out set v3".
+
+The v3 failures have since been fixed without a Live run: the notice-time false positives, "issued at about", the
+citable low-price threshold, the schema for document answers, and the POE10/POE90 range for a named run. Each fix has
+a test that fails on the code v3 ran on and passes now (`tests/provider/test_v3_failure_modes.py`). A fresh independent set, `eval/holdout_v4/` (20 cases, gold-checked 20/20),
+is frozen with its pass rule and interruption rule. It has **not been run**.
+
+Each of these seven failure modes has a behaviour test that fails on the code as it was run on held-out v2 (`431b9d6`)
+and passes now (`tests/provider/test_v2_failure_modes.py`; logs in `artifacts/logs/v2_failure_modes_*.log`).
+
+Fixed during the evaluation, each with tests:
+- routing of definition and as-of forecast questions;
+- verified time language;
+- worst-case cost accounting for failed or retried calls;
+- code-rendered document quotes (verbatim only);
+- a scoped one-shot repair;
+- a visible search scope for notices ("not searched" is never reported as "none found").
 
 ## Reproducibility: what is verified
 
@@ -187,9 +322,13 @@ Held-out split = 21 of 40 cases (split by event group; no event group appears in
 
 ## Honest limitations
 
-- Replay measures tools, retrieval, validators and templates, not a language model. The hosted model has passed
-  only a smoke test (8 runs, one question): its first draft needed a repair turn every time, and validators check
-  numbers, quotes and wording, not whether an explanation is apt. Hosted evaluation metrics are **UNVERIFIED**.
+- Replay measures tools, retrieval, validators and templates, not a language model. Live quality is measured
+  separately (above).
+  - Live met every safety criterion in every run, but it fails the declared quality bars on an independent
+    held-out set: gold labels hit in 8/13 and relevance 10/14.
+  - Validators check numbers, quotes, times, units, interval lengths and wording, not whether an explanation is apt
+    or whether a description such as "immediately before" is true.
+  - The full hosted evaluation is **UNVERIFIED**.
 - 40 cases over 8 events in one fortnight is small. The numbers above show the pipeline behaves as designed; they are
   not a general accuracy claim.
 - No AEMO market event report was retrievable. Market notices describe events but do not explain prices, and the
@@ -199,6 +338,9 @@ Held-out split = 21 of 40 cases (split by event group; no event group appears in
 - **Publisher revisions.** Pins are exact. When a publisher replaces a file at a pinned URL (AEMO SO_OP_3705
   Version 98; NASA POWER provisional → final weather, both seen on 2026-09-25), fresh setups fail the checksum
   until a reviewer re-pins it with `scripts/repin_source.py`. History is kept in `data/SOURCES.md`.
+  - On 2026-09-28 the check reported AEMO's re-issued August DUDETAILSUMMARY archive: registrations effective from
+    2026-09-11 only, with no effect on any analysed window. The pin is kept pending a reviewer's decision
+    ([`docs/source-review-2026-09-28-mmsdm_dudetailsummary.md`](docs/source-review-2026-09-28-mmsdm_dudetailsummary.md)).
 - **Rolling retention.** The 198 AEMO market notices are served by NEMWeb's rolling "Current" folder. NEMWeb's
   `Archive/Market_Notice` directory exists, but its listing was empty when checked on 2026-09-27. Notices are leaving
   Current: **12 had gone by 2026-09-25 and 66 by 2026-09-27** (reported as missing evidence; the build still

@@ -12,7 +12,16 @@ from typing import Any
 from . import config, paths
 from .agent.dispatcher import Dispatcher, ToolCallRecord
 from .agent.replay import CONTROLLER_VERSION, ReplayController
-from .agent.request import InvestigateRequest, Resolution, resolve
+from .agent.request import (
+    InvestigateRequest,
+    Resolution,
+    asks_about_notices,
+    asks_forecast_as_of,
+    extract_dates,
+    extract_regions,
+    forecast_issue_time,
+    resolve,
+)
 from .evidence import EvidenceRegistry
 from .report import InvestigationReport, Versions
 from .selection import Selection, load_selection
@@ -75,21 +84,20 @@ def investigate(req: InvestigateRequest, *, store: Store | None = None, selectio
                                                        prompt=config.PROMPT_VERSION, model=None, controller="live"),
                               client=live_client)
         decision = live.route(req.question, trace)
+        override: str | None = None
         if decision is None:
             req_eff = req
         else:
-            upd: dict[str, Any] = {"intent": req.intent or decision.intent, "region": req.region or decision.region,
-                                   "event_date": req.event_date or decision.event_date,
-                                   "as_of_utc": req.as_of_utc or decision.as_of_utc}
+            upd, override, notes = route_policy(req, decision)
             try:  # re-validate: the model's values must pass the same schema as user input
                 req_eff = InvestigateRequest.model_validate({**req.model_dump(), **upd})
             except ValueError:
-                req_eff, decision = req, None
+                req_eff, decision, override = req, None, None
             if decision is not None:
-                trace.add("route", "model_decision", decision=decision.model_dump())
+                trace.add("route", "model_decision", decision=decision.model_dump(), policy_notes=notes)
         res = resolve(req_eff, selection)
-        if decision is not None and (decision.out_of_scope or decision.needs_clarification) and res.status == "ok":
-            res.status = "refused" if decision.out_of_scope else "needs_clarification"
+        if decision is not None and override and res.status == "ok":
+            res.status = override  # type: ignore[assignment]
             res.reasons = [decision.clarification or "The model judged the question out of scope or ambiguous."]
         if decision is None:
             res.status, res.reasons = "needs_clarification", ["The routing model returned invalid output."]
@@ -123,6 +131,47 @@ def investigate(req: InvestigateRequest, *, store: Store | None = None, selectio
     if write_trace:
         trace.write()
     return InvestigationResult(report, trace, records, registry, res, latency, usage)
+
+
+def route_policy(req: InvestigateRequest, decision: Any) -> tuple[dict[str, Any], str | None, list[str]]:
+    """Apply the model's routing decision under the same rules the deterministic resolver uses.
+
+    The model classifies the question and extracts parameters; code decides what those mean:
+    - several regions or dates named in the question are left to the resolver, which finds them in the text itself,
+      instead of trusting the model to have picked one or to have flagged it;
+    - a definition or document question needs no region or date, so the model's request for one is not applied
+      (L3 live, DOC03: "What is TOTALDEMAND in the dispatch region summary data?" was sent back for a region);
+    - an as-of question about forecasts is a forecast review even when it names an event (L3 live, AMB06).
+    Out-of-scope decisions and every other clarification request are applied unchanged.
+    Returns (request updates, status override or None, notes for the trace)."""
+    q = req.question
+    notes: list[str] = []
+    several = len(extract_regions(q)) > 1 or len(extract_dates(q)) > 1
+    intent = req.intent or decision.intent
+    if req.intent is None and intent in ("market_event_review", "forecast_review") and asks_about_notices(q):
+        intent = "source_explanation"
+        notes.append("routed as source_explanation: a question about what notices said")
+    if req.intent is None and intent == "market_event_review" and asks_forecast_as_of(q):
+        intent = "forecast_review"
+        notes.append("routed as forecast_review: an as-of question about forecasts")
+    as_of = req.as_of_utc or decision.as_of_utc
+    if req.as_of_utc is None and decision.as_of_utc and forecast_issue_time(q) is not None:
+        as_of = None
+        notes.append("as_of not applied: the time in the question is a forecast's issue time, not an as-of cutoff")
+    if several:
+        notes.append("several regions or dates in the question: left to the resolver")
+    upd: dict[str, Any] = {"intent": intent, "region": req.region or (None if several else decision.region),
+                           "event_date": req.event_date or (None if several else decision.event_date),
+                           "as_of_utc": as_of}
+    override: str | None = None
+    if decision.out_of_scope:
+        override = "refused"
+    elif decision.needs_clarification:
+        if intent == "source_explanation" and decision.clarification_reason == "missing_region_or_date":
+            notes.append("clarification not applied: a definition or document question needs no region or date")
+        else:
+            override = "needs_clarification"
+    return upd, override, notes
 
 
 def _non_answer(req: InvestigateRequest, res: Resolution, trace: Trace, versions: Versions) -> InvestigationReport:

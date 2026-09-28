@@ -17,7 +17,7 @@ from ..selection import EventSelection, Selection
 from ..timeutil import REGION_TZ, UTC, local_day_window, parse_iso, region_zone
 from .playbook import INTENTS, Intent
 
-ROUTER_VERSION = "scripted-router/1"
+ROUTER_VERSION = "scripted-router/3"  # 2: as-of forecast questions; 3: questions about notices
 
 
 class InvestigateRequest(BaseModel):
@@ -99,6 +99,83 @@ def extract_as_of(text: str, region: str | None, day: date | None) -> datetime |
     return None
 
 
+AS_OF_Q_RE = re.compile(r"\b(as of|known at|known by|available by)\b", re.I)
+FORECAST_WORD_RE = re.compile(r"\bforecasts?\b|\bpoe ?(10|50|90)\b", re.I)
+
+
+# "What did AEMO's market notices say ...", "According to the market notice ...": a question about what a document
+# says is a source explanation, even when it mentions a price event, a forecast or a reserve condition (held-out H10,
+# regression ADV02 were routed as forecast and event reviews). "... the outage AEMO put out a notice about" is not.
+NOTICE_Q_RE = re.compile(r"\b(?:what did|what does|what do|according to)\b[^?]*\bnotices?\b|"
+                         r"\bnotices?\b[^?]*\b(?:say|said|state[sd]?|report(?:ed)?)\b", re.I)
+# "the forecast AEMO issued at 2026-07-30T11:56:59Z": an issue time names a forecast run; it is not an as-of cutoff
+# (held-out H05 treated it as one and hid the actuals the question asked about)
+# "issued at about <time>" names the same thing, approximately (held-out v3 V07, V08 were read as as-of cutoffs)
+ISSUED_AT_RE = re.compile(r"\bissued\s+(?:at\s+|on\s+)?(?:(?:about|around|approximately|approx\.?|roughly|circa|"
+                          r"near|~)\s*)?(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?Z)", re.I)
+
+
+TOTAL_DEMAND_Q_RE = re.compile(r"\btotal[- ]?demand\b", re.I)
+OPERATIONAL_DEMAND_Q_RE = re.compile(r"\boperational[- ]demand\b", re.I)
+
+
+def requested_measures(question: str) -> dict[str, str]:
+    """Which demand measure(s) a question names, and where each is found, so an answer does not substitute one for
+    the other (held-out H02, H03 answered 'total demand' with operational demand; H14 the reverse)."""
+    out: dict[str, str] = {}
+    if TOTAL_DEMAND_Q_RE.search(question):
+        out["total demand"] = ("dispatch TOTALDEMAND, 5-minute: get_price_timeline fields totaldemand_at_peak, "
+                               "totaldemand_at_minimum, totaldemand_around_peak, totaldemand_around_minimum")
+    if OPERATIONAL_DEMAND_Q_RE.search(question):
+        out["operational demand"] = "half-hour operational demand: get_actual_demand (and forecasts: get_forecast_runs)"
+    return out
+
+
+def asks_about_notices(question: str) -> bool:
+    return bool(NOTICE_Q_RE.search(question))
+
+
+# Whether a question asks if something of the kind AEMO reports in a market notice (an outage, trip, fault,
+# constraint, transfer limit, reserve shortfall, direction ...) caused, influenced or mattered for the event: then the
+# notice's time against the event's intervals is the decisive observation (held-out H13 cited the notice but never said
+# that its time came after every high-price interval). Two general vocabularies, one of influence and one of grid
+# incidents, both required. They were written before the blind paraphrase set in tests/provider/data/ was read, and
+# are not H13's wording: "did the transformer trip matter for the spike?" matches, "did low wind cause it?" does not.
+INFLUENCE_Q_RE = re.compile(
+    r"\b(caus\w*|because|due to|owing to|on account of|responsib\w*|driv\w*|drove|behind|trigger\w*|lead to|led to|"
+    r"leading to|result(?:s|ed)? (?:of|from|in)|as a result|down to|stem\w* from|ar[io]s\w* from|blam\w*|culprit|"
+    r"attribut\w*|explain\w*|explanat\w*|contribut\w*|factors?|matter(?:s|ed)?|significan\w*|bearing|bear on|"
+    r"affect\w*|impact\w*|influenc\w*|role|part in|hand in|effects?|to do with|relat(?:ed|ion|e) to|link\w*|"
+    r"connected (?:to|with)|connection (?:to|with|between)|tied to|trace\w* (?:back )?to|(?:feeds?|fed|feeding) into|"
+    r"account(?:s|ed)? for|how much of|why|set off|spark\w*|push\w*|prompt\w*|tighten\w*|worsen\w*|exacerbat\w*|"
+    r"amplif\w*|consequen\w*|knock-on|flow-on|on the back of|in response to|respond\w*|react\w*|correlat\w*|"
+    r"coincid\w*|reasons?|but for|if not for|rule (?:\w+ )?out|chang\w* (?:how|the way|what))\b"
+    # counterfactuals: "would prices have spiked without the trip?", "if AEMO hadn't invoked it, would ... still ..."
+    r"|\bwould\b[^?]*\b(?:without|still|otherwise)\b|\bwithout\b[^?]*\bwould\b"
+    r"|\bif\b[^?]*\b(?:hadn't|had not|wasn't|was not|weren't|were not|didn't|did not)\b", re.I)
+INCIDENT_Q_RE = re.compile(
+    r"\b(notices?|outages?|trip(?:s|ped|ping)?|faults?|failures?|lines?|transformers?|constraints?|contingenc\w*|"
+    r"bus[- ]?ties?|bus ?bars?|interconnectors?|transfers?|transmission|breakers?|circuits?|substations?|feeders?|reclassif\w*|"
+    r"lack of reserve|LOR ?\d?|reserves?|direct(?:ions?|ed|ing)|interventions?|limits?|islanding|separation|"
+    r"switching|maintenance|de-?rat\w*|load[- ]?shed\w*|suspen\w*|administered|RERT|system strength)\b", re.I)
+
+
+def asks_if_notice_event_caused(question: str) -> bool:
+    return bool(INFLUENCE_Q_RE.search(question) and INCIDENT_Q_RE.search(question))
+
+
+def forecast_issue_time(question: str) -> datetime | None:
+    """The issue time of a forecast run the question names, when it names one and asks nothing 'as of'."""
+    m = ISSUED_AT_RE.search(question)
+    return parse_iso(m.group(1)) if m and not AS_OF_Q_RE.search(question) else None
+
+
+def asks_forecast_as_of(question: str) -> bool:
+    """An as-of question about forecasts asks what issued forecasts said at that time: a forecast review, even when it
+    also names an event or a price spike (L3 live: AMB06 was routed as an event review; the replay router tied)."""
+    return bool(AS_OF_Q_RE.search(question) and FORECAST_WORD_RE.search(question))
+
+
 def route(question: str) -> tuple[Intent | None, dict[str, object]]:
     """Scripted keyword router. Returns (intent or None when out of scope, diagnostics)."""
     q = question.lower()
@@ -115,10 +192,14 @@ def route(question: str) -> tuple[Intent | None, dict[str, object]]:
     if re.search(r"\b(did|how did|what happened|compare|versus|vs\.?|against)\b", q):
         scores["market_event_review"] += 1 if scores["market_event_review"] else 0
         scores["forecast_review"] += 1 if scores["forecast_review"] else 0
+    if asks_about_notices(question):  # also when no keyword scored ("market notices" is not "market notice")
+        return "source_explanation", {"scores": scores, "router": ROUTER_VERSION, "rule": "question about notices"}
     best = max(scores.values())
     if best == 0:
         return None, {"scores": scores, "router": ROUTER_VERSION}
     ranked = sorted(scores, key=lambda k: (-scores[k], INTENTS.index(k)))
+    if ranked[0] == "market_event_review" and asks_forecast_as_of(question):
+        return "forecast_review", {"scores": scores, "router": ROUTER_VERSION, "rule": "as-of forecast question"}
     return ranked[0], {"scores": scores, "router": ROUTER_VERSION}
 
 

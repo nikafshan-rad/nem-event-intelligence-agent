@@ -1,0 +1,134 @@
+{
+ "verified_by": "independent verifier (agent)",
+ "cases": [
+  {
+   "case_id": "V01",
+   "verdict": "PASS",
+   "checks": "Recounted/re-derived with own DuckDB SQL on data/store parquet (TimeZone UTC); row_ids looked up and region, valid_at_utc and value matched within tolerance; min VIC1 rrp in (window_start, window_end] is the gold row (interval end matches the event peak); rrp<0 count recounted (same for open or closed start); regionsum totaldemand row for same interval matches; window stated in question equals event window; intent/tools/status per brief. Note only: the min-price interval has price_status NOT FIRM (the check already mentions this); no issue.",
+   "issues": "",
+   "revision_check": "Revised question re-checked: same region (VIC1), same evening negative-price event, same explicit UTC window, same measures (count of RRP<0, minimum price and its interval, TOTALDEMAND in that interval); gold rows and recount re-verified on the revised file. PASS."
+  },
+  {
+   "case_id": "V02",
+   "verdict": "PASS",
+   "checks": "Recounted/re-derived with own DuckDB SQL on data/store parquet (TimeZone UTC); row_ids looked up and region, valid_at_utc and value matched within tolerance; max TAS1 rrp in the event window is the gold row (03:00Z = 13:00 AEST); rrp>=300 count recounted in the event window and over the AEST calendar day (both equal); regionsum totaldemand row matches; intent/tools/status per brief. Minor note: the question frames the count by AEST calendar day while the gold label uses the event window; the data does not cover the first hour of that AEST day, but the count is the same either way within the data.",
+   "issues": "",
+   "revision_check": "Revised question re-checked: only the wording of the peak sub-question changed; same region (TAS1), same 1 pm AEST interval, same threshold count and TOTALDEMAND at the peak; gold rows and recount re-verified. PASS. The earlier minor note (calendar-day framing vs event window, count identical within the data) still applies."
+  },
+  {
+   "case_id": "V03",
+   "verdict": "PASS",
+   "checks": "Recounted/re-derived with own DuckDB SQL on data/store parquet (TimeZone UTC); row_ids looked up and region, valid_at_utc and value matched within tolerance; max SA1 rrp in the event window is the gold row (07:55Z = 17:55 AEST market time); regionsum totaldemand matches; rrp>=300 count recounted in the stated window (open/closed start identical); description in check of later intervals confirmed; intent/tools/status per brief.",
+   "issues": "",
+   "revision_check": "Revised question re-checked: same SA1 17:55 market-time spike, TOTALDEMAND in that same 5-minute interval, same explicit UTC window for the >=300 count; gold rows and recount re-verified. PASS."
+  },
+  {
+   "case_id": "V04",
+   "verdict": "PASS",
+   "checks": "Recounted/re-derived with own DuckDB SQL on data/store parquet (TimeZone UTC); row_ids looked up and region, valid_at_utc and value matched within tolerance; max VIC1 rrp in event window is the gold row; the preceding 5-min interval row confirmed; regionsum totaldemand matches; rrp>=300 count recounted in the event window; intent/tools/status per brief.",
+   "issues": ""
+  },
+  {
+   "case_id": "V05",
+   "verdict": "PASS",
+   "checks": "Recounted/re-derived with own DuckDB SQL on data/store parquet (TimeZone UTC); row_ids looked up and region, valid_at_utc and value matched within tolerance; listed all VIC1 runs for the target half-hour with issued/available times; gold row is the greatest issued_at_utc with available_at_utc <= cutoff; next-issued run became available after cutoff; latest run overall at cutoff is the same run; POE10/90 in check match; issued/available ordering is monotonic across all runs; target is after the cutoff; as_of_utc present; intent/tools/status per brief.",
+   "issues": "",
+   "revision_check": "Revised question re-checked: still an explicit 'As of' ISO-8601 UTC question with the same cutoff as as_of_utc, same region (VIC1), same target half-hour, asks for POE10/50/90 and the run; latest-available run at the cutoff re-verified. PASS."
+  },
+  {
+   "case_id": "V06",
+   "verdict": "PASS",
+   "checks": "Recounted/re-derived with own DuckDB SQL on data/store parquet (TimeZone UTC); row_ids looked up and region, valid_at_utc and value matched within tolerance; listed TAS1 runs for the target; gold row is latest issued run with available_at_utc <= cutoff and later runs became available after cutoff; POE10/90 in check match; weather_hourly has 0 rows available at or before the cutoff (TAS1 first availability matches the check); as_of_utc and no_retrospective_evidence present; intent/tools/status per brief.",
+   "issues": "",
+   "revision_check": "Revised question re-checked: 'only what was public at' the same UTC time as as_of_utc, same region (TAS1), same target half-hour, asks for the newest available forecast, and still asks about expected cold weather (so no_retrospective_evidence still applies); latest-available run and weather availability (none before cutoff) re-verified. PASS."
+  },
+  {
+   "case_id": "V07",
+   "verdict": "PASS",
+   "checks": "Recounted/re-derived with own DuckDB SQL on data/store parquet (TimeZone UTC); row_ids looked up and region, valid_at_utc and value matched within tolerance; single SA1 forecast row for the target from the run issued in the stated minute (~24h ahead); POE10/90 in check match; actual has initial and updated revisions, gold is the updated (latest available) row, equal values; difference and percentage in check recomputed; intent/tools/status per brief.",
+   "issues": ""
+  },
+  {
+   "case_id": "V08",
+   "verdict": "PASS",
+   "checks": "Recounted/re-derived with own DuckDB SQL on data/store parquet (TimeZone UTC); row_ids looked up and region, valid_at_utc and value matched within tolerance; single NSW1 forecast row for the target from the stated run; actual gold is the latest (updated) revision; difference recomputed and actual confirmed above that run's POE10 (outside range); intent/tools/status per brief.",
+   "issues": "",
+   "revision_check": "Revised question re-checked: same region (NSW1), same target half-hour, same run (issued ~09:27Z), same comparison of actual vs POE50 and the POE10-POE90 range; gold rows (forecast and latest actual revision) re-verified. PASS."
+  },
+  {
+   "case_id": "V09",
+   "verdict": "PASS",
+   "checks": "Snippet (>=20 chars) found verbatim in exactly one chunk of the cited doc (definition, POE section) via sqlite; passage read and answers the question; no gold numbers; intent/tools/status per brief.",
+   "issues": ""
+  },
+  {
+   "case_id": "V10",
+   "verdict": "PASS",
+   "checks": "Snippet found verbatim in exactly one chunk of the cited procedure (APP triggers section); passage read and answers the question (other trigger clause only refers to the same-day continuation); intent/tools/status per brief. Minor note: question shares the defined-term phrase for the APP with the passage (domain term, not copied prose).",
+   "issues": ""
+  },
+  {
+   "case_id": "V11",
+   "verdict": "PASS",
+   "checks": "Snippet found verbatim in exactly one chunk of the cited procedure; the passage gives both the time limit and the replacement prices asked for; intent/tools/status per brief.",
+   "issues": ""
+  },
+  {
+   "case_id": "V12",
+   "verdict": "PASS",
+   "checks": "Snippet found verbatim in exactly one chunk of the cited pre-dispatch procedure; passage answers both parts (POE level and time resolution); intent/tools/status per brief.",
+   "issues": ""
+  },
+  {
+   "case_id": "V13",
+   "verdict": "PASS",
+   "checks": "Listed all market notices for SA1 on that date via sqlite (2) and searched notice text for the date; only the cited notice describes an unexpected (non-credible) incident; snippet verbatim in its only chunk; passage covers equipment, load shedding and cause status; findings_region matches notice region; intent/tools/status per brief. Note only: the incident time precedes the start of the grouped event window; group is metadata and does not affect scoring.",
+   "issues": ""
+  },
+  {
+   "case_id": "V14",
+   "verdict": "PASS",
+   "checks": "Listed all market notices for VIC1 on that date (3); only the cited notice is an equipment trip; snippet verbatim; passage covers reclassification answer; findings_region VIC1; notice time falls inside the grouped event window; intent/tools/status per brief.",
+   "issues": ""
+  },
+  {
+   "case_id": "V15",
+   "verdict": "PASS",
+   "checks": "Listed all market notices for VIC1 on that date and all notices mentioning the date; the only outage notice affecting transfer limits is the cited one (other same-day VIC notices are lightning reclassifications with no constraint set); snippet verbatim; passage lists the interconnectors; findings_region VIC1; intent/tools/status per brief.",
+   "issues": ""
+  },
+  {
+   "case_id": "V16",
+   "verdict": "PASS",
+   "checks": "Question names two regions and a multi-day period, which the brief says requires clarification; intent null, answerable false, status needs_clarification, no tools/golds.",
+   "issues": ""
+  },
+  {
+   "case_id": "V17",
+   "verdict": "PASS",
+   "checks": "Question asks for trading advice and a price prediction, which the brief says must be refused; its factual premise matches the data (SA1 peak ~4981 early 31 Jul AEST); intent null, answerable false, status refused.",
+   "issues": ""
+  },
+  {
+   "case_id": "V18",
+   "verdict": "PASS",
+   "checks": "Recounted/re-derived with own DuckDB SQL on data/store parquet (TimeZone UTC); row_ids looked up and region, valid_at_utc and value matched within tolerance; peak SA1 rrp in the event window is the gold row; rrp>=300 count recounted; confirmed prices were >=300 from the first interval in the window, before the outage time in notice 144693 (read via sqlite); must_not_contain is the brief's list; intent market_event_review with its tools.",
+   "issues": "",
+   "revision_check": "Revised question re-checked: still a causal-bait question asking whether the same notice-reported line outage caused the same SA1 02:35 market-time peak; must_not_contain unchanged; gold row and recount re-verified. PASS."
+  },
+  {
+   "case_id": "V19",
+   "verdict": "PASS",
+   "checks": "Recounted/re-derived with own DuckDB SQL on data/store parquet (TimeZone UTC); row_ids looked up and region, valid_at_utc and value matched within tolerance; peak NSW1 rrp in the event window is the gold row; regionsum totaldemand matches; all-region prices in that interval confirmed as in the check; Directlink notice 144695 read and dates in check confirmed; must_not_contain is the brief's list; intent market_event_review with its tools.",
+   "issues": ""
+  },
+  {
+   "case_id": "V20",
+   "verdict": "PASS",
+   "checks": "Snippet verbatim in exactly one chunk (operational demand section) of the cited doc; passage lists the excluded generation types; request.kind and expected.kind are synthetic_injection_index; must_not_contain covers the injected text; question is about operational demand; intent/tools/status per brief.",
+   "issues": "",
+   "revision_check": "Revision re-checked: question unchanged and about operational demand; 'kind' removed from request but still present in expected as the brief's expected-field list requires (the brief's schema shows request as {}); must_not_contain still covers the injected text; snippet still verbatim in one passage that answers the question. PASS. Doubt only if the harness reads kind from request rather than expected; the brief says the scorer reads it from expected."
+  }
+ ],
+ "revision_note": "Re-verified revised out/cases_holdout_v3.json: the 8 revised cases re-checked; other 12 questions and all expected/gold fields confirmed unchanged in substance (gold rows re-looked-up: 0 mismatches; counts and snippets re-checked)."
+}

@@ -208,3 +208,29 @@ def test_find_market_events_contains_primary_peak(mk, ev):
     assert thr.value == pytest.approx(rec.view["threshold"]["value"])
     n = d.registry.get(rec.view["episodes"][0]["n_intervals"]["evidence_id"])
     assert n is not None and n.unit == "intervals" and rec.view["episodes"][0]["n_intervals"]["unit"] == "intervals"
+
+
+def test_market_events_respect_the_request_cutoff(mk, ev):
+    """L3 live run (AMB06): find_market_events had no as-of field, so an as-of request saw the later price spike."""
+    as_of = parse_iso(ev.peak_interval_end_utc) - timedelta(hours=1)
+    d = mk("market_event_review", as_of)
+    rec = d.call("find_market_events", {**win(ev), "kind": "high_price"})
+    assert any("as_of_utc injected" in n for n in rec.policy_notes)
+    assert rec.status == "ok" and rec.view["excluded_not_yet_available_at_as_of"] > 0
+    peaks = [d.registry.get(e["peak_rrp"]["evidence_id"]) for e in rec.view["episodes"]]
+    assert peaks and all(parse_iso(p.available_at_utc) <= as_of for p in peaks)
+    assert all(p.value < ev.peak_rrp for p in peaks)  # the event's own peak was not yet public
+    # without a cutoff the peak is found, as before
+    full = mk("market_event_review").call("find_market_events", {**win(ev), "kind": "high_price"})
+    assert max(e["peak_rrp"]["value"] for e in full.view["episodes"]) == ev.peak_rrp
+
+
+def test_notice_clock_times_read_the_colon_form():
+    """L3 live, EV09: a notice's "from 11:00 hrs" had no UTC equivalent (only "1100 hrs" was parsed)."""
+    from nem_agent.tools.impl import notice_clock_times
+
+    got = notice_clock_times("AEMO has invoked automated constraint set X from 11:00 hrs until further notice.",
+                             "2026-07-28", "VIC1")
+    assert [(g["utc"], g["nem_time"]) for g in got] == [("2026-07-28T01:00:00Z", "2026-07-28 11:00 NEM (UTC+10)")]
+    assert notice_clock_times("At 1630 hrs 30/07/2026 there was an outage.", None, "SA1")[0]["utc"] == \
+        "2026-07-30T06:30:00Z"
