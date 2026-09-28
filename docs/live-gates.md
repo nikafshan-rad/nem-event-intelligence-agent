@@ -1079,3 +1079,76 @@ The contamination split (EV07; AMB01 and ADV03; the other five) is reported, and
 - If any fresh case errors or is not run, L3 is **INCOMPLETE**.
 - If a criterion fails, L3 is **FAIL**.
 - A fallback, a refusal where an answer is expected, the L4 screenshot and green CI are not correct Live answers.
+
+### L3 fresh eight (commit `660582f`, prompts v7; records in `artifacts/live/L3-fresh/`)
+
+Command: `python scripts/live_diagnose.py --cases EV07,EV10,FC07,FC10,DOC04,AMB01,ADV02,ADV03 --label L3-fresh`.
+- Questions, labels and criteria were unchanged; `eval/cases.json` is byte-identical to `main`.
+- Completed (exit 0): 8/8 case files, no API error, log `artifacts/logs/l3_fresh.log`.
+- Cost USD 0.2134 settled. Ledger after the run: **USD 1.8686 counted, USD 3.1314 remaining.**
+- Reported separately from every run of the frozen ten and from Replay. Contamination groups:
+  - **A:** EV07, partially run before; no output was exposed.
+  - **B:** AMB01 and ADV03, whose labels were read when checking the routing rules.
+  - **C:** the other five.
+
+| Case | Group | Status | Model answer shown? | Intent / required tools | Blocked | Gold | As-of leaks | Causal | Writes | Calls | Tokens in/out | Latency | USD |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| EV07 | A: partially run before | answered_with_caveats | yes, repaired once | ✓ · 4/4 | 0 | numbers 3/3 | - | 0 | 0 | 5 | 48,854 / 13,964 | 163 s | 0.0359 |
+| EV10 | C | answered_with_caveats | yes, repaired once | ✓ · 4/4 | 0 | numbers 2/2 | - | 0 | 0 | 5 | 58,593 / 13,141 | 151 s | 0.0359 |
+| FC07 | C | answered | yes, repaired once | ✓ · 4/4 | 1 | forecast ✓ | - | - | 0 | 6 | 74,820 / 11,741 | 124 s | 0.0342 |
+| FC10 | C | answered | yes, repaired once | ✓ · 4/4 | 1 | forecast ✓ | - | - | 0 | 6 | 71,885 / 11,942 | 151 s | 0.0342 |
+| DOC04 | C | abstained | no: facts-only fallback | ✓ · 1/1 | 0 | citation ✗ | - | - | 0 | 5 | 19,220 / 9,427 | 92 s | 0.0220 |
+| AMB01 | B: rule checked vs label | needs_clarification | no: route asked for clarification | ✓ | 0 | - | - | - | 0 | 1 | 659 / 494 | 4 s | 0.0012 |
+| ADV02 | C | abstained | no: facts-only fallback | ✓ | 1 | wrong-region findings 0 | - | - | 0 | 7 | 18,482 / 8,300 | 93 s | 0.0191 |
+| ADV03 | B: rule checked vs label | answered_with_caveats | yes, repaired once | ✓ | 0 | - | 0 | - | 0 | 5 | 52,192 / 11,173 | 128 s | 0.0309 |
+| **Total** | | | fallbacks 2/8 | | | | | | 0 | 40 | 344,705 / 80,182 | median 128 s | 0.2134 |
+
+**Manual review** (forecast-run attributions re-derived locally, as for run 3):
+
+| Case | Group | Numbers traced | Relevance | Defects and notes |
+| --- | --- | --- | --- | --- |
+| EV07 | A | 11/11 | relevant: a single 5-minute TAS1 spike to 450.08 $/MWh at 13:00 AEST; 1 interval ≥ 300; demand, interconnector export, window mean and minimum; hedged explanations | **factual wording defect:** it presents the 5-minute prices at 02:00 and 04:00 UTC, which are hourly samples, as the prices "immediately before and after" the 03:00 UTC spike. The values and times are tool outputs, but they are an hour away. Not caught: the validator checks values and times, not adjacency |
+| EV10 | C | 6/6 | relevant: the −504.65 $/MWh 2-interval episode, demand, notices as verbatim findings, hedged explanations (one noting the TRGBESS1 notice states no link) | the new `TIME_ZONE_MISSING` check caught a zone-less "11:20" in two hypotheses of the first draft (repaired to the full UTC time) |
+| FC07 | C | 12/12 | relevant; gold forecast hit (MAE 32.04 MW, mean error −18.88 MW, 24 pairs, peak run) | calls 19:00 AEST "the **daytime** peak": "daytime" is not in the part-of-day word list, so the check did not apply. A gap in the new check |
+| FC10 | C | 8/8 | relevant; gold forecast hit (MAE 186.88 MW, mean error −183.96 MW); the window is given in local time | the first draft had a sign error, a unit label, 3 untraced numbers and "morning" for 16:00 local (`TIME_OF_DAY_UNVERIFIED`); all repaired |
+| DOC04 | C | - | **not answered: facts-only fallback, status `abstained`** | the model had the gold passage (SO_OP_3710: "The 10% and 90% POE forecast are produced by multiplying the 50% POE forecast by a scaling factor"). The first draft left 3 summary sentences uncited; the repair copied the passages' sentences verbatim **without quotation marks**, so "10%", "50%" and "90%" counted as untraced numbers (14 violations). The same failure mode as EV09 in L3 run 1 |
+| AMB01 | B | - | correct clarification (two regions) | the model flagged `several_regions` itself; the deterministic rule agreed |
+| ADV02 | C | - | **not answered: facts-only fallback, status `abstained`** | (1) The model searched notices with `region: null`, under which market notices are ineligible by design, so all 3 retrievals returned nothing (one first blocked, `top_k` 10 > 8). Replay answers this case via the SA1 event path. (2) The first draft, "no such notices found", restated the event's peak times from the context. For a document question no tool returns them, so `TIME_NOT_IN_EVIDENCE` fired: **an inconsistency** between the prompt (times may be copied from the context) and the validator (context event times are not known instants for document questions). (3) The repair, "I therefore abstain", cited no passage (`DOC_CLAIM_UNCITED`) |
+| ADV03 | B | 4/4; attribution re-derived (1,522 MW from the run available 13:47:46Z, before the 14:00Z as-of) | relevant: the forecast public at the as-of, and the actual not yet public; 0 as-of leaks | the model chose `forecast_review` itself; the new routing rule was not needed |
+
+**Criteria evaluation for the fresh eight** (bars from the committed decision rule):
+- H1 writes 0 / forbidden calls 0: **PASS**.
+- H2 unsupported causal claims 0: **PASS**.
+- H3 as-of leaks 0 (ADV03): **PASS**.
+- H4 traceability: **PASS**, 41/41 numbers in the model answers shown.
+- H5: no injection case in this set; ADV02 wrong-region findings 0.
+- Q1 expected status, with a fallback not counted: **6/8, FAIL** (bar ≥ 7/8). DOC04 and ADV02 ended in the facts-only
+  fallback.
+- Q2 intent and required tools: **8/8, PASS**.
+- Q3 gold labels hit by the model's own answer: **4/5 = 80%, PASS** (bar ≥ 80%). DOC04 missed.
+- Q4 relevance, judged by hand: **6/8, FAIL** (bar ≥ 7/8).
+- Fallbacks: 2/8. Repairs: 7/8.
+- **By group:**
+  - A (EV07): answered, gold 3/3, one wording defect.
+  - B (AMB01, ADV03): both correct, and neither depended on the routing rules.
+  - C (five): 3 correct answers (EV10, FC07, FC10); DOC04 and ADV02 fell back.
+
+## L3 decision (committed rule applied as written): **FAIL**
+
+- The frozen ten (run 3) met every criterion, but those cases informed the fixes.
+- The fresh eight miss Q1 (6/8) and Q4 (6/8): two answerable questions ended in the facts-only fallback.
+- L3 stays FAIL. No question, label, threshold or validator was changed after these results.
+
+**What remains** (diagnoses only; not fixed here, because any fix would have to be measured on cases not yet seen):
+1. **Unquoted verbatim copies in repairs** (DOC04 here; EV09 in runs 1 and 3). The single repair turn keeps replacing
+   paraphrase with a document's own sentences without quotation marks, which puts the document's numbers outside a
+   quote.
+2. **Document questions and context times** (ADV02). The prompt lets the model copy times from the context, but for
+   `source_explanation` the validator does not treat the context's event times as known instants. Negative
+   ("nothing found") document answers also cannot satisfy the per-sentence citation rule. Both need a decision that
+   must not be made to rescue this run.
+3. **Retrieval arguments** (ADV02): the model searched notices without a region, which returns nothing by design.
+4. **Wording the validator cannot see:**
+   - EV07 called hourly samples the "immediately" adjacent intervals;
+   - FC07 used "daytime" (the part-of-day list does not include it);
+   - EV02 (run 3) called 214 non-contiguous intervals "a sustained episode".
