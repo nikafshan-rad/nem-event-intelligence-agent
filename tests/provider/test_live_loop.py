@@ -51,7 +51,7 @@ def _good_report(kw):
         "possible_explanations": [{"statement": "Supply conditions may have tightened.", "supporting_evidence_ids": [],
                                    "what_would_test_it": "offer data"}],
         "published_findings": [], "citations": cites[:1], "uncertainties": ["synthetic test"], "missing_evidence": [],
-        "forecast_mae_evidence_id": None,
+        "forecast_mae_evidence_id": None, "document_statements": [],
     }
 
 
@@ -136,7 +136,12 @@ def test_validator_driven_repair_then_pass(ev):
         r["headline"] = r["headline"].replace("peaked at", "peaked at 12,345 MW demand and")  # invented number
         return r
 
-    fake = FakeModel(_route(ev), [_required_turn(ev)], bad, repair_fn=_good_report)
+    def patch(kw):  # the scoped repair may change only the failing item: here the headline
+        return {"edits": [{"target": "headline", "action": "replace", "text": _good_report(kw)["headline"],
+                           "statement": None, "claim": None, "citation": None}],
+                "new_numeric_claims": [], "new_citations": []}
+
+    fake = FakeModel(_route(ev), [_required_turn(ev)], bad, repair_fn=patch)
     res = investigate(InvestigateRequest(question="What happened around the SA1 price spike on 2026-07-31?", mode="live"),
                       live_client=fake, write_trace=False)
     v = res.report.validation
@@ -347,7 +352,7 @@ def _forecast_report(kw, mae_id=None):
     return {"status": "answered_with_caveats", "headline": "Forecast review for SA1 (synthetic).", "summary": [],
             "observation_evidence_ids": [], "numeric_claims": [], "possible_explanations": [], "published_findings": [],
             "citations": [], "uncertainties": ["synthetic test"], "missing_evidence": [],
-            "forecast_mae_evidence_id": mae_id or cmp_["mae_mw"]["evidence_id"]}
+            "forecast_mae_evidence_id": mae_id or cmp_["mae_mw"]["evidence_id"], "document_statements": []}
 
 
 def test_forecast_context_and_comparison_built_from_the_named_mae(ev):
@@ -449,7 +454,7 @@ def test_definition_question_runs_retrieval_although_the_model_asked_for_a_regio
                 "observation_evidence_ids": [], "numeric_claims": [], "possible_explanations": [],
                 "published_findings": [], "citations": [{"citation_id": "s01", "chunk_id": hit["chunk_id"],
                                                          "quote": quote, "supports": "definition"}],
-                "uncertainties": [], "missing_evidence": [], "forecast_mae_evidence_id": None}
+                "uncertainties": [], "missing_evidence": [], "forecast_mae_evidence_id": None, "document_statements": []}
     fake = FakeModel(route, [turn], report)
     res = investigate(InvestigateRequest(question="What does operational demand mean in the dispatch data?",
                                          mode="live"), live_client=fake, write_trace=False)

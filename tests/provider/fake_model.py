@@ -46,7 +46,7 @@ class FakeModel:
         fmt = (kw.get("text") or {}).get("format", {}).get("name")
         if fmt == "RouteDecision":
             return msg(json.dumps(self.route))
-        if fmt == "ModelReport":
+        if fmt in ("ModelReport", "RepairPatch"):
             last = kw["input"][-1]
             if self.repair_fn and isinstance(last, dict) and "failed independent validation" in str(last.get("content")):
                 return msg(json.dumps(self.repair_fn(kw)))

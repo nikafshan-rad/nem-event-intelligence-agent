@@ -37,6 +37,7 @@ from ..report import (
     NumericClaim,
     Observation,
     PublishedFinding,
+    SearchScope,
     Versions,
 )
 from ..timeutil import half_hour_end_for, iso_utc, local_str, parse_iso
@@ -114,10 +115,21 @@ class MCitation(_S):
     supports: str
 
 
+class MDocStatement(_S):
+    citation_id: str = Field(description="citation_id of the passage this sentence relies on")
+    quote: str | None = Field(description="text copied character-for-character from that passage; the controller shows "
+                                          "it in quotation marks with the citation (null when paraphrasing)")
+    paraphrase: str | None = Field(description="a close restatement in your own words of only what the passage says "
+                                               "(null when quoting)")
+
+
 class ModelReport(_S):
     status: Literal["answered", "answered_with_caveats", "needs_clarification", "abstained"]
     headline: str
     summary: list[str]
+    document_statements: list[MDocStatement] = Field(
+        description="definition and document answers: one entry per sentence, each tied to one citation; the controller "
+                    "writes the sentence and its [citation_id]. Leave empty for event and forecast reviews.")
     observation_evidence_ids: list[str] = Field(description=f"each is {EVIDENCE_ID_NOTE}")
     numeric_claims: list[MClaim]
     possible_explanations: list[MHypothesis]
@@ -127,6 +139,166 @@ class ModelReport(_S):
     missing_evidence: list[str]
     forecast_mae_evidence_id: str | None = Field(
         description="for a forecast review: the evidence_id of the compare_forecast_actual MAE you report (else null)")
+
+
+class MEdit(_S):
+    target: str = Field(description="one of the items listed in the repair request, e.g. summary[3], headline, "
+                                    "document_statements[0], possible_explanations[1], "
+                                    "possible_explanations[1].what_would_test_it, numeric_claims[n8], citations[c2], "
+                                    "published_findings[0], observation_evidence_ids[ev0001]")
+    action: Literal["replace", "delete"]
+    text: str | None = Field(description="replacement text for headline, summary[i], possible_explanations[i] (its "
+                                         "statement) or possible_explanations[i].what_would_test_it; else null")
+    statement: MDocStatement | None = Field(description="replacement for document_statements[i]; else null")
+    claim: MClaim | None = Field(description="replacement for numeric_claims[<claim_id>]; else null")
+    citation: MCitation | None = Field(description="replacement for citations[<citation_id>]; else null")
+
+
+class RepairPatch(_S):
+    edits: list[MEdit] = Field(description="exactly one edit (replace or delete) per listed item")
+    new_numeric_claims: list[MClaim] = Field(description="claims for numbers your replacement text adds")
+    new_citations: list[MCitation] = Field(description="citations your replacements add")
+
+
+_WHERE_RE = re.compile(r"^(headline|summary\[\d+\]|possible_explanations\[\d+\](?:\.what_would_test_it)?|"
+                       r"published_findings\[\d+\])(?=[:\s]|$)")
+_ITEM_RE = re.compile(r"(summary|document_statements|possible_explanations|published_findings)\[(\d+)\]"
+                      r"(\.what_would_test_it)?")
+
+
+def repair_targets(result: Any, m: ModelReport, origin: list[tuple[str, int]]) -> tuple[set[str], list[str]]:
+    """The draft items each critical violation points at. ``origin`` maps rendered summary lines to their source
+    (a document statement or a free summary line). Codes that name no item are returned as unmapped."""
+    targets: set[str] = set()
+    unmapped: list[str] = []
+    claim_ids = {c.claim_id for c in m.numeric_claims}
+    cite_ids = {c.citation_id for c in m.citations}
+    for v in result.critical:
+        d = v.detail
+        mw = _WHERE_RE.match(d)
+        if mw:
+            t = mw.group(1)
+            ms = re.fullmatch(r"summary\[(\d+)\]", t)
+            if ms:
+                i = int(ms.group(1))
+                if i >= len(origin):
+                    unmapped.append(v.code)
+                    continue
+                t = f"{origin[i][0]}[{origin[i][1]}]"
+            targets.add(t)
+            continue
+        mf = re.match(r"finding (\d+):", d)
+        if mf:
+            targets.add(f"published_findings[{mf.group(1)}]")
+            continue
+        mt = re.match(r"([^\s:]+)", d)
+        tok = mt.group(1) if mt else ""
+        if tok in claim_ids:
+            targets.add(f"numeric_claims[{tok}]")
+            continue
+        if tok in cite_ids:
+            targets.add(f"citations[{tok}]")
+            continue
+        if re.fullmatch(r"ev\d{4}", tok):  # evidence-level (as-of, metric): the observation and claims that use it
+            hit = [f"numeric_claims[{c.claim_id}]" for c in m.numeric_claims if c.evidence_id == tok]
+            if tok in m.observation_evidence_ids:
+                hit.append(f"observation_evidence_ids[{tok}]")
+            if hit:
+                targets.update(hit)
+                continue
+        unmapped.append(v.code)
+    return targets, unmapped
+
+
+def target_texts(m: ModelReport, targets: set[str]) -> dict[str, str]:
+    """Current content of each item the repair may change, shown to the model."""
+    out: dict[str, str] = {}
+    for t in sorted(targets):
+        mi = _ITEM_RE.fullmatch(t)
+        if t == "headline":
+            out[t] = m.headline
+        elif mi:
+            items = getattr(m, mi.group(1))
+            i = int(mi.group(2))
+            if i < len(items):
+                it = items[i]
+                out[t] = (it.what_would_test_it if mi.group(3) else it.statement) if mi.group(1) == "possible_explanations" \
+                    else (it if isinstance(it, str) else json.dumps(it.model_dump(), ensure_ascii=False))
+        elif t.startswith("numeric_claims["):
+            c = next((c for c in m.numeric_claims if c.claim_id == t[15:-1]), None)
+            out[t] = json.dumps(c.model_dump(), ensure_ascii=False) if c else ""
+        elif t.startswith("citations["):
+            c2 = next((c for c in m.citations if c.citation_id == t[10:-1]), None)
+            out[t] = json.dumps(c2.model_dump(), ensure_ascii=False) if c2 else ""
+        else:
+            out[t] = t
+    return out
+
+
+def apply_patch(m: ModelReport, patch: RepairPatch, allowed: set[str]) -> tuple[ModelReport, list[str]]:
+    """Apply a repair patch to the first draft. Only the failing items may change; every other item is carried over
+    unchanged, so the one repair cannot break what already passed (L3 run 3, EV09: a full rewrite fixed four
+    violations and introduced four new ones)."""
+    d = m.model_dump()
+    notes: list[str] = []
+    drop: dict[str, set[int]] = {k: set() for k in ("summary", "document_statements", "possible_explanations",
+                                                   "published_findings")}
+    claims = {c["claim_id"]: c for c in d["numeric_claims"]}
+    cites = {c["citation_id"]: c for c in d["citations"]}
+    for e in patch.edits:
+        if e.target not in allowed:
+            notes.append(f"ignored an edit to {e.target}: only the failing items may change")
+            continue
+        mi = _ITEM_RE.fullmatch(e.target)
+        if e.target == "headline":
+            if e.action == "replace" and e.text:
+                d["headline"] = e.text
+            else:
+                notes.append("the headline cannot be deleted; it was kept")
+        elif mi:
+            kind, i, test = mi.group(1), int(mi.group(2)), mi.group(3)
+            if i >= len(d[kind]):
+                notes.append(f"{e.target} does not exist")
+            elif e.action == "delete":
+                drop[kind].add(i)
+            elif kind == "summary" and e.text is not None:
+                d["summary"][i] = e.text
+            elif kind == "document_statements" and e.statement is not None:
+                d[kind][i] = e.statement.model_dump()
+            elif kind == "possible_explanations" and e.text is not None:
+                d[kind][i]["what_would_test_it" if test else "statement"] = e.text
+            else:
+                notes.append(f"the edit to {e.target} had no usable replacement; kept")
+        elif e.target.startswith("numeric_claims["):
+            cid = e.target[15:-1]
+            if e.action == "delete":
+                claims.pop(cid, None)
+            elif e.claim is not None:
+                claims[cid] = e.claim.model_dump()
+        elif e.target.startswith("citations["):
+            cid = e.target[10:-1]
+            if e.action == "delete":
+                cites.pop(cid, None)
+            elif e.citation is not None:
+                cites[cid] = e.citation.model_dump()
+        elif e.target.startswith("observation_evidence_ids[") and e.action == "delete":
+            d["observation_evidence_ids"] = [x for x in d["observation_evidence_ids"] if x != e.target[25:-1]]
+        else:
+            notes.append(f"the edit to {e.target} could not be applied")
+    for kind, idxs in drop.items():
+        d[kind] = [x for i, x in enumerate(d[kind]) if i not in idxs]
+    for c in patch.new_numeric_claims:
+        if c.claim_id in claims:
+            notes.append(f"new claim {c.claim_id} reuses an existing id; not added")
+        else:
+            claims[c.claim_id] = c.model_dump()
+    for c3 in patch.new_citations:
+        if c3.citation_id in cites:
+            notes.append(f"new citation {c3.citation_id} reuses an existing id; not added")
+        else:
+            cites[c3.citation_id] = c3.model_dump()
+    d["numeric_claims"], d["citations"] = list(claims.values()), list(cites.values())
+    return ModelReport.model_validate(d), notes
 
 
 # ------------------------------------------------------------------------------------ transports
@@ -325,7 +497,9 @@ def _where_text(report: Any, detail: str) -> str | None:
     return str(getattr(item, "what_would_test_it" if m.group(3) else "statement", item))
 
 
-def repair_message(result: Any, report: Any = None) -> str:
+def repair_message(result: Any, report: Any = None, targets: dict[str, str] | None = None) -> str:
+    """The repair turn. With ``targets`` (a scoped repair) the model returns a RepairPatch that may change only the
+    listed items; without, it returns the full corrected report."""
     crit = result.critical
     lines = []
     for v in crit[:20]:
@@ -334,15 +508,22 @@ def repair_message(result: Any, report: Any = None) -> str:
     if len(crit) > 20:
         lines.append(f"- ... and {len(crit) - 20} more of the same kinds")
     hints = [f"- {c}: {REPAIR_HINTS[c]}" for c in sorted({v.code for v in crit}) if c in REPAIR_HINTS]
-    return ("The report failed independent validation. Fix ONLY these problems and return the full corrected JSON:\n"
-            + "\n".join(lines) + ("\nHow to fix them:\n" + "\n".join(hints) if hints else "") + "\n" + REPAIR_RULES)
+    if targets:
+        head = ("The report failed independent validation. Return a RepairPatch with exactly one edit (replace or "
+                "delete) for each item listed under 'Items you may change'; no other item can change.\n")
+        items = "\nItems you may change (current content):\n" + "\n".join(f"- {k}: {v[:300]}" for k, v in targets.items())
+    else:
+        head = "The report failed independent validation. Fix ONLY these problems and return the full corrected JSON:\n"
+        items = ""
+    return (head + "\n".join(lines) + items + ("\nHow to fix them:\n" + "\n".join(hints) if hints else "") + "\n"
+            + REPAIR_RULES)
 
 
 # Stated with every repair: the one repair turn must not introduce a new violation.
 REPAIR_RULES = ("While fixing: a quote is text inside double quotation marks (\"...\" or “...”) copied exactly from a "
                 "passage; text copied without them counts as your own words, so its numbers must be registered claims. "
                 "Do not add numbers, times or notice details that were not in the draft; deleting a sentence is an "
-                "acceptable fix.")
+                "acceptable fix. Passage text belongs in a document_statements quote, never retyped in summary.")
 
 
 def _replayable(item: dict[str, Any]) -> dict[str, Any] | None:
@@ -368,6 +549,7 @@ class LiveController:
         self.model = model or model_id_from_env()
         self.usage = Usage(model=self.model)
         self.transcript: list[dict[str, Any]] = []
+        self._summary_origin: list[tuple[str, int]] = []  # rendered summary line -> its draft item
 
     # -- model call with bounds ------------------------------------------------------------------------------
     def _call(self, trace: Any, stage: str, **kwargs: Any) -> dict[str, Any]:
@@ -444,18 +626,21 @@ class LiveController:
         trace = self.d.trace
         pb = PLAYBOOKS[res.intent]
         allowed = list(pb.required) + list(pb.optional)
+        data_q = res.intent in ("market_event_review", "forecast_review")
         context = {
             "question": res.request.question, "intent": res.intent, "region": res.region,
             "window_utc": [iso_utc(res.window[0]), iso_utc(res.window[1])] if res.window else None,
             "window_local": [local_str(res.window[0], res.region), local_str(res.window[1], res.region)]
             if res.window and res.region else None,
             "as_of_utc": iso_utc(res.as_of) if res.as_of else None,
-            "event_peak_interval_end_utc": res.event.peak_interval_end_utc if res.event else None,
+            # a document question gets no event times: no tool returns them there, so they could not be cited
+            # (L3 live, ADV02 repeated them from the context and failed the time check)
+            "event_peak_interval_end_utc": res.event.peak_interval_end_utc if res.event and data_q else None,
             "event_peak_interval_end_local": local_str(parse_iso(res.event.peak_interval_end_utc), res.region)
-            if res.event and res.region else None,
+            if res.event and res.region and data_q else None,
             "required_tools": list(pb.required), "optional_tools_max_2": list(pb.optional),
         }
-        if res.event and res.region:  # computed here so the model never does time arithmetic
+        if res.event and res.region and data_q:  # computed here so the model never does time arithmetic
             hh = half_hour_end_for(parse_iso(res.event.peak_interval_end_utc))
             context["peak_half_hour_end_utc"] = iso_utc(hh)
             context["peak_half_hour_end_local"] = local_str(hh, res.region)
@@ -513,10 +698,24 @@ class LiveController:
         first = validate(report, self.reg, as_of=res.as_of, window=res.window, records=self.d.records,
                          required_tools=pb.required)
         if first.critical and self.usage.model_calls < config.MAX_MODEL_CALLS:
+            # scoped when every violation names a draft item: the model may change only those items
+            targets, unmapped = (repair_targets(first, mrep, self._summary_origin) if isinstance(mrep, ModelReport)
+                                 else (set(), ["no valid first draft"]))
+            scoped = bool(targets) and not unmapped
+            texts = target_texts(mrep, targets) if scoped and isinstance(mrep, ModelReport) else None
             items += [{"role": "assistant", "content": raw or ""},
-                      {"role": "user", "content": repair_message(first, report)}]
+                      {"role": "user", "content": repair_message(first, report, texts)}]
+            mrep2: BaseModel | None = None
             try:
-                mrep2, _ = self._structured(trace, "repair", ModelReport, prompt("system"), items)
+                if scoped and isinstance(mrep, ModelReport):
+                    patch, _ = self._structured(trace, "repair", RepairPatch, prompt("system"), items)
+                    if isinstance(patch, RepairPatch):
+                        mrep2, notes = apply_patch(mrep, patch, targets)
+                        trace.add("model", "repair:scoped", targets=sorted(targets), notes=notes,
+                                  patch=patch.model_dump())
+                else:
+                    trace.add("model", "repair:full", unmapped_codes=sorted(set(unmapped)))
+                    mrep2, _ = self._structured(trace, "repair", ModelReport, prompt("system"), items)
                 _trace_draft(trace, "repair", mrep2)
             except BudgetExceeded as exc:
                 mrep2 = None
@@ -524,6 +723,7 @@ class LiveController:
             if isinstance(mrep2, ModelReport):
                 report = self._build(res, mrep2, extra_missing=stopped)
             report = report.model_copy(update={"validation": {"repair_attempted": True,
+                                                              "repair_mode": "scoped" if scoped else "full",
                                                               "pre_repair_codes": sorted({v.code for v in first.critical}),
                                                               "pre_repair": first.as_dict()}})
         return report
@@ -572,6 +772,48 @@ class LiveController:
             findings.append(PublishedFinding(
                 statement=f"An AEMO {fc.doc_type.replace('_', ' ')} for {res.region} [{fc.citation_id}] says: “{fc.quote}”",
                 citation_ids=[fc.citation_id], doc_type=fc.doc_type, applies_to_event=f.applies_to_event))
+        # Document sentences are written by the controller: a quote is shown in quotation marks only when it is
+        # verbatim in the cited passage; anything else is shown as the model's own words, so every check applies.
+        summary: list[str] = []
+        self._summary_origin = []
+        not_verbatim: list[str] = []
+        if m is not None:
+            from ..validation import _norm
+
+            for j, s in enumerate(m.document_statements):
+                cit = by_id.get(s.citation_id)
+                ch = self.reg.chunks.get(cit.chunk_id) if cit else None
+                q = (s.quote or "").strip().strip('“”"')
+                if q and ch is not None and _norm(q) in _norm(ch.text):
+                    text = f"“{q}” [{s.citation_id}]"
+                elif s.paraphrase or q:
+                    if q:
+                        not_verbatim.append(s.citation_id)
+                    text = f"{(s.paraphrase or q).strip()} [{s.citation_id}]"
+                else:
+                    continue
+                summary.append(text)
+                self._summary_origin.append(("document_statements", j))
+            for j, line in enumerate(m.summary):
+                summary.append(line)
+                self._summary_origin.append(("summary", j))
+        if not_verbatim and self.d is not None:
+            self.d.trace.add("model", "statement_not_verbatim", citation_ids=not_verbatim)
+        scope: list[SearchScope] = []
+        for r in recs:
+            if r.name != "retrieve_public_evidence" or r.status == "blocked":
+                continue
+            v = r.view or {}
+            filt = v.get("filters") or {}
+            ss = v.get("search_scope")
+            mn = ("not requested" if "search_scope" in v and ss is None else
+                  f"searched: {ss['outcome']}" if ss and ss["searched"] else
+                  f"not searched: {ss['reason']}" if ss else f"not searched: {r.status}")
+            scope.append(SearchScope(call_id=r.call_id, query=str(v.get("query") or (r.args or {}).get("query") or ""),
+                                     region=filt.get("region"),
+                                     event_window_utc=list(filt.get("event_window") or [None, None]),
+                                     as_of_utc=filt.get("as_of_utc"), document_types=filt.get("doc_types"),
+                                     results=int(v.get("n_results") or 0), market_notices=mn))
         fcomp = None
         if m is not None and m.forecast_mae_evidence_id:
             fcomp = _forecast_comparison(recs, m.forecast_mae_evidence_id)
@@ -588,7 +830,7 @@ class LiveController:
             question=res.request.question, mode="live", intent=res.intent, region=res.region,
             as_of=iso_utc(res.as_of) if res.as_of else None, event_window=ew,
             headline=m.headline if m else "Abstained: the live model did not produce a valid report.",
-            summary=m.summary if m else [], observations=obs,
+            summary=summary, observations=obs, search_scope=scope,
             numeric_claims=[NumericClaim(**c.model_dump()) for c in m.numeric_claims] if m else [],
             possible_explanations=[Hypothesis(statement=h.statement, supporting_evidence_ids=h.supporting_evidence_ids,
                                               what_would_test_it=h.what_would_test_it) for h in m.possible_explanations] if m else [],

@@ -1152,3 +1152,67 @@ Command: `python scripts/live_diagnose.py --cases EV07,EV10,FC07,FC10,DOC04,AMB0
    - EV07 called hourly samples the "immediately" adjacent intervals;
    - FC07 used "daytime" (the part-of-day list does not include it);
    - EV02 (run 3) called 214 non-contiguous intervals "a sustained episode".
+
+## Fixes A–D for the documented failure modes (unpaid work; no question, label, validator rule or pass criterion changed)
+
+**A. Document sentences are written by code** (DOC04; EV09 and ADV04 first drafts).
+- Definition and document answers return `document_statements`: each has a `citation_id` and either a `quote` or a
+  `paraphrase`. The controller writes each sentence with its `[citation_id]`.
+- A quote is shown in quotation marks **only if it is verbatim** in the cited passage. Otherwise it is shown as the
+  model's own words, so the existing number and support checks apply to it.
+- An uncited statement fails as before (`DOC_CLAIM_UNCITED`).
+
+**B. Scoped repair** (EV09 run 3).
+- When every critical violation names a draft item (a summary line or document statement, the headline, a hypothesis
+  or its test, a claim, a citation, a finding, an observation), the one repair returns a `RepairPatch`.
+- The patch may replace or delete only those items; edits to any other item are ignored and traced, and passing items
+  are carried over unchanged.
+- Violations that name no item (e.g. `STATUS_OVERCLAIMS`) fall back to the previous full repair.
+- The merged report is validated in full as before, with the same facts-only fallback.
+
+**C. Document questions: search scope, no silent re-scoping** (ADV02).
+- Each `retrieve_public_evidence` result reports its market-notice `search_scope`:
+  - *not searched* (no region or window given), with no region injected and nothing widened or narrowed;
+  - *searched*, with the number held for that region and window, the number returned, and the number selected but
+    no longer held locally (rolled off).
+- The report gains a controller-built `search_scope` list of the searches actually executed, shown in the UI as
+  "Document searches (what was and was not searched)".
+- The v8 prompt:
+  - "other regions" means each requested region, searched one call per region;
+  - "found", "none held" and "not searched" are kept apart;
+  - a "nothing found" answer abstains with an empty summary.
+- Document questions no longer receive event peak times in their context.
+- **Changed bound:** `retrieve_public_evidence` may be called up to 6 times per document question (was 3), so that
+  all five regions can be searched. The 8-model-call cap and the budget ledger are unchanged.
+
+**D. Wording (prompt only; the validator cannot check these).**
+- The price tool labels `hourly_samples` as one hour apart.
+- The v8 prompt forbids "immediately before/after" for hourly samples, "sustained" or "continuous" unless a tool
+  reports one episode, and "daytime"-type words.
+- It also states that a document answer's headline carries no document numbers.
+
+**Tests** (`tests/provider/test_document_answers.py`, 8 tests):
+- A verbatim quote with percentages is rendered as a quote and passes.
+- A non-verbatim "quote" is shown unquoted and its numbers are flagged.
+- A statement must name a retrieved citation.
+- A scoped repair changes only failing items and ignores the rest.
+- Unmappable violations use the full repair.
+- The notice scope separates not searched, none held and found, per region.
+- Document questions get no event times, and the report lists its searches.
+- Hourly samples carry their note.
+
+**Checks:**
+- lint and mypy clean;
+- **230 tests passed**;
+- Replay evaluation: all 82 rows identical to the committed results, every gate true;
+- safety suite 20/20;
+- ledger unchanged (USD 1.8686).
+
+**Pre-existing validator gap found while building A (reported, not changed).**
+- A summary sentence made entirely of a quotation, with a valid citation, passes even when the quoted text is in no
+  passage. Numbers inside quotes are exempt, and summary quotes are not checked against the passage.
+- Fix A never relies on this: code quotes only verified text.
+- An audit of every shown Live answer found 1 of 31 quoted spans not in a cited passage: ADV04 run 2's headline
+  quoted the AEMO phrase "as generated" from a passage it did not cite.
+- **Recommended** (a strengthening, for a separate decision): check every quoted span in a cited sentence against the
+  cited passage.

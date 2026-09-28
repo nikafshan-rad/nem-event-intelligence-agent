@@ -79,6 +79,24 @@ def load_index(index_dir: Path | None = None) -> tuple[list[dict[str, Any]], Any
     return _load(str(d), m.stat().st_mtime)
 
 
+def event_documents_in_scope(region: str | None, event_start: datetime | None, event_end: datetime | None,
+                             as_of: datetime | None, index_dir: Path | None = None) -> dict[str, int]:
+    """How many market notices and event reports the local corpus holds for a region and window, under the same
+    eligibility rules as ``search``: 'eligible' could be returned; 'published_after_as_of' exist but were not public."""
+    rows, _vecs, _emb, _m = load_index(index_dir)
+    out = {"eligible": 0, "published_after_as_of": 0}
+    for r in rows:
+        if r["doc_type"] not in EVENT_SPECIFIC:
+            continue
+        ok, why = eligibility(r, region=region, event_start=event_start, event_end=event_end, as_of=as_of,
+                              doc_types=None)
+        if ok:
+            out["eligible"] += 1
+        elif why == "published_after_as_of":
+            out["published_after_as_of"] += 1
+    return out
+
+
 def indexed_doc_ids(index_dir: Path | None = None) -> set[str]:
     rows, _vecs, _emb, _m = load_index(index_dir)
     return {r["doc_id"] for r in rows}

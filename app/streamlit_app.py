@@ -183,6 +183,13 @@ for c in rep["citations"]:
     st.markdown(md(f"**[{c['citation_id']}]** [{c['title']}]({c['url']}) {loc}{pub} — “{c['quote']}”"))
 if not rep["citations"]:
     st.caption("No citations.")
+if rep.get("search_scope"):
+    st.markdown("#### Document searches (what was and was not searched)")
+    st.dataframe([{"query": s["query"][:80], "region": s["region"] or "none",
+                   "window (UTC)": " – ".join(x or "none" for x in s["event_window_utc"]),
+                   "document types": ", ".join(s["document_types"] or ["all"]), "results": s["results"],
+                   "market notices": s["market_notices"]} for s in rep["search_scope"]],
+                 use_container_width=True, hide_index=True)
 
 with st.expander("Tool trace (actual calls, arguments, outcomes)"):
     st.dataframe([{"call": r.call_id, "tool": r.name, "status": r.status, "optional": r.optional,
