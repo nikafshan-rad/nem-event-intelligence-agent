@@ -185,6 +185,35 @@ _ITEM_RE = re.compile(r"(summary|document_statements|possible_explanations|publi
                       r"(\.what_would_test_it)?")
 
 
+def resolve_statement_citation(ref: str, quote: str | None,
+                               cites: list[Citation]) -> tuple[Citation | None, str]:
+    """The report citation a document statement refers to, and how it was found.
+
+    - 'exact': ``ref`` is a citation ID.
+    - 'passage': ``ref`` is the passage (chunk) ID of exactly one citation, or of several of which exactly one is
+      named by the statement's quote (the quote contains that citation's quote, or is part of it).
+    - (None, 'ambiguous'): several citations of that passage, and the statement does not single one out.
+    - (None, 'unknown'): neither a citation ID nor the passage of any citation.
+
+    Unresolved statements stay uncited, and the validator rejects them. Resolution changes only which citation
+    marker is shown: the quote is still checked verbatim against the same passage, and a paraphrase against its
+    words. Held-out v4 W10: two statements cited the passage ID ``aemo_so_op_3705#p12c33``, while the draft's two
+    citations of that passage were named ``…:supply`` and ``…:dt``."""
+    from ..validation import _norm
+
+    by_id = {c.citation_id: c for c in cites}
+    if ref in by_id:
+        return by_id[ref], "exact"
+    cands = [c for c in cites if c.chunk_id == ref]
+    if not cands:
+        return None, "unknown"
+    if len(cands) == 1:
+        return cands[0], "passage"
+    nq = _norm(quote or "")
+    named = [c for c in cands if nq and _norm(c.quote) and (_norm(c.quote) in nq or nq in _norm(c.quote))]
+    return (named[0], "passage") if len(named) == 1 else (None, "ambiguous")
+
+
 def repair_targets(result: Any, m: ModelReport, origin: list[tuple[str, int]]) -> tuple[set[str], list[str]]:
     """The draft items each critical violation points at. ``origin`` maps rendered summary lines to their source
     (a document statement or a free summary line). Codes that name no item are returned as unmapped."""
@@ -920,19 +949,26 @@ class LiveController:
         summary: list[str] = []
         self._summary_origin = []
         not_verbatim: list[str] = []
+        resolved: list[dict[str, Any]] = []
+        unresolved: list[dict[str, Any]] = []
         if m is not None:
             from ..validation import _norm
 
             for j, s in enumerate(m.document_statements):
-                cit = by_id.get(s.citation_id)
-                ch = self.reg.chunks.get(cit.chunk_id) if cit else None
                 q = (s.quote or "").strip().strip('“”"')
+                cit, how = resolve_statement_citation(s.citation_id, q, cites)
+                if how == "passage" and cit is not None:
+                    resolved.append({"statement": j, "cited": s.citation_id, "citation_id": cit.citation_id})
+                elif cit is None:
+                    unresolved.append({"statement": j, "cited": s.citation_id, "reason": how})
+                ref = cit.citation_id if cit is not None else s.citation_id  # an unresolved ID stays, and fails
+                ch = self.reg.chunks.get(cit.chunk_id) if cit else None
                 if q and ch is not None and _norm(q) in _norm(ch.text):
-                    text = f"“{q}” [{s.citation_id}]"
+                    text = f"“{q}” [{ref}]"
                 elif s.paraphrase or q:
-                    if q:
-                        not_verbatim.append(s.citation_id)
-                    text = f"{(s.paraphrase or q).strip()} [{s.citation_id}]"
+                    if q and cit is not None:
+                        not_verbatim.append(ref)
+                    text = f"{(s.paraphrase or q).strip()} [{ref}]"
                 else:
                     continue
                 summary.append(text)
@@ -942,6 +978,10 @@ class LiveController:
                 self._summary_origin.append(("summary", j))
         if not_verbatim and self.d is not None:
             self.d.trace.add("model", "statement_not_verbatim", citation_ids=not_verbatim)
+        if resolved and self.d is not None:
+            self.d.trace.add("model", "statement_citation_resolved", statements=resolved)
+        if unresolved and self.d is not None:
+            self.d.trace.add("model", "statement_citation_unresolved", statements=unresolved)
         scope: list[SearchScope] = []
         for r in recs:
             if r.name != "retrieve_public_evidence" or r.status == "blocked":
