@@ -196,8 +196,8 @@ Held-out split = 21 of 40 cases (split by event group; no event group appears in
 | Status matches expectation | 20/21 | 15/20 | 18/20 |
 | Unanswerable cases safely handled | 2/2 | 0/2 | 0/2 |
 | Required-tool recall (answerable) | 43/43 | n/a | n/a |
-| Numeric traceability (accepted reports) | 108/108 | 881/881 (raw tool values) | 0/0 |
-| Citation validity (accepted reports) | 50/50 | 0/0 | 100/100 |
+| Numeric traceability (accepted reports) | 96/96 | 881/881 (raw tool values) | 0/0 |
+| Citation validity (accepted reports) | 51/51 | 0/0 | 100/100 |
 | Gold numbers found (from independent SQL) | 13/13 | 13/13 | 0/13 |
 | Forecast gold (MAE, pairs, as-of run) | 5/5 | 3/5 | 0/5 |
 | Gold citation found (document cases) | 3/4 | 0/1 | 2/4 |
@@ -207,10 +207,10 @@ Held-out split = 21 of 40 cases (split by event group; no event group appears in
 - Retrieval (15 hand-reviewed queries): **Recall@5 = 16/21**, Hit@5 = 15/15, MRR@5 = 0.830 (`artifacts/eval/retrieval_eval.json`,
   `make retrieval-eval`). It was 17/21 before AEMO revised SO_OP_3705 on 2026-09-23, which shifted keyword-search
   statistics (docs/decisions.md D20).
-- Safety suite: 20/20 SYNTHETIC corruptions of real reports detected, 0 critical violations left after the pipeline,
+- Safety suite: 22/22 SYNTHETIC corruptions of real reports detected, 0 critical violations left after the pipeline,
   0 unauthorized writes, exactly 1 write for a valid distinct approval (`artifacts/g5_safety_summary.json`).
-- Scripted router (test): 18/20 correct, macro-F1 0.87 (0.83 before as-of forecast questions were routed as forecast
-  reviews, which fixed AMB06). **Known failure**: DOC04 ("How does AEMO produce the 10% and 90% POE demand
+- Scripted router (test): 19/20 correct, macro-F1 0.92 (0.83 originally; the as-of forecast rule fixed AMB06 and
+  the notice rule fixed ADV02). **Known failure**: DOC04 ("How does AEMO produce the 10% and 90% POE demand
   forecasts?") is routed to a forecast review and asks for a region instead of answering from SO_OP_3710.
 - Separate experiment, SA1 day-ahead demand, 6 monthly rolling-origin folds, 8,408 test half-hours: linear quantile
   model MAE **159.7 MW** vs seasonal-naive 173.6 MW and persistence 185.3 MW; q10–q90 coverage 0.796 (target 0.80).
@@ -261,6 +261,14 @@ The Live failures that remain, from the held-out set:
   requested region is searched; the answer says so instead of guessing (ADV02).
 - **Omitted evidence.** Decisive evidence can be left out: the Hazelwood notice's outage came after the spike (H13).
 - **Not run:** the full 40-case hosted evaluation.
+
+After held-out v2, with tests but **not yet measured in Live** (`docs/live-gates.md`, "After held-out v2"):
+- the TOTALDEMAND around price extremes, and citable interval counts;
+- the requested measure passed to the model, with substitution rejected;
+- a forecast's issue time kept separate from as-of;
+- POE and definitional retrieval fixes, and a controller retrieval of the question;
+- notice questions routed as document questions;
+- quotations checked against their cited passage.
 
 Fixed during the evaluation, each with tests:
 - routing of definition and as-of forecast questions;

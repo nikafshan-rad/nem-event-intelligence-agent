@@ -143,12 +143,21 @@ def find_market_events(ctx: ToolContext, a: A.FindMarketEventsArgs) -> ToolOutpu
         })
     origin = ("threshold requested in the tool call" if a.threshold_aud_per_mwh is not None
               else "project setting (data/source_selection.json)")
+    # the window total is evidence too, so an answer can cite it (L3 held-out H02: it was a bare number)
+    total_ev = ctx.registry.add(
+        evidence_class="derived", metric="intervals_meeting_threshold", value=float(len(hits)), unit="intervals",
+        region=a.region, valid_at_utc=a.end_utc, interval_minutes=5, source_row_ids=[h["row_id"] for h in hits],
+        source_urls=[], tool_call_id=ctx.call_id,
+        derivation=f"count of all 5-minute intervals in the window with RRP {'>=' if a.kind == 'high_price' else '<'} "
+                   f"{thr} (all episodes)")
     view = {
         "region": a.region, "kind": a.kind, "threshold": _threshold_item(ctx, a.region, thr, origin),
         "threshold_note": "project analysis threshold, not an AEMO incident label",
         "coverage": {"intervals_in_store": in_store, "intervals_expected": expected},
         "as_of_utc": a.as_of_utc, "excluded_not_yet_available_at_as_of": excluded,
-        "n_intervals_meeting_threshold": len(hits), "n_episodes": len(episodes), "episodes": out,
+        "n_intervals_meeting_threshold": {"value": len(hits), "unit": "intervals", "evidence_id": total_ev.evidence_id,
+                                          "note": "all intervals in the window meeting the threshold, over all episodes"},
+        "n_episodes": len(episodes), "episodes": out,
     }
     missing = [] if in_store == expected else [
         f"Only {in_store} of {expected} 5-minute intervals in the requested range are in the snapshot. {_coverage_note(ctx)}"]
@@ -215,11 +224,23 @@ def get_price_timeline(ctx: ToolContext, a: A.PriceTimelineArgs) -> ToolOutput:
         region=a.region, valid_at_utc=a.end_utc, interval_minutes=5,
         source_row_ids=[s["row_id"] for s in series if s["rrp"] >= thr], source_urls=[], tool_call_id=ctx.call_id,
         derivation=f"count of 5-minute intervals with RRP >= {thr} (project analysis threshold)")
+    thr_lo = float(ctx.selection.analysis_threshold["low_price_rrp_below"])
+    n_lo = sum(s["rrp"] < thr_lo for s in series)
+    n_lo_ev = ctx.registry.add(
+        evidence_class="derived", metric="intervals_meeting_threshold", value=float(n_lo), unit="intervals",
+        region=a.region, valid_at_utc=a.end_utc, interval_minutes=5,
+        source_row_ids=[s["row_id"] for s in series if s["rrp"] < thr_lo], source_urls=[], tool_call_id=ctx.call_id,
+        derivation=f"count of 5-minute intervals with RRP < {thr_lo} (project low-price threshold)")
     hourly = [s for s in series if s["interval_end_utc"].endswith(":00:00Z")]
 
     def pt(s: dict[str, Any], key: str = "rrp") -> dict[str, Any]:
         return {"interval_end_utc": s["interval_end_utc"], "interval_end_local": s["interval_end_local"],
                 "value": s[key], "evidence_id": s[f"{'rrp' if key == 'rrp' else key.replace('_mw', '')}_evidence_id"]}
+
+    def around(ext: dict[str, Any]) -> list[dict[str, Any]]:
+        t0 = parse_iso(ext["interval_end_utc"])
+        return [pt(s, "totaldemand_mw") for s in series if s["totaldemand_evidence_id"]
+                and abs((parse_iso(s["interval_end_utc"]) - t0).total_seconds()) <= 1800]
 
     view = {
         "region": a.region, "window_utc": [a.start_utc, a.end_utc], "as_of_utc": a.as_of_utc,
@@ -230,7 +251,15 @@ def get_price_timeline(ctx: ToolContext, a: A.PriceTimelineArgs) -> ToolOutput:
                      "derivation": "unweighted mean of 5-minute RRP"},
         "intervals_at_or_above_threshold": {"value": n_thr, "unit": "intervals", "evidence_id": n_thr_ev.evidence_id},
         "analysis_threshold": _threshold_item(ctx, a.region, thr, "project setting (data/source_selection.json)"),
+        "intervals_below_low_threshold": {"value": n_lo, "unit": "intervals", "evidence_id": n_lo_ev.evidence_id,
+                                          "threshold": thr_lo},
         "totaldemand_at_peak": pt(peak, "totaldemand_mw") if peak["totaldemand_evidence_id"] else None,
+        "totaldemand_at_minimum": pt(low, "totaldemand_mw") if low["totaldemand_evidence_id"] else None,
+        # dispatch TOTALDEMAND (5-minute) for the 30 minutes either side of each extreme, so a question about total
+        # demand around the event can be answered with that measure (L3 held-out H02, H03 substituted operational demand)
+        "totaldemand_around_peak": around(peak),
+        "totaldemand_around_minimum": around(low),
+        "totaldemand_note": "dispatch TOTALDEMAND, 5-minute; a different measure from half-hour operational demand",
         "netinterchange_at_peak": _with_direction(pt(peak, "netinterchange_mw"), a.region)
         if peak["netinterchange_evidence_id"] else None,
         "first": pt(series[0]), "last": pt(series[-1]),

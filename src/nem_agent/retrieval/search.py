@@ -35,7 +35,9 @@ def defn_phrase(query: str) -> str:
 
     A live model wrote `operational demand definition "operational demand" AEMO definition`; without de-duplication
     the phrase became "operational demand operational demand" and the definitional rerank missed the definition."""
-    quoted = re.findall(r"[\"\u201c]([^\"\u201d]{2,80})[\"\u201d]", query)
+    quoted = (re.findall(r"[\"\u201c]([^\"\u201d]{2,80})[\"\u201d]", query)
+              # 'single-quoted' or ‘curly’ terms too, but not apostrophes inside words (AEMO's)
+              or re.findall(r"(?:^|(?<=[\s(]))['\u2018]([^'\u2019]{2,80})['\u2019](?=[\s?.,;:)]|$)", query))
     words: list[str] = []
     for t in re.findall(r"[a-z0-9_]+", (quoted[0] if quoted else query).lower()):
         if t not in STOP | DEFN_WORDS and t not in words:
@@ -43,7 +45,16 @@ def defn_phrase(query: str) -> str:
     return " ".join(words)
 
 
-DEFN_QUERY_RE = re.compile(r"\b(definition|define[sd]?|meaning|what (is|are|does)|mean(s)? by|explain)\b", re.I)
+DEFN_QUERY_RE = re.compile(r"\b(definition|define[sd]?|meaning|what (is|are|does)|mean(s)? by|explain|"
+                           r"what counts (towards|as)|in plain terms)\b", re.I)
+# "POE10" is one token to the keyword index, while AEMO's documents write "10% POE" (held-out H07 missed the passage)
+_POE_RE = re.compile(r"\bPOE ?(10|50|90)\b", re.I)
+
+
+def expand_query(query: str) -> str:
+    """Add AEMO's own spelling of terms a question may abbreviate, for matching only."""
+    extra = sorted({f"{m}% POE" for m in _POE_RE.findall(query)})
+    return f"{query} {' '.join(extra)} probability of exceedance" if extra else query
 STOP = {"the", "a", "an", "of", "and", "or", "in", "on", "for", "to", "is", "are", "was", "what", "does", "do", "how",
         "did", "this", "that", "with", "by", "at", "as", "be", "it", "from", "about", "which", "mean", "means", "aemo"}
 
@@ -152,14 +163,15 @@ def search(query: str, *, region: str | None = None, event_start: datetime | Non
     d = index_dir or paths.index_dir()
     con = sqlite3.connect(d / "corpus.sqlite")
     allowed_rowids = {int(i) + 1 for i in allowed}
+    match_q = expand_query(query)
     bm = [(rid - 1, score) for rid, score in con.execute(
         "SELECT rowid, bm25(chunks_fts, 0.5, 3.0, 1.0) FROM chunks_fts WHERE chunks_fts MATCH ? ORDER BY 2 LIMIT 400",
-        [_fts_query(query)]) if rid in allowed_rowids][:30]
+        [_fts_query(match_q)]) if rid in allowed_rowids][:30]
     con.close()
     phrase = defn_phrase(query)
     is_defn_query = bool(DEFN_QUERY_RE.search(query)) and bool(phrase)
     # Definition-style questions: the dense query also carries the templated form "<term> is defined as".
-    qv = emb.encode([query + (f". {phrase} is defined as" if is_defn_query else "")])[0]
+    qv = emb.encode([match_q + (f". {phrase} is defined as" if is_defn_query else "")])[0]
     mat, owner = vecs
     sims = mat @ qv
     best: dict[int, float] = {}

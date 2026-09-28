@@ -27,6 +27,8 @@ EXPECTED = {
     "interval_mislabelled": "CLAIM_INTERVAL_MISMATCH",
     "hypothesis_time_unzoned": "TIME_ZONE_MISSING",
     "part_of_day_from_utc": "TIME_OF_DAY_UNVERIFIED",
+    "quote_fabricated": "QUOTE_NOT_IN_SOURCE",
+    "measure_substituted": "MEASURE_SUBSTITUTED",
     "unsupported_causality": "UNSUPPORTED_CAUSALITY",
     "unhedged_hypothesis": "HYPOTHESIS_UNHEDGED",
     "injection_echo": "INJECTION_ECHO",

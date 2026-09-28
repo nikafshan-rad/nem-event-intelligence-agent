@@ -459,7 +459,9 @@ def test_definition_question_runs_retrieval_although_the_model_asked_for_a_regio
     res = investigate(InvestigateRequest(question="What does operational demand mean in the dispatch data?",
                                          mode="live"), live_client=fake, write_trace=False)
     assert res.resolution.status == "ok" and res.resolution.intent == "source_explanation"
-    assert [r.name for r in res.records] == ["retrieve_public_evidence"]
+    # the controller's retrieval for the question itself, then the model's own
+    assert [(r.name, r.origin) for r in res.records] == [("retrieve_public_evidence", "controller"),
+                                                         ("retrieve_public_evidence", "model")]
     assert res.report.status in ("answered", "answered_with_caveats") and res.report.citations
     notes = next(e["policy_notes"] for e in res.trace.as_dict()["events"] if e["name"] == "model_decision")
     assert any("needs no region or date" in n for n in notes)

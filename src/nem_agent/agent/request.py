@@ -17,7 +17,7 @@ from ..selection import EventSelection, Selection
 from ..timeutil import REGION_TZ, UTC, local_day_window, parse_iso, region_zone
 from .playbook import INTENTS, Intent
 
-ROUTER_VERSION = "scripted-router/2"  # 2: as-of forecast questions are forecast reviews
+ROUTER_VERSION = "scripted-router/3"  # 2: as-of forecast questions; 3: questions about notices
 
 
 class InvestigateRequest(BaseModel):
@@ -103,6 +103,42 @@ AS_OF_Q_RE = re.compile(r"\b(as of|known at|known by|available by)\b", re.I)
 FORECAST_WORD_RE = re.compile(r"\bforecasts?\b|\bpoe ?(10|50|90)\b", re.I)
 
 
+# "What did AEMO's market notices say ...", "According to the market notice ...": a question about what a document
+# says is a source explanation, even when it mentions a price event, a forecast or a reserve condition (held-out H10,
+# regression ADV02 were routed as forecast and event reviews). "... the outage AEMO put out a notice about" is not.
+NOTICE_Q_RE = re.compile(r"\b(?:what did|what does|what do|according to)\b[^?]*\bnotices?\b|"
+                         r"\bnotices?\b[^?]*\b(?:say|said|state[sd]?|report(?:ed)?)\b", re.I)
+# "the forecast AEMO issued at 2026-07-30T11:56:59Z": an issue time names a forecast run; it is not an as-of cutoff
+# (held-out H05 treated it as one and hid the actuals the question asked about)
+ISSUED_AT_RE = re.compile(r"\bissued\s+(?:at\s+|on\s+)?(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?Z)", re.I)
+
+
+TOTAL_DEMAND_Q_RE = re.compile(r"\btotal[- ]?demand\b", re.I)
+OPERATIONAL_DEMAND_Q_RE = re.compile(r"\boperational[- ]demand\b", re.I)
+
+
+def requested_measures(question: str) -> dict[str, str]:
+    """Which demand measure(s) a question names, and where each is found, so an answer does not substitute one for
+    the other (held-out H02, H03 answered 'total demand' with operational demand; H14 the reverse)."""
+    out: dict[str, str] = {}
+    if TOTAL_DEMAND_Q_RE.search(question):
+        out["total demand"] = ("dispatch TOTALDEMAND, 5-minute: get_price_timeline fields totaldemand_at_peak, "
+                               "totaldemand_at_minimum, totaldemand_around_peak, totaldemand_around_minimum")
+    if OPERATIONAL_DEMAND_Q_RE.search(question):
+        out["operational demand"] = "half-hour operational demand: get_actual_demand (and forecasts: get_forecast_runs)"
+    return out
+
+
+def asks_about_notices(question: str) -> bool:
+    return bool(NOTICE_Q_RE.search(question))
+
+
+def forecast_issue_time(question: str) -> datetime | None:
+    """The issue time of a forecast run the question names, when it names one and asks nothing 'as of'."""
+    m = ISSUED_AT_RE.search(question)
+    return parse_iso(m.group(1)) if m and not AS_OF_Q_RE.search(question) else None
+
+
 def asks_forecast_as_of(question: str) -> bool:
     """An as-of question about forecasts asks what issued forecasts said at that time: a forecast review, even when it
     also names an event or a price spike (L3 live: AMB06 was routed as an event review; the replay router tied)."""
@@ -125,6 +161,8 @@ def route(question: str) -> tuple[Intent | None, dict[str, object]]:
     if re.search(r"\b(did|how did|what happened|compare|versus|vs\.?|against)\b", q):
         scores["market_event_review"] += 1 if scores["market_event_review"] else 0
         scores["forecast_review"] += 1 if scores["forecast_review"] else 0
+    if asks_about_notices(question):  # also when no keyword scored ("market notices" is not "market notice")
+        return "source_explanation", {"scores": scores, "router": ROUTER_VERSION, "rule": "question about notices"}
     best = max(scores.values())
     if best == 0:
         return None, {"scores": scores, "router": ROUTER_VERSION}

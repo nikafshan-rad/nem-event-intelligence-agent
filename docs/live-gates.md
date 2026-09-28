@@ -1402,3 +1402,103 @@ the wrong topic in H07, the omitted timing in H13, and the mislabelled half-hour
 - These runs used **USD 0.8654** of the USD 1.20 allowance (142 model calls; no timeouts or charges).
 - Task ledger: **USD 2.7340 counted** (2.4842 settled, 0.1874 worst-case charges, 0.0623 in two old interrupted
   calls); **USD 2.2660 remaining** of 5.00.
+
+## After held-out v2: diagnosis and fixes (unpaid; no Live run)
+
+Held-out v2 is development data from here on. Each failure was traced through the saved records and traces. The
+retrieval checks were re-run offline, with no model calls.
+
+| Failure | Tool | Retrieval | Interpretation | Answer |
+| --- | --- | --- | --- | --- |
+| H02 (VIC trough): total demand and the negative-interval count | **TOTALDEMAND only at the price *maximum***, not the trough; the window's interval count was a **bare number without an evidence ID**; the price timeline counted only intervals ≥ 300 | - | - | substituted operational demand (correctly labelled) and gave per-episode counts |
+| H03 (TAS spike): total demand over the half hour leading in | **TOTALDEMAND only at the peak interval** | - | - | substituted operational demand; mislabelled two half-hours |
+| H05 (forecast issued at T) | - | - | **the router set `as_of_utc` to the issue time**; the cutoff then hid the actuals and selected an earlier run | the draft said the actual was not public (validator rejected it) |
+| H07 (how POE10/90 are obtained) | - | **"POE10" is one keyword token; AEMO writes "10% POE"**, so the answering passage was never retrieved | - | answered a neighbouring topic (PASA POE derivation) |
+| H10 (what notices said about reserves) | - | - | **routed as a forecast review** | content correct |
+| H14 (what counts towards operational demand) | - | **the definitional boost was not applied**: the term was in *single* quotes and "what counts towards" did not match the definition-question pattern | - | answered from Total Demand, a different measure |
+| ADV02, regression (other regions' notices) | **3-call retrieval bound** in the playbook it was routed to | - | **routed as an event review** | reported VIC1 and TAS1 as not searched (correct) |
+| Pre-existing validator gap | - | - | - | a fully quoted sentence with a valid citation passed even when the passage did not contain it |
+
+**Fixes.** No question, gold label or pass criterion changed. The validator changes are strictly stricter.
+1. **Demand-measure substitution:**
+   - **Tool:** `get_price_timeline` now returns `totaldemand_at_minimum`, and `totaldemand_around_peak` and
+     `totaldemand_around_minimum` (5-minute TOTALDEMAND for 30 minutes either side, with evidence IDs), plus a note
+     that it is a different measure from operational demand.
+   - **Interpretation:** code puts the question's `requested_measures` in the context, with the tool fields that
+     hold each.
+   - **Answer:** a v9 prompt rule.
+   - **Validator:** new critical `MEASURE_SUBSTITUTED`. If the question names one measure and the answer gives only
+     the other, without saying the named one is unavailable, it is rejected.
+2. **Issue time versus as-of:**
+   - `forecast_issue_time()` recognises "issued at <UTC time>".
+   - When the question has no as-of phrase, the route policy drops the model's `as_of_utc`.
+   - The controller looks up the run with that issue time and gives it as `requested_forecast_run`, to be selected
+     with `run_selector="run_id"`.
+3. **Missing retrieval evidence:**
+   - `expand_query` adds AEMO's spelling ("10% POE") for "POE10/50/90", for matching only.
+   - `defn_phrase` reads single-quoted terms (not apostrophes).
+   - The definition-question pattern covers "what counts towards/as" and "in plain terms".
+   - For document questions the controller first retrieves with the question itself (`controller_question_retrieval`,
+     shown to the model as untrusted data).
+   - The retrieval benchmark is unchanged (Recall@5 16/21, Hit@5 15/15, MRR 0.830; no per-query change).
+   - Offline, the H14 definition is now rank 1 and the H07 passage is in the top 8 for the raw question.
+4. **Uncitable interval counts:**
+   - `find_market_events` returns the window total as evidence (`n_intervals_meeting_threshold`).
+   - `get_price_timeline` adds `intervals_below_low_threshold`, as evidence. The ≥ 300 count that Replay reads is
+     unchanged.
+5. **Notice routing and search limits:**
+   - `asks_about_notices()` ("what did … notices say", "according to the notice") routes to `source_explanation`
+     in the Live policy and the scripted router (`scripted-router/3`). It also fires when no keyword scores.
+   - "… the outage AEMO put out a notice about" is not matched.
+   - Document questions keep the 6-call retrieval bound.
+6. **Quoted-text gap:** new critical `QUOTE_NOT_IN_SOURCE`. Every quotation of three or more words in the headline,
+   summary, hypotheses and their tests must be verbatim in its cited passage (or, if the sentence cites none, in some
+   cited passage). Findings keep their own verbatim check.
+
+**Check against all 54 labelled questions (all development data now):**
+- the notice rule fires on 4 (DOC07, ADV02, H10, H11), all labelled `source_explanation`;
+- the issue-time rule fires on 1 (H05, no as-of phrase).
+
+**Prompts v9:**
+- route: notice questions, and issue time is not as-of;
+- synthesis: requested measures, the requested forecast run, and controller-retrieved passages;
+- no 6-word overlap with any of the 54 questions.
+
+**Tests:**
+- `tests/provider/test_heldout_v2_fixes.py` has 12 tests, one or more per failure mode with neighbours:
+  - citable counts for low- and high-price events (197 negative intervals);
+  - TOTALDEMAND at the trough (7,052.43 MW) and around the peak (1,054.19 → 1,105.32 MW);
+  - requested measures;
+  - measure substitution rejected, with the stated-gap, both-named and neither-named cases passing;
+  - issue time is not as-of, with as-of questions kept;
+  - the controller names the run issued at that time;
+  - POE expansion;
+  - single-quoted definitional terms (apostrophes excluded);
+  - the controller's question retrieval;
+  - notice questions routed, with an event question mentioning a notice kept and an explicit intent kept;
+  - six retrieval calls allowed for document questions, the seventh blocked;
+  - quotations verbatim, with short quotes exempt and uncited quotes checked.
+- Two new synthetic safety fixtures: `quote_fabricated` and `measure_substituted`.
+- Two existing tests now also expect the controller's question retrieval.
+
+**Unpaid checks:**
+- lint and mypy clean;
+- **251 tests passed**;
+- **Replay:** one row changed, ADV02, now routed `source_explanation` as labelled (wrong-region findings still 0).
+  - held-out routing 19/20, macro-F1 0.922 (was 18/20, 0.868);
+  - traceability 96/96 and citation validity 51/51 (denominators changed with ADV02's report);
+  - every gate true;
+- **safety suite 22/22** detected, 0 critical violations remaining, 0 unauthorized writes;
+- **no paid API call**; the ledger is unchanged at USD 2.7340 counted, **USD 2.2660 remaining**.
+
+**Remaining risks** (none measured in Live yet):
+- The fixes are verified by unit tests and Replay only. Whether gpt-5-mini *uses* the new context (requested measures,
+  requested run, controller passages) is unmeasured.
+- `MEASURE_SUBSTITUTED` and `QUOTE_NOT_IN_SOURCE` are stricter, so they may convert some answers into repairs or
+  fallbacks.
+- H07's passage is only rank 8 for the raw question: retrieval still depends on wording.
+- Not addressed:
+  - omitted decisive evidence (H13);
+  - a draft citing an injected chunk (regression ADV04; caught, but it caused a fallback);
+  - descriptions the validator cannot check.
+- Event reviews that mention other regions' notices still have a 3-call retrieval bound.

@@ -169,8 +169,10 @@ def test_c_document_questions_get_no_event_times_and_report_their_search_scope(s
     ctx = json.loads(fake.requests[1]["input"][0]["content"].split("\n", 1)[1])
     assert ctx["event_peak_interval_end_utc"] is None and "peak_half_hour_end_utc" not in ctx
     scope = res.report.search_scope
-    assert [s.region for s in scope] == [None, "VIC1"]
-    assert scope[0].market_notices.startswith("not searched") and scope[1].market_notices.startswith("searched")
+    # first the controller's retrieval for the question itself (the resolved SA1 region and window), then the model's
+    assert scope[0].call_id == "controller_question_retrieval" and scope[0].region == "SA1"
+    assert [s.region for s in scope[1:]] == [None, "VIC1"]
+    assert scope[1].market_notices.startswith("not searched") and scope[2].market_notices.startswith("searched")
 
 
 # ------------------------------------------------------------------------------------------------ D

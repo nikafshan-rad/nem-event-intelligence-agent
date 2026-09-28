@@ -15,9 +15,11 @@ from .agent.replay import CONTROLLER_VERSION, ReplayController
 from .agent.request import (
     InvestigateRequest,
     Resolution,
+    asks_about_notices,
     asks_forecast_as_of,
     extract_dates,
     extract_regions,
+    forecast_issue_time,
     resolve,
 )
 from .evidence import EvidenceRegistry
@@ -146,14 +148,21 @@ def route_policy(req: InvestigateRequest, decision: Any) -> tuple[dict[str, Any]
     notes: list[str] = []
     several = len(extract_regions(q)) > 1 or len(extract_dates(q)) > 1
     intent = req.intent or decision.intent
+    if req.intent is None and intent in ("market_event_review", "forecast_review") and asks_about_notices(q):
+        intent = "source_explanation"
+        notes.append("routed as source_explanation: a question about what notices said")
     if req.intent is None and intent == "market_event_review" and asks_forecast_as_of(q):
         intent = "forecast_review"
         notes.append("routed as forecast_review: an as-of question about forecasts")
+    as_of = req.as_of_utc or decision.as_of_utc
+    if req.as_of_utc is None and decision.as_of_utc and forecast_issue_time(q) is not None:
+        as_of = None
+        notes.append("as_of not applied: the time in the question is a forecast's issue time, not an as-of cutoff")
     if several:
         notes.append("several regions or dates in the question: left to the resolver")
     upd: dict[str, Any] = {"intent": intent, "region": req.region or (None if several else decision.region),
                            "event_date": req.event_date or (None if several else decision.event_date),
-                           "as_of_utc": req.as_of_utc or decision.as_of_utc}
+                           "as_of_utc": as_of}
     override: str | None = None
     if decision.out_of_scope:
         override = "refused"

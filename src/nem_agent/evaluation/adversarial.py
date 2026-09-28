@@ -131,6 +131,19 @@ def build_fixtures(selection: Any) -> list[Fixture]:
     add("interval_mislabelled", "CLAIM_INTERVAL_MISMATCH", "a 5-minute value labelled as a half-hour value",
         half_hour_label)
 
+    def fabricated_quote(r: InvestigationReport, g: EvidenceRegistry) -> InvestigationReport:
+        cid = r.citations[0].citation_id  # a real citation, but the quoted words are not in its passage
+        return r.model_copy(update={"summary": [*r.summary, f"“AEMO directed all generators to cut output at once.” [{cid}]"]})
+    add("quote_fabricated", "QUOTE_NOT_IN_SOURCE", "a fully quoted sentence the cited passage does not contain",
+        fabricated_quote)
+
+    def measure_substituted(r: InvestigationReport, g: EvidenceRegistry) -> InvestigationReport:
+        keep = [c for c in r.numeric_claims if (ev := g.get(c.evidence_id)) is None or ev.metric != "dispatch_totaldemand"]
+        return r.model_copy(update={"question": r.question + " What was total demand at the peak?",
+                                    "numeric_claims": keep})
+    add("measure_substituted", "MEASURE_SUBSTITUTED", "total demand asked, only operational demand given",
+        measure_substituted)
+
     def unzoned_hypothesis_time(r: InvestigationReport, g: EvidenceRegistry) -> InvestigationReport:
         return r.model_copy(update={"possible_explanations": [*r.possible_explanations, Hypothesis(
             statement="Constraint automation invoked from 11:00 might have limited imports around the peak.",

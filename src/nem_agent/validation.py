@@ -387,6 +387,43 @@ def validate(report: InvestigationReport, registry: EvidenceRegistry, *, as_of: 
                                        f"{where}: {n:g} is stated as a {'/'.join(f'{m}-minute' for m in sorted(named))} "
                                        f"value but its evidence is {'/'.join(f'{m}-minute' for m in sorted(resolutions))}"))
 
+    # -- every quotation of three or more words must be verbatim in a cited passage (the gap found in the PR #5 review:
+    #    a wholly quoted sentence with a valid citation passed even when the passage did not contain it). Findings are
+    #    checked below against their own citation.
+    res.checks_run.append("narrative_quotes")
+    cited_text = {cid: registry.chunks[c.chunk_id].text for cid, c in cites.items() if c.chunk_id in registry.chunks}
+    for where, text in _narratives(report) + _hypothesis_tests(report):
+        if where.startswith("published_findings"):
+            continue
+        for q in QUOTED_RE.findall(text):
+            q = q.strip("“”\"").strip()
+            if len(WORD_RE.findall(q.lower())) < 3:
+                continue
+            quote_ids = [c for c in CITE_RE.findall(text) if c in cited_text] or list(cited_text)
+            if not any(_norm(q) in _norm(cited_text[c]) for c in quote_ids):
+                scope = "its cited passage" if CITE_RE.search(text) and quote_ids else "any cited passage"
+                V.append(Violation("QUOTE_NOT_IN_SOURCE", "critical", f"{where}: the quotation “{q[:70]}” is not in {scope}"))
+
+    # -- a question that names one demand measure is not answered with the other (held-out H02, H03: asked for total
+    #    demand, answered with operational demand only), unless the answer says the named measure is unavailable
+    if report.intent in ("market_event_review", "forecast_review"):
+        from .agent.request import OPERATIONAL_DEMAND_Q_RE, TOTAL_DEMAND_Q_RE
+
+        res.checks_run.append("requested_measure")
+        claim_metrics = {ev.metric for c in report.numeric_claims if (ev := registry.get(c.evidence_id)) is not None}
+        has_total = "dispatch_totaldemand" in claim_metrics
+        has_op = any(m.startswith("opdemand") for m in claim_metrics)
+        said = " ".join(report.missing_evidence + report.uncertainties)
+        q = report.question
+        if TOTAL_DEMAND_Q_RE.search(q) and not OPERATIONAL_DEMAND_Q_RE.search(q) and has_op and not has_total \
+                and not TOTAL_DEMAND_Q_RE.search(said):
+            V.append(Violation("MEASURE_SUBSTITUTED", "critical", "the question asks for total demand (dispatch "
+                               "TOTALDEMAND) but the answer gives only operational demand"))
+        if OPERATIONAL_DEMAND_Q_RE.search(q) and not TOTAL_DEMAND_Q_RE.search(q) and has_total and not has_op \
+                and not OPERATIONAL_DEMAND_Q_RE.search(said):
+            V.append(Violation("MEASURE_SUBSTITUTED", "critical", "the question asks for operational demand but the "
+                               "answer gives only dispatch TOTALDEMAND"))
+
     # -- document claims: cited, and supported by the cited passage (quoted, or mostly in its words)
     res.checks_run.append("document_claims")
     items = [("headline", report.headline)] + [(f"summary[{i}]", s_) for i, s_ in enumerate(report.summary)]
