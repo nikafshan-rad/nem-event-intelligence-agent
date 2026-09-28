@@ -478,6 +478,14 @@ REPAIR_HINTS = {
                              "and states its time with its zone and whether that is before, between or after the "
                              "event's intervals, copying the times and the relation from notice_timing; use no "
                              "causal wording.",
+    "NOTICE_TIMING_CONTRADICTED": "The stated before/between/after (or the interval time) is wrong: copy the notice's "
+                                  "time and its relation to the event from notice_timing (or compare it with the "
+                                  "price timeline's first_interval_at_or_above_threshold and "
+                                  "last_interval_at_or_above_threshold), or delete the comparison.",
+    "NOTICE_TIMING_UNVERIFIED": "A notice time set against the event's intervals needs the price timeline for the whole "
+                                "event window; call it, or compare the notice time only with a time a tool returned.",
+    "NOTICE_TIME_ZONE_MISMATCH": "A notice's 'HHMM hrs' is NEM time (UTC+10): use the utc or local value in that "
+                                 "notice's clock_times, with the zone as given.",
     "CLAIM_INTERVAL_MISMATCH": "Describe each number at its tool's resolution: a 5-minute value (dispatch RRP, "
                                "including the hourly samples of it) is not a half-hour value, and half-hour "
                                "operational demand is not a 5-minute value. Fix the label or delete the number.",
@@ -720,7 +728,7 @@ class LiveController:
         from ..validation import validate
 
         first = validate(report, self.reg, as_of=res.as_of, window=res.window, records=self.d.records,
-                         required_tools=pb.required)
+                         required_tools=pb.required, event_kind=res.kind)
         if first.critical and self.usage.model_calls < config.MAX_MODEL_CALLS:
             # scoped when every violation names a draft item: the model may change only those items
             targets, unmapped = (repair_targets(first, mrep, self._summary_origin) if isinstance(mrep, ModelReport)

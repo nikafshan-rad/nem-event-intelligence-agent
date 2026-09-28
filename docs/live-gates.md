@@ -1659,3 +1659,113 @@ A synthetic safety fixture `notice_timing_omitted` was also added.
 - **Enforcement:** the ledger enforces the caps. The v3 run uses `NEM_AGENT_TOTAL_BUDGET_USD` = counted + 0.90; the
   regression uses counted-after-v3 + 0.70, never above 4.3340. The task total stays under USD 5.
 - A case stopped by the cap is recorded as stopped.
+
+## Notice timing: paraphrases and verified relations (unpaid; no Live run)
+
+The reviewer accepted keeping the AEMO pin (the source review stays; REVIEW NEEDED is not suppressed) and asked for
+two limitations to be fixed before v3. **L3 remains FAIL.**
+
+### 1. Which questions require the timing: paraphrases, measured blind
+
+`asks_if_notice_event_caused()` requires one term from each of two general vocabularies:
+- **Influence or dependence:** "matter", "a factor", "behind", "the driver of", "any bearing", "put down to",
+  "respond", counterfactuals such as "would … without" and "if … hadn't", and similar.
+- **Grid incidents of the kind AEMO reports in notices:** outage, trip, fault, transformer, busbar, transfer limit,
+  constraint, reclassification, LOR, direction, intervention, load shedding, suspension and similar.
+
+It is not H13's wording. "Did the transformer trip matter for the spike?" matches.
+
+**Method.** Independent agents with no access to the repository or the patterns each wrote 30 positive and 30
+negative questions. Each set was scored once against a hashed version of the trigger, before it was changed.
+
+| Set | Trigger SHA-256 when scored | Positives matched | False positives | Then |
+| --- | --- | --- | --- | --- |
+| 1 | `a9f1b9e9…` (written before any set existed) | 24/30 | 1/30 | vocabulary extended: development data |
+| 2 | `eae2e1a5…` | 23/30 | 0/30 | vocabulary extended again: development data |
+| **3** | `dda5d9c1…` (final) | **24/30 (80%)** | **2/30** | **the measurement; not tuned against** |
+
+- The sets and hashes are in `tests/provider/data/notice_trigger_paraphrases.json`. After extension, sets 1 and 2 are
+  60/60 with 0 false positives, but that is development fit.
+- **Set 3 misses:** implicit influence ("was the revocation what closed the spread"), "shift prices", "fed through
+  into", a misspelling ("conection"), "absent the intervention", and an incident named only as a "capability" drop.
+- **Set 3 false positives:** "Explain what a contingency reclassification is" and "Summarise … the fault notice".
+  Both are document questions, where neither the context nor the check applies.
+- **Labelled questions:** H13 matches, and so does H11 ("constraints … bear on"). H11 is labelled and routed
+  `source_explanation`, so this has no effect.
+
+### 2. Before, between or after is verified, not just present
+
+For every market-event review, whether or not the question triggers:
+- **Scope:** every headline, summary, hypothesis or uncertainty sentence that sets a retrieved notice's time
+  against something is checked. Quotes, hypothesis tests and "whether"/"if" clauses are skipped.
+- **Notice times:** the validator parses the notice's "HHMM hrs" itself (NEM time, UTC+10). The notice time
+  written in the sentence is recognised on any basis (UTC, AEST, ACST, NEM; dated or not).
+- **Truth:** it rebuilds the threshold intervals and the price extreme from the 5-minute dispatch prices registered
+  in this investigation. The event kind is passed from the resolution. All comparisons are in UTC.
+- **Parsing:** for each relation word, the first thing after it is its object: a notice time, an interval, the peak,
+  the spike, or a stated time. The other side is its subject. So "before the notice's 11:00 AEST, the last interval
+  had ended" is read the right way round.
+
+| Code | When |
+| --- | --- |
+| `NOTICE_TIMING_CONTRADICTED` | the stated direction is wrong (e.g. "before the first high-price interval" for a notice after the last), or a time given for a named interval is not that interval's time (e.g. "ended 23:45 AEST" for an interval ending 23:45 UTC = 09:45 AEST) |
+| `NOTICE_TIMING_UNVERIFIED` | the comparison needs the event's intervals, but the dispatch prices for the whole window are not in the investigation's evidence |
+| `NOTICE_TIME_ZONE_MISMATCH` | a sentence about a notice gives none of its times correctly, but gives its clock under another zone ("11:00 UTC" for 1100 hrs NEM time). Such a time can be a real price-interval time, so the general time check accepts it |
+| `NOTICE_TIMING_OMITTED` | unchanged: the question triggers, and no sentence sets a cited notice's time against the event |
+
+- Each has a repair hint. Contradictions name their item, so the one repair is scoped.
+- Prompt v10 (not yet used in any paid run) says the comparison is checked.
+
+**Tests.** `tests/provider/test_notice_timing.py` has 21 tests on real pinned data: VIC1 H13 in AEST, and SA1
+Belalie–Davenport in ACST (1630 hrs NEM = 06:30Z = 16:00 ACST).
+- **Must pass:**
+  - the controller's wording;
+  - the UTC, NEM and dated ISO bases;
+  - the event as the subject;
+  - SA1 "between the first and last";
+  - "before the price extreme";
+  - a low-price event.
+- **Must be rejected:**
+  - a reversed claim;
+  - "during" for a notice after the spike;
+  - a reversed claim with the event as the subject;
+  - "before 23:45 UTC" when it is 75 minutes after;
+  - a zone-slipped interval time;
+  - a zone-slipped notice time, with or without a triggering question;
+  - the ACST clock labelled AEST;
+  - an unverifiable comparison;
+  - a comparison between two stated times that is false.
+- **Not claims:** a hypothetical sentence is neither checked nor counted, and a relation with nothing to compare
+  against is ignored.
+- **Trigger:** the paraphrase sets are included.
+- **Safety suite:** a new fixture, `notice_timing_reversed`.
+
+### Unpaid verification
+
+| Check | Result |
+| --- | --- |
+| lint, mypy | clean |
+| full test suite | **286 passed** |
+| Replay regression (scratch output) | every row identical to `artifacts/eval/offline.json` apart from trace IDs and latency; summary and gates identical: **no new Replay fallback** |
+| safety suite | PASS, **24/24** detected |
+| retrieval benchmark | identical |
+| the 15 saved Live event-review answers (v2, regression, run 3, fresh), re-checked offline | only H13 would now be rejected (timing omitted, as intended). None sets a notice time against the event, so the new contradiction and zone checks would have rejected none |
+| paid API calls | none |
+
+### Remaining limitations
+
+- **Trigger recall:** about 80% on a blind set. A missed question gets no timing context and no omission check.
+  Any timing it states is still verified.
+- **Lexical parsing:**
+  - Passive verbs ("preceded by", "followed by") and a bare "earlier" or "later" are not read (neither counted nor
+    checked).
+  - A second relation in the same sentence about something else, followed by an event word (e.g. "… while demand
+    rose after the peak"), is read as the notice's. That can reject a correct sentence: a repair or fallback, never a
+    wrong answer shown.
+  - "Peak demand" is read as the price extreme.
+- **Notice identity:** the check verifies that the time belongs to a retrieved notice for the region, not that the
+  sentence names the right notice.
+- **Unverified comparisons:** when the model did not fetch the whole window's prices, a comparison with the event is
+  rejected as unverified.
+- **Not measured in Live:** whether gpt-5-mini states timing correctly, and how many repairs and fallbacks the new
+  checks cause.

@@ -39,6 +39,9 @@ Times
   interval at or above the analysis threshold (<that interval's local time>)."). Give this sentence no
   [citation_id]: the notice is cited in `published_findings`, and its converted time is not in its words. This
   timing is often the decisive observation; state it without causal wording, whichever way it points.
+- Any sentence that sets a notice's time before, between or after the event's intervals, its price extreme or another
+  time is checked against the notice's own time and the dispatch prices, in UTC: copy the relation from
+  `notice_timing` or compare the tool times yourself only on the same basis.
 
 Measures and forecast runs
 - If the context has `requested_measures`, answer with exactly those measures, from the tool fields it names. Dispatch

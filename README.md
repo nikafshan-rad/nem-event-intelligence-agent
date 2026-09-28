@@ -270,7 +270,9 @@ After held-out v2, with tests but **not yet measured in Live** (`docs/live-gates
 - notice questions routed as document questions;
 - quotations checked against their cited passage;
 - when a question asks whether something in a market notice caused the event, the controller sets the notice's time
-  against the event's intervals (before, between or after), and an answer that leaves this out is rejected.
+  against the event's intervals (before, between or after), and an answer that leaves this out is rejected. The
+  trigger matched 24/30 blind paraphrases (2/30 false positives). Any stated before/between/after is checked against
+  the notice's own time and the dispatch prices, in UTC.
 
 Each of these seven failure modes has a behaviour test that fails on the code as it was run on held-out v2 (`431b9d6`)
 and passes now (`tests/provider/test_v2_failure_modes.py`; logs in `artifacts/logs/v2_failure_modes_*.log`).

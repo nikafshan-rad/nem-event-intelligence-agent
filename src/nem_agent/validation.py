@@ -23,6 +23,7 @@ the claim. Findings are therefore restricted to verbatim quotation of event-matc
 from __future__ import annotations
 
 import contextlib
+import functools
 import re
 import unicodedata
 from dataclasses import dataclass, field
@@ -212,11 +213,24 @@ def _known_instants(registry: EvidenceRegistry, records: list[Any] | None, repor
     return out
 
 
-# parsed here, not taken from the tool output: a notice writes "At 1100 hrs 20/08/2026" in NEM market time (UTC+10,
-# docs/decisions.md D18), and a phrase without a date takes the notice's event date
+# -- notice timing ---------------------------------------------------------------------------------------------------
+# A notice's times are parsed here, not taken from the tool output: a notice writes "At 1100 hrs 20/08/2026" in NEM
+# market time (UTC+10, docs/decisions.md D18), and a phrase without a date takes the notice's event date.
 NOTICE_HRS_RE = re.compile(r"\b([01]\d|2[0-3]):?([0-5]\d) hrs\b(?:,? (?:on )?(\d{2})/(\d{2})/(\d{4}))?")
-RELATION_RE = re.compile(r"\b(before|after|between|earlier|later|during|within|while|preced\w*|follow\w*|prior to|"
-                         r"ahead of|until)\b", re.I)
+# A stated relation. Verbs whose sense flips in the passive ("preceded by", "followed by") are not read: a sentence
+# relying on them is neither counted nor checked.
+REL_RE = re.compile(r"\b(?:(?P<before>before|prior to|ahead of|earlier than)|(?P<after>after|later than|subsequent to)|"
+                    r"(?P<between>between|during|within|while|amid|coincid\w* with|at the same time as))\b", re.I)
+# What a notice time is compared with: the first or last threshold interval, the price extreme, or the threshold
+# intervals as a whole ("the spike")
+ANCHOR_RE = re.compile(r"\b(?:(?P<first>first|start of|onset)|(?P<last>last|final|end of)|"
+                       r"(?P<peak>peak\w*|price extreme|highest|lowest|maximum|minimum|trough)|"
+                       r"(?P<span>spikes?|surge|event|episodes?|intervals?|threshold|high[- ]price|low[- ]price|"
+                       r"negative))\b", re.I)
+LOW_SET_RE = re.compile(r"\b(negative|low[- ]price|below the low)\b", re.I)
+HIGH_SET_RE = re.compile(r"\b(high[- ]price|at or above|spikes?)\b", re.I)
+HYPOTHETICAL_RE = re.compile(r"\b(whether|if)\b", re.I)
+_FIVE = timedelta(minutes=5)
 
 
 def _notice_instants(text: str, event_date: str | None) -> set[datetime]:
@@ -229,24 +243,218 @@ def _notice_instants(text: str, event_date: str | None) -> set[datetime]:
     return out
 
 
-def _states_timing(sentence: str, instants: set[datetime]) -> bool:
-    """The sentence gives one of these instants on a stated basis (a dated or undated time with its zone) and says how
-    it relates to something else (before, after, during ...)."""
-    if not RELATION_RE.search(sentence):
-        return False
-    s = PAREN_OFFSET_RE.sub(" ", sentence)
+@functools.lru_cache(maxsize=1)
+def _thresholds() -> tuple[float, float]:
+    from .selection import load_selection
+
+    t = load_selection().analysis_threshold
+    return float(t["high_price_rrp_at_or_above"]), float(t["low_price_rrp_below"])
+
+
+@dataclass
+class _EventTimes:
+    """The event's 5-minute dispatch prices as the tools registered them in this investigation (interval-ending)."""
+    kind: str
+    ends: dict[str, list[datetime]]  # "high": RRP at or above the analysis threshold; "low": below the low threshold
+    peak: datetime | None            # the price extreme (maximum for a high-price event, minimum for a low-price one)
+    complete: bool                   # every interval from the window start to the last one held is registered
+    thresholds: tuple[float, float]
+
+
+def _event_times(report: InvestigationReport, registry: EvidenceRegistry, window: tuple[datetime, datetime] | None,
+                 kind: str | None) -> _EventTimes | None:
+    w = window or ((parse_iso(report.event_window.start_utc), parse_iso(report.event_window.end_utc))
+                   if report.event_window else None)
+    if w is None or not report.region:
+        return None
+    rrp: dict[datetime, float] = {}
+    for ev in registry.items.values():
+        if ev.metric == "dispatch_rrp" and ev.region == report.region and ev.valid_at_utc and ev.value is not None:
+            t = parse_iso(ev.valid_at_utc)
+            if w[0] < t <= w[1]:
+                rrp[t] = float(ev.value)
+    hi_thr, lo_thr = _thresholds()
+    ends = sorted(rrp)
+    complete = bool(ends) and ends[0] == w[0] + _FIVE and all(b - a == _FIVE for a, b in zip(ends, ends[1:], strict=False))
+    sets = {"high": [t for t in ends if rrp[t] >= hi_thr], "low": [t for t in ends if rrp[t] < lo_thr]}
+    if kind not in ("high_price", "low_price"):
+        kind = "high_price" if sets["high"] or not sets["low"] else "low_price"
+    peak = None
+    if ends:
+        peak = (max(ends, key=lambda t: (rrp[t], -t.timestamp())) if kind == "high_price"
+                else min(ends, key=lambda t: (rrp[t], t.timestamp())))
+    return _EventTimes(kind, sets, peak, complete, (hi_thr, lo_thr))
+
+
+@dataclass
+class _Mention:
+    """A time written with its zone: dated (an instant) or undated (a clock time in that zone)."""
+    start: int
+    end: int
+    label: str
+    instant: datetime | None
+    clock: str  # "HH:MM" as written, in the zone below
+    offset: int  # minutes east of UTC of the written zone
+
+    def names(self, t: datetime) -> bool:
+        if self.instant is not None:
+            return self.instant == t
+        return (t + timedelta(minutes=self.offset)).strftime("%H:%M") == self.clock
+
+    def near(self, t: datetime) -> datetime:
+        """The instant meant: an undated clock time is read on the day that puts it closest to t."""
+        if self.instant is not None:
+            return self.instant
+        hh, mm = (int(x) for x in self.clock.split(":"))
+        day = (t + timedelta(minutes=self.offset)).date()
+        cands = [datetime(d.year, d.month, d.day, hh, mm, tzinfo=UTC) - timedelta(minutes=self.offset)
+                 for d in (day - timedelta(days=1), day, day + timedelta(days=1))]
+        return min(cands, key=lambda c: abs(c - t))
+
+
+def _mentions(s: str) -> list[_Mention]:
+    out = []
     for m in DATETIME_RE.finditer(s):
         d, hh, mm, zone = m.groups()
-        if datetime.fromisoformat(f"{d}T{int(hh):02d}:{mm}:00+00:00") - timedelta(minutes=_zone_offset(zone)) in instants:
-            return True
-    for m in CLOCK_RE.finditer(DATETIME_RE.sub(" ", s)):
+        off = _zone_offset(zone)
+        u = datetime.fromisoformat(f"{d}T{int(hh):02d}:{mm}:00+00:00") - timedelta(minutes=off)
+        out.append(_Mention(m.start(), m.end(), m.group(0), u, f"{int(hh):02d}:{mm}", off))
+    for m in CLOCK_RE.finditer(DATETIME_RE.sub(lambda x: " " * len(x.group(0)), s)):
         h1, m1, h2, m2, zone = m.groups()
-        if zone is None:
+        if zone is not None:
+            out += [_Mention(m.start(), m.end(), m.group(0).strip(), None, f"{int(hh):02d}:{mm}", _zone_offset(zone))
+                    for hh, mm in ((h1, m1), (h2, m2)) if hh is not None]
+    return sorted(out, key=lambda x: x.start)
+
+
+def _z(t: datetime) -> str:
+    return f"{t:%Y-%m-%dT%H:%MZ}"
+
+
+NOTICE_WORD_RE = re.compile(r"\bnotices?\b", re.I)
+_BASES = (0, 570, 600, 630, 660)  # UTC, ACST, AEST (= NEM time), ACDT, AEDT
+
+
+def _zone_slips(where: str, sentence: str, notices: set[datetime]) -> list[Violation]:
+    """A sentence about a notice that gives none of its times correctly, but gives its clock time under another zone
+    (e.g. the notice's '11:00' NEM time written as '11:00 UTC'). Such a time can still be a real instant (a price
+    interval), so the time-in-evidence check alone would accept it."""
+    if not NOTICE_WORD_RE.search(sentence):
+        return []
+    ms = _mentions(PAREN_OFFSET_RE.sub(lambda x: " " * len(x.group(0)), sentence))
+    if any(m.names(t) for m in ms for t in notices):
+        return []
+    out = []
+    for m in ms:
+        for t in sorted(notices):
+            if any(off != m.offset and (t + timedelta(minutes=off)).strftime("%H:%M") == m.clock for off in _BASES):
+                out.append(Violation("NOTICE_TIME_ZONE_MISMATCH", "critical",
+                                     f"{where}: gives '{m.label}' where the notice's time is {_z(t)} "
+                                     f"({(t + timedelta(minutes=600)):%H:%M} NEM time): the clock is right but the zone "
+                                     "is not"))
+                break
+    return out
+
+
+def _timing_statements(where: str, sentence: str, notices: set[datetime],
+                       et: _EventTimes | None) -> tuple[set[datetime], list[Violation]]:
+    """The notice times this sentence sets against the event, and a violation for each such statement that the
+    registered price intervals contradict or cannot verify.
+
+    For each relation word, the first thing after it (a notice time, or the event: an interval, the peak, the spike,
+    a stated time) is its object and the other side its subject, so "before the notice's 11:00 AEST, the last interval
+    had ended" is read as the notice time being after the last interval. Times are compared in UTC."""
+    s = PAREN_OFFSET_RE.sub(lambda x: " " * len(x.group(0)), sentence)
+    ms = _mentions(s)
+    at_notice = [m for m in ms if any(m.names(t) for t in notices)]
+    if not at_notice:
+        return set(), []
+    others = [m for m in ms if m not in at_notice]
+    rels = list(REL_RE.finditer(s))
+    stated: set[datetime] = set()
+    out: list[Violation] = []
+    for i, r in enumerate(rels):
+        rel = r.lastgroup or ""
+        stop = rels[i + 1].start() if i + 1 < len(rels) else len(s)
+        prev = rels[i - 1].end() if i else 0
+        n_fwd = next((m for m in at_notice if r.end() <= m.start < stop), None)
+        a_fwd = next(iter(ANCHOR_RE.finditer(s, r.end(), stop)), None)
+        o_fwd = next((m for m in others if r.end() <= m.start < stop), None)
+        firsts = [x for x in (n_fwd.start if n_fwd else None, a_fwd.start() if a_fwd else None,
+                              o_fwd.start if o_fwd else None) if x is not None]
+        if not firsts:
             continue
-        clocks = {(t + timedelta(minutes=_zone_offset(zone))).strftime("%H:%M") for t in instants}
-        if any(hh is not None and f"{int(hh):02d}:{mm}" in clocks for hh, mm in ((h1, m1), (h2, m2))):
-            return True
-    return False
+        if n_fwd is not None and n_fwd.start == min(firsts):
+            # the notice time is the object: the event is the subject, before the relation word or after the time
+            mention = n_fwd
+            back = s[prev:r.start()]
+            lo, hi = ((prev, r.start()) if ANCHOR_RE.search(back) or any(prev <= m.start < r.start() for m in others)
+                      else (n_fwd.end, stop))
+            rel = {"before": "after", "after": "before"}.get(rel, rel)
+        else:
+            mention = min(at_notice, key=lambda m: min(abs(m.start - r.start()), abs(m.end - r.start())))
+            lo, hi = r.end(), (n_fwd.start if n_fwd else stop)
+        t = next(x for x in sorted(notices) if mention.names(x))
+        phrase = s[lo:hi]
+        refs = [m for m in others if lo <= m.start < hi]
+        groups = [a.lastgroup for a in ANCHOR_RE.finditer(phrase)]
+        if rel == "between":
+            target = "peak" if "peak" in groups and not {"first", "last"} <= set(groups) else ("span" if groups else None)
+        else:
+            target = next((g for g in groups if g in ("first", "last", "peak")), "span" if groups else None)
+        if target is None and not refs:
+            continue
+        stated.add(t)
+        says = {"before": "before", "after": "after", "between": "within"}[rel]
+        if target in ("first", "last", "peak") or (target == "span" and not refs):
+            if et is None or not et.complete:
+                out.append(Violation("NOTICE_TIMING_UNVERIFIED", "critical",
+                                     f"{where}: sets the notice time {_z(t)} against the event's price intervals, but "
+                                     "the dispatch prices for the whole event window are not in this investigation's "
+                                     "evidence (call get_price_timeline for the window)"))
+                continue
+            key = ("low" if LOW_SET_RE.search(phrase) else "high" if HIGH_SET_RE.search(phrase)
+                   else "high" if et.kind == "high_price" else "low")
+            which = (f"at or above {et.thresholds[0]:g} $/MWh" if key == "high" else f"below {et.thresholds[1]:g} $/MWh")
+            if target == "peak":
+                assert et.peak is not None
+                a0, a1, desc = et.peak - _FIVE, et.peak, "the price extreme's 5-minute interval"
+            else:
+                ends = et.ends[key]
+                if not ends:
+                    out.append(Violation("NOTICE_TIMING_CONTRADICTED", "critical",
+                                         f"{where}: sets the notice time against 5-minute intervals {which}, but the "
+                                         "window has none"))
+                    continue
+                a0, a1 = {"first": (ends[0] - _FIVE, ends[0]), "last": (ends[-1] - _FIVE, ends[-1]),
+                          "span": (ends[0] - _FIVE, ends[-1])}[target]
+                desc = {"first": f"the first 5-minute interval {which}", "last": f"the last 5-minute interval {which}",
+                        "span": f"the 5-minute intervals {which}"}[target]
+            ok = t <= a0 if rel == "before" else t >= a1 if rel == "after" else a0 <= t <= a1
+            if not ok:
+                actual = "before" if t <= a0 else "after" if t >= a1 else "within"
+                out.append(Violation("NOTICE_TIMING_CONTRADICTED", "critical",
+                                     f"{where}: says the notice time {_z(t)} is {says} {desc} ({_z(a0)} to {_z(a1)}); "
+                                     f"it is {actual} it"))
+            if target != "span":
+                for ref in refs:
+                    if not (ref.names(a0) or ref.names(a1)):
+                        out.append(Violation("NOTICE_TIMING_CONTRADICTED", "critical",
+                                             f"{where}: gives '{ref.label}' for {desc}, which runs from {_z(a0)} to "
+                                             f"{_z(a1)}"))
+        else:  # compared with a stated time
+            when = sorted(m.near(t) for m in refs[:2])
+            if rel == "between" and len(when) == 2:
+                ok = when[0] <= t <= when[1]
+            elif rel in ("before", "after"):
+                ok = t <= when[0] if rel == "before" else t >= when[0]
+            else:
+                continue
+            if not ok:
+                out.append(Violation("NOTICE_TIMING_CONTRADICTED", "critical",
+                                     f"{where}: says the notice time {_z(t)} is {says} "
+                                     f"{' and '.join(m.label for m in refs[:2])} ({', '.join(_z(w) for w in when)})"))
+    return stated, out
 
 
 def _stems(text: str) -> list[str]:
@@ -264,7 +472,7 @@ def support(sentence: str, passage: str) -> float:
 
 def validate(report: InvestigationReport, registry: EvidenceRegistry, *, as_of: datetime | None = None,
              window: tuple[datetime, datetime] | None = None, records: list[Any] | None = None,
-             required_tools: tuple[str, ...] = ()) -> ValidationResult:
+             required_tools: tuple[str, ...] = (), event_kind: str | None = None) -> ValidationResult:
     res = ValidationResult()
     V = res.violations
     as_of = as_of or (parse_iso(report.as_of) if report.as_of else None)
@@ -463,31 +671,46 @@ def validate(report: InvestigationReport, registry: EvidenceRegistry, *, as_of: 
             V.append(Violation("MEASURE_SUBSTITUTED", "critical", "the question asks for operational demand but the "
                                "answer gives only dispatch TOTALDEMAND"))
 
-    # -- a question asking whether something a market notice reports (an outage, trip, constraint ...) explains the
-    #    event is answered with the notice's time set against the event: that time on a stated basis (a UTC or zoned
-    #    time) with before, after or during in the same sentence. Held-out H13 cited the Hazelwood outage notice and
-    #    never said that its time (1100 hrs NEM time, 01:00Z) came after every high-price interval. A time inside a
-    #    quote or only in a hypothesis's test does not count.
+    # -- notice timing in market-event reviews. Every sentence (headline, summary, hypotheses, uncertainties; not a
+    #    quote, a hypothesis's test or a "whether"/"if" clause) that sets a retrieved notice's time before, between or
+    #    after the event's price intervals, its price extreme or a stated time is checked against the notice's own
+    #    time and the dispatch prices registered in this investigation, in UTC whatever zone is written. A wrong
+    #    direction or a wrong interval time is NOTICE_TIMING_CONTRADICTED; a comparison the registered prices cannot
+    #    settle is NOTICE_TIMING_UNVERIFIED. When the question asks whether something a notice reports explains the
+    #    event, some sentence must set a cited notice's time against the event (held-out H13 never did).
     if report.intent == "market_event_review":
         from .agent.request import asks_if_notice_event_caused
 
-        if asks_if_notice_event_caused(report.question):
-            res.checks_run.append("notice_timing")
-            notice_at: dict[datetime, str] = {}
-            for cit in report.citations:
-                ch = registry.chunks.get(cit.chunk_id)
-                if ch is not None and ch.doc_type == "market_notice" and ch.event_region in (None, report.region):
-                    for t in sorted(_notice_instants(ch.text, ch.event_date)):
-                        notice_at.setdefault(t, ch.doc_id)
-            texts = [report.headline, *report.summary, *report.uncertainties,
-                     *(h.statement for h in report.possible_explanations)]
-            if notice_at and not any(_states_timing(s, set(notice_at)) for t in texts
-                                     for s in SENTENCE_RE.split(QUOTED_RE.sub(" ", t))):
-                shown = ", ".join(f"{d} {t:%Y-%m-%dT%H:%MZ}" for t, d in sorted(notice_at.items()))
-                V.append(Violation("NOTICE_TIMING_OMITTED", "critical",
-                                   "the question asks whether something a cited market notice reports explains the "
-                                   f"event, but no sentence sets the notice's time ({shown}) against the event (before, "
-                                   "between or after its intervals)"))
+        res.checks_run.append("notice_timing")
+        retrieved: set[datetime] = set()
+        for ch in registry.chunks.values():
+            if ch.doc_type == "market_notice" and ch.event_region in (None, report.region):
+                retrieved |= _notice_instants(ch.text, ch.event_date)
+        cited: dict[datetime, str] = {}
+        for cit in report.citations:
+            ch = registry.chunks.get(cit.chunk_id)
+            if ch is not None and ch.doc_type == "market_notice" and ch.event_region in (None, report.region):
+                for t in sorted(_notice_instants(ch.text, ch.event_date)):
+                    cited.setdefault(t, ch.doc_id)
+        stated: set[datetime] = set()
+        if retrieved:
+            et = _event_times(report, registry, window, event_kind)
+            texts = [("headline", report.headline), *((f"summary[{i}]", x) for i, x in enumerate(report.summary)),
+                     *((f"possible_explanations[{i}]", h.statement) for i, h in enumerate(report.possible_explanations)),
+                     *((f"uncertainties[{i}]", x) for i, x in enumerate(report.uncertainties))]
+            for where, text in texts:
+                for sentence in SENTENCE_RE.split(QUOTED_RE.sub(" ", text)):
+                    V.extend(_zone_slips(where, sentence, retrieved))
+                    if not HYPOTHETICAL_RE.search(sentence):
+                        got, found = _timing_statements(where, sentence, retrieved, et)
+                        stated |= got
+                        V.extend(found)
+        if asks_if_notice_event_caused(report.question) and cited and not stated & set(cited):
+            shown = ", ".join(f"{d} {_z(t)}" for t, d in sorted(cited.items()))
+            V.append(Violation("NOTICE_TIMING_OMITTED", "critical",
+                               "the question asks whether something a cited market notice reports explains the "
+                               f"event, but no sentence sets the notice's time ({shown}) against the event (before, "
+                               "between or after its intervals)"))
 
     # -- document claims: cited, and supported by the cited passage (quoted, or mostly in its words)
     res.checks_run.append("document_claims")
@@ -631,13 +854,15 @@ def validate_and_finalize(report: InvestigationReport, registry: EvidenceRegistr
     window = res.window if res is not None else None
     as_of = res.as_of if res is not None else None
     req = PLAYBOOKS[res.intent].required if res is not None and res.intent else ()
-    first = validate(report, registry, as_of=as_of, window=window, records=records, required_tools=req)
+    kind = res.kind if res is not None else None
+    first = validate(report, registry, as_of=as_of, window=window, records=records, required_tools=req, event_kind=kind)
     info: dict[str, Any] = {"initial": first.as_dict(), "fallback_applied": False,
                             "repair_attempted": bool(report.validation.get("repair_attempted"))}
     final = report
     if first.critical:
         final = facts_only(report, registry, first, as_of)
-        second = validate(final, registry, as_of=as_of, window=window, records=records, required_tools=req)
+        second = validate(final, registry, as_of=as_of, window=window, records=records, required_tools=req,
+                          event_kind=kind)
         info.update(fallback_applied=True, after_fallback=second.as_dict())
     info["passed"] = not (first.critical and info.get("after_fallback", {}).get("n_critical", 1))
     info["final_passed"] = (not first.critical) or info.get("after_fallback", {}).get("n_critical", 1) == 0

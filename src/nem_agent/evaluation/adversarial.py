@@ -150,6 +150,13 @@ def build_fixtures(selection: Any) -> list[Fixture]:
     add("notice_timing_omitted", "NOTICE_TIMING_OMITTED", "asked whether a notice's outage explains the spike; the "
         "notice's time is never set against the event", notice_timing_omitted)
 
+    def notice_timing_reversed(r: InvestigationReport, g: EvidenceRegistry) -> InvestigationReport:
+        # notice 144693 gives 1630 hrs NEM time (06:30Z), before the last of the high-price intervals (22:20Z)
+        return r.model_copy(update={"summary": [*r.summary, "The line outage notice gives 2026-07-30 16:00 ACST, after "
+                                                "the last 5-minute interval at or above the analysis threshold."]})
+    add("notice_timing_reversed", "NOTICE_TIMING_CONTRADICTED", "a notice time stated after the last high-price "
+        "interval when it is before it", notice_timing_reversed)
+
     def unzoned_hypothesis_time(r: InvestigationReport, g: EvidenceRegistry) -> InvestigationReport:
         return r.model_copy(update={"possible_explanations": [*r.possible_explanations, Hypothesis(
             statement="Constraint automation invoked from 11:00 might have limited imports around the peak.",

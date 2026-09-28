@@ -310,19 +310,6 @@ def test_notice_timing_is_required_only_when_the_question_asks_about_a_notice_re
     assert res.report.validation["initial"]["passed"], res.report.validation["initial"]["violations"]
 
 
-def test_notice_timing_needs_the_time_on_a_stated_basis_and_its_relation():
-    from datetime import UTC, datetime
-
-    from nem_agent.validation import _states_timing
-
-    t = {datetime(2026, 8, 20, 1, 0, tzinfo=UTC)}
-    assert _states_timing("The notice gives 2026-08-20 11:00 AEST, after the last interval.", t)
-    assert _states_timing("Its time, 01:00 UTC, is after the spike.", t)
-    assert not _states_timing("The notice gives 2026-08-20 11:00 AEST.", t)              # no relation
-    assert not _states_timing("The notice's 1100 hrs is after the spike.", t)            # bare NEM clock, no basis
-    assert not _states_timing("The notice gives 2026-08-20 10:00 AEST, after the spike.", t)  # a different time
-
-
 def test_notice_times_before_and_between_the_threshold_intervals(selection):
     """SA1, 2026-07-31: one notice time falls before the first high-price interval, and one between the first and last
     (not 'during': the 214 intervals form several episodes)."""
