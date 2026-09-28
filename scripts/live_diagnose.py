@@ -89,14 +89,16 @@ def diagnose(case: dict[str, Any]) -> dict[str, Any]:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--cases", required=True, help="comma-separated case ids from eval/cases.json")
+    ap.add_argument("--cases", required=True, help="comma-separated case ids, or 'all' (with --cases-file)")
+    ap.add_argument("--cases-file", default=None, help="a case file other than eval/cases.json (e.g. a frozen "
+                                                       "held-out set); its questions are never printed")
     ap.add_argument("--label", required=True, help="gate label, e.g. L1")
     args = ap.parse_args()
     if not os.environ.get("OPENAI_API_KEY"):
         print("UNVERIFIED: OPENAI_API_KEY is not set; nothing run")
         return 3
-    cases = {c["case_id"]: c for c in load_cases()["cases"]}
-    ids = [x.strip() for x in args.cases.split(",") if x.strip()]
+    cases = {c["case_id"]: c for c in load_cases(Path(args.cases_file) if args.cases_file else None)["cases"]}
+    ids = list(cases) if args.cases == "all" else [x.strip() for x in args.cases.split(",") if x.strip()]
     out_dir = paths.artifacts_dir() / "live" / args.label
     out_dir.mkdir(parents=True, exist_ok=True)
     start = budget.spent()
