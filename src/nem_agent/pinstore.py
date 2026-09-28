@@ -20,8 +20,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
+import shutil
 import subprocess
 import tempfile
+import time
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -110,6 +113,13 @@ class LocalDirBackend:
 
 Runner = Callable[[list[str]], subprocess.CompletedProcess[str]]
 
+# A download is retried only for errors on GitHub's side or in transit (HTTP 5xx, 429, a dropped connection or a
+# timeout). Authentication, permission and not-found errors fail at once. CI on a0f9995 failed once with HTTP 500 on
+# one release asset that the other three jobs downloaded normally.
+TRANSIENT_DOWNLOAD_RE = re.compile(r"HTTP (5\d\d|429)\b|connection reset|unexpected EOF|timed? ?out|TLS handshake|"
+                                   r"temporarily unavailable", re.IGNORECASE)
+DOWNLOAD_RETRY_DELAYS_S = (10.0, 30.0)  # so at most 3 attempts
+
 
 def _run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
     # The GitHub CLI reads its token from GH_TOKEN / its own login; the token never appears in arguments or logs.
@@ -123,19 +133,37 @@ class GitHubReleaseBackend:
     Uploads go to a draft release that is published once every asset is attached; ``--clobber`` is never used.
     """
 
-    def __init__(self, repository: str, run: Runner = _run) -> None:
+    def __init__(self, repository: str, run: Runner = _run, sleep: Callable[[float], None] = time.sleep,
+                 log: Callable[..., None] = print) -> None:
         self.repository = repository
         self.run = run
+        self.sleep = sleep
+        self.log = log
         self._downloaded: dict[str, Path] = {}
 
     def _download(self, tag: str) -> Path:
-        if tag not in self._downloaded:
+        """Download every asset of a release into a fresh directory. Transient errors are retried a bounded number
+        of times, each attempt in a new directory so a partial download is never reused. What is downloaded is still
+        checked against its SHA-256 by the caller before use."""
+        if tag in self._downloaded:
+            return self._downloaded[tag]
+        attempts = len(DOWNLOAD_RETRY_DELAYS_S) + 1
+        for attempt in range(1, attempts + 1):
             d = Path(tempfile.mkdtemp(prefix="pinstore-"))
             r = self.run(["gh", "release", "download", tag, "--repo", self.repository, "--dir", str(d)])
-            if r.returncode != 0:
-                raise RuntimeError(f"cannot download release {tag} from {self.repository}: {r.stderr.strip()[:300]}")
-            self._downloaded[tag] = d
-        return self._downloaded[tag]
+            if r.returncode == 0:
+                self._downloaded[tag] = d
+                return d
+            shutil.rmtree(d, ignore_errors=True)
+            err = r.stderr.strip()[:300]
+            if attempt == attempts or not TRANSIENT_DOWNLOAD_RE.search(err):
+                raise RuntimeError(f"cannot download release {tag} from {self.repository} "
+                                   f"(attempt {attempt} of {attempts}): {err}")
+            delay = DOWNLOAD_RETRY_DELAYS_S[attempt - 1]
+            self.log(f"[store] transient error downloading release {tag} (attempt {attempt} of {attempts}): "
+                     f"{err[:160]}; retrying in {delay:.0f} s")
+            self.sleep(delay)
+        raise AssertionError("unreachable")
 
     def get(self, obj: dict[str, Any]) -> bytes | None:
         p = self._download(obj["release"]) / obj["sha256"]
