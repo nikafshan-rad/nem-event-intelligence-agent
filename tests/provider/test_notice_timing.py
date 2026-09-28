@@ -181,27 +181,27 @@ def _et(kind="low_price"):
 def test_low_price_events_use_the_low_threshold_intervals():
     notice = datetime(2026, 7, 28, 9, 0, tzinfo=UTC)
     ok, v = _timing_statements("summary[0]", "The notice gives 09:00 UTC, before the first negative-price interval.",
-                               {notice}, _et())
+                               {notice}, {notice}, _et())
     assert ok == {notice} and v == []
     _, v = _timing_statements("summary[0]", "The notice gives 09:00 UTC, after the negative-price intervals.",
-                              {notice}, _et())
+                              {notice}, {notice}, _et())
     assert [x.code for x in v] == ["NOTICE_TIMING_CONTRADICTED"]
     # a high-price interval named in a low-price event: there is none to compare with
     _, v = _timing_statements("summary[0]", "The notice gives 09:00 UTC, before the high-price intervals.",
-                              {notice}, _et())
+                              {notice}, {notice}, _et())
     assert [x.code for x in v] == ["NOTICE_TIMING_CONTRADICTED"] and "has none" in v[0].detail
 
 
 def test_between_two_stated_times_and_unanchored_relations():
     notice = datetime(2026, 7, 28, 10, 12, tzinfo=UTC)
     ok, v = _timing_statements("summary[0]", "The notice's 10:12 UTC falls between 10:05 UTC and 10:30 UTC.",
-                               {notice}, _et())
+                               {notice}, {notice}, _et())
     assert ok == {notice} and v == []
     _, v = _timing_statements("summary[0]", "The notice's 10:12 UTC falls between 10:20 UTC and 10:30 UTC.",
-                              {notice}, _et())
+                              {notice}, {notice}, _et())
     assert [x.code for x in v] == ["NOTICE_TIMING_CONTRADICTED"]
     # a relation with nothing to compare against is neither a claim nor a violation
-    ok, v = _timing_statements("summary[0]", "The notice's 10:12 UTC came before demand rose.", {notice}, _et())
+    ok, v = _timing_statements("summary[0]", "The notice's 10:12 UTC came before demand rose.", {notice}, {notice}, _et())
     assert ok == set() and v == []
 
 
@@ -244,3 +244,25 @@ def test_module_fixtures_do_not_touch_the_real_ledger(vic, sa):
     from nem_agent import budget, paths
 
     assert budget.ledger_path() != paths.artifacts_dir() / "live_budget" / "ledger.jsonl"
+
+
+def test_an_explicit_span_is_checked_at_both_ends(sa):
+    """'between the first and last … intervals: first … = …; last …' is one statement (not cut at ';'); a time written
+    on two bases is one instant; and a wrong time for either end is still rejected (held-out v3 V18)."""
+    ok = ("The line outage notice gives 2026-07-30 16:00 ACST (2026-07-30T06:30:00Z), between the first and last 5-minute "
+          "interval at or above the analysis threshold: first interval ending 2026-07-30T04:35:00Z = 2026-07-30 14:05 "
+          "ACST; last interval ending 2026-07-30T22:20:00Z = 2026-07-31 07:50 ACST.")
+    assert _timing_codes(sa, ok) == set()
+    wrong_end = ok.replace("2026-07-30T22:20:00Z = 2026-07-31 07:50 ACST", "2026-07-30T21:20:00Z")
+    assert _timing_codes(sa, wrong_end) == {"NOTICE_TIMING_CONTRADICTED"}
+
+
+def test_issued_at_about_is_an_issue_time_but_as_of_still_wins():
+    from datetime import UTC, datetime
+
+    from nem_agent.agent.request import forecast_issue_time
+
+    for phrase in ("issued at about", "issued around", "issued at approximately", "issued at"):
+        assert forecast_issue_time(f"What did the forecast {phrase} 2026-07-28T07:57Z say for SA?") == \
+            datetime(2026, 7, 28, 7, 57, tzinfo=UTC), phrase
+    assert forecast_issue_time("As of 2026-07-28T08:00Z, what did the run issued at about 2026-07-28T07:57Z say?") is None

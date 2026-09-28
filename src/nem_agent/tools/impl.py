@@ -254,8 +254,11 @@ def get_price_timeline(ctx: ToolContext, a: A.PriceTimelineArgs) -> ToolOutput:
                      "derivation": "unweighted mean of 5-minute RRP"},
         "intervals_at_or_above_threshold": {"value": n_thr, "unit": "intervals", "evidence_id": n_thr_ev.evidence_id},
         "analysis_threshold": _threshold_item(ctx, a.region, thr, "project setting (data/source_selection.json)"),
+        # the low-price threshold is evidence too, so "below $0/MWh" can be cited (held-out v3 V01: it was a bare
+        # number here, and the answer's "0" was untraced)
         "intervals_below_low_threshold": {"value": n_lo, "unit": "intervals", "evidence_id": n_lo_ev.evidence_id,
-                                          "threshold": thr_lo},
+                                          "threshold": _threshold_item(ctx, a.region, thr_lo, "project setting (data/"
+                                                                       "source_selection.json), low-price threshold")},
         # when the threshold intervals began and ended, so another time (e.g. a notice's) can be set against them
         # (held-out H13)
         "first_interval_at_or_above_threshold": pt(hi_rows[0]) if hi_rows else None,
@@ -492,11 +495,20 @@ def compare_forecast_actual(ctx: ToolContext, a: A.CompareArgs) -> ToolOutput:
                 valid_at_utc=_ts(t), interval_minutes=30, source_row_ids=[f["row_id"], act["row_id"]],
                 source_urls=[], tool_call_id=ctx.call_id,
                 derivation=f"100 * ({err_ev.evidence_id}) / actual ({act_ev.evidence_id}); denominator = actual")
+        # the same run's POE10 and POE90, so an answer can place the actual against the published range (regression
+        # H05: only POE50 was returned, and the range comparison asked for was missing)
+        band: dict[str, Any] = {}
+        if f["poe10_mw"] is not None and f["poe90_mw"] is not None:
+            actual = act["operational_demand_mw"]
+            band = {"poe10_mw": f["poe10_mw"], "poe10_evidence_id": _register_forecast(ctx, a.region, f, "poe10_mw"),
+                    "poe90_mw": f["poe90_mw"], "poe90_evidence_id": _register_forecast(ctx, a.region, f, "poe90_mw"),
+                    "actual_vs_poe_band": ("above POE10" if actual > f["poe10_mw"] else "below POE90"
+                                           if actual < f["poe90_mw"] else "within POE90-POE10")}
         pairs.append({
             "target_end_utc": _ts(t), "target_end_local": local_str(t, a.region), "run_id": f["run_id"],
             "run_issued_at_utc": _ts(f["issued_at_utc"]), "run_available_at_utc": _ts(f["available_at_utc"]),
             "lead_hours": round((t - timedelta(minutes=30) - f["issued_at_utc"]).total_seconds() / 3600, 2),
-            "poe50_mw": f["poe50_mw"], "poe50_evidence_id": f_id,
+            "poe50_mw": f["poe50_mw"], "poe50_evidence_id": f_id, **band,
             "actual_mw": act["operational_demand_mw"], "actual_evidence_id": act_ev.evidence_id,
             "actual_revision": act["revision"], "error_mw": round(err, 2), "error_evidence_id": err_ev.evidence_id,
             "error_pct": _r(pct), "error_pct_evidence_id": pct_ev.evidence_id if pct_ev else None,
@@ -526,6 +538,8 @@ def compare_forecast_actual(ctx: ToolContext, a: A.CompareArgs) -> ToolOutput:
         "run_selector": a.run_selector, "min_lead_hours": a.min_lead_hours, "actual_revision_policy": a.actual_revision,
         "definition_check": "forecast and actual are both OPERATIONAL_DEMAND, 30-minute, MW (compatible)",
         "error_definition": "error_mw = POE50 - actual; error_pct = error_mw / actual, as a percentage (denominator: actual)",
+        "poe_band_note": "each pair gives the same run's POE10 and POE90 (AEMO-published) and actual_vs_poe_band: "
+                         "'above POE10', 'within POE90-POE10' or 'below POE90'",
         "actuals_are": "retrospective observations published after the forecast was issued",
         "n_pairs": len(pairs), "n_targets_without_pair": len(missing),
         "actual_rows_hidden_by_as_of": hidden,

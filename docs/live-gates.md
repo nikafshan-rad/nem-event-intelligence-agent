@@ -1989,3 +1989,80 @@ cases. All 18 cases completed, with no case error and no budget stop, under the 
   - register the low-price threshold as evidence;
   - make document answers use `document_statements` (H14);
   - fetch POE10/POE90 for a named run (H05).
+
+## Fixes for the v3 failures (unpaid; no Live run)
+
+v3 stays recorded as **FAIL** and is development data. No v3 question, gold label, historical result, safety rule or
+pass threshold changed. Prompts v11 carry the changes; v10 stays as v3 ran it.
+
+1. **Notice timing (V18, V19 false positives):**
+   - Only the notices the answer cites are compared.
+   - A dated time must match a notice time's date as well as its clock, and only in zones in force at that instant
+     (UTC, NEM time and the region's local offset then; ACDT is not in force in a South Australian July).
+   - An undated clock is compared only with cited notice times within a day of the event window.
+   - The zone check skips "whether"/"if" clauses.
+   - One instant written on two bases ("04:35Z = 14:05 ACST") counts as one time, not a range.
+   - A timing statement is read to the end of the sentence (not cut at ";").
+   - An explicit "between the first and last … intervals" is checked against both ends, and any time given for
+     either end must be that interval's.
+2. **Issue time (V07, V08):**
+   - "Issued at about / around / approximately <time>" is an issue time, not an as-of cutoff.
+   - The run named is the one issued nearest that time, within 10 minutes. The context gives both the time asked and
+     the run's actual issue time.
+   - An "as of" phrase still wins.
+3. **Low-price threshold (V01):** `get_price_timeline` registers the 0 $/MWh low-price threshold as evidence, with its
+   provenance ("project setting (data/source_selection.json), low-price threshold, not an AEMO label"), in
+   `intervals_below_low_threshold.threshold`.
+4. **Document answers and forecast ranges (regression H14, H05):**
+   - For a document question, the synthesis schema (`DocumentReport`) has **no free summary**: every sentence is a
+     document statement tied to a citation, rendered by the controller.
+   - `compare_forecast_actual` gives each pair the same run's POE10 and POE90 as evidence, and `actual_vs_poe_band`.
+
+**Before/after:** `tests/provider/test_v3_failure_modes.py` (10 tests) uses only interfaces present at `1020188`, the
+code v3 ran on. The notice tests replay each case's own saved tool calls and draft sentences.
+
+| # | Failure (case) | `1020188` | now |
+| --- | --- | --- | --- |
+| 1a | V18's correct timing sentence rejected (`NOTICE_TIMING_CONTRADICTED`, the one instant as a range) | fail | pass |
+| 1b | V18's "whether … at 16:35Z" uncertainty rejected (`NOTICE_TIME_ZONE_MISMATCH` against an uncited notice two days later) | fail | pass |
+| 1c | V19's hypothesis naming the 07:30 AEST interval rejected (a 26 July notice via ACDT) | fail | pass |
+| 1d | guard: a real ACST-as-AEST slip and a reversed claim are still rejected | pass | pass |
+| 2 | V07 and V08: "issued at about" became an as-of cutoff (2 tests) | fail | pass |
+| 3 | V01: the low-price threshold was not citable (2 tests) | fail | pass |
+| 4a | H14: a document answer could carry uncited summary sentences | fail | pass |
+| 4b | H05: the named run's POE10/POE90 were not returned | fail | pass |
+
+- **Logs:** `artifacts/logs/v3_failure_modes_{1020188,head}.log`.
+- **Other new tests:** the V18 explicit span passes with correct ends and fails with a wrong end; "issued at about"
+  variants; an "as of" phrase keeps its cutoff.
+- **Updated tests:** six direct calls in the notice-timing unit tests use the new signature (same expectations). The
+  fake transport, like a strict model, emits only the fields of the schema requested.
+
+| Check | Result |
+| --- | --- |
+| lint, mypy | clean |
+| full test suite | **299 passed** (287 before); the real ledger unchanged |
+| safety suite | PASS, 24/24 |
+| Replay regression | every **system** row and every gate identical to `artifacts/eval/offline.json` |
+| retrieval benchmark | identical |
+| paid API calls | none |
+
+**The one Replay difference:** the deliberately naive table baseline (no as-of handling) counts more as-of "leaks",
+1,167 → 1,245 in two cases. It reports every registered value, and the new evidence items (the low threshold, and
+POE10/POE90 in comparisons) add to them.
+
+### Remaining limitations
+
+- **Notice-timing parsing is still lexical:**
+  - passive verbs and a bare "earlier" or "later" are not read;
+  - a second relation in one sentence can be misread;
+  - "peak demand" reads as the price extreme;
+  - a notice that states a period (e.g. a planned outage from 27 July to 31 July) is checked only at its stated
+    times. So "the notice gives 07:00 AEST 27 July, before the first interval" passes even though the outage was
+    still in effect (V19's draft).
+- **Issue-time matching:** approximate issue times resolve to the nearest run within 10 minutes. Wording without
+  "issued" ("the 07:57Z run") is not recognised.
+- **Document-answer schema:** it removes free summary sentences, but a statement's paraphrase can still be weakly
+  supported. The lexical support check remains the guard.
+- **Not measured in Live:** none of this. The validator false positives found in v3 were invisible to the unit and
+  blind tests, and other false positives may remain.

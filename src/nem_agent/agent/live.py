@@ -23,7 +23,7 @@ from datetime import date, datetime, timedelta
 from importlib import resources
 from typing import Any, Literal, Protocol
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, create_model
 
 from .. import budget, config
 from ..budget import BudgetExceeded
@@ -139,6 +139,25 @@ class ModelReport(_S):
     missing_evidence: list[str]
     forecast_mae_evidence_id: str | None = Field(
         description="for a forecast review: the evidence_id of the compare_forecast_actual MAE you report (else null)")
+
+
+# Document questions: every sentence is a document statement tied to one citation, so the schema has no free summary.
+# Regression H14 and held-out v3 V13/V14 wrote document answers as uncited summary sentences (DOC_CLAIM_UNCITED), and
+# H14 fell back after its one repair. The controller renders the statements, as for any document answer.
+DocumentReport: type[BaseModel] = create_model(
+    "DocumentReport", __base__=_S,
+    **{name: (f.annotation, f) for name, f in ModelReport.model_fields.items() if name != "summary"})  # type: ignore[call-overload]
+
+
+def synthesis_schema(intent: str | None) -> type[BaseModel]:
+    return DocumentReport if intent == "source_explanation" else ModelReport
+
+
+def as_model_report(m: BaseModel | None) -> ModelReport | None:
+    """A DocumentReport as the ModelReport the rest of the controller uses (with an empty summary)."""
+    if m is None or isinstance(m, ModelReport):
+        return m
+    return ModelReport.model_validate({**m.model_dump(), "summary": []})
 
 
 class MEdit(_S):
@@ -489,8 +508,8 @@ REPAIR_HINTS = {
     "CLAIM_INTERVAL_MISMATCH": "Describe each number at its tool's resolution: a 5-minute value (dispatch RRP, "
                                "including the hourly samples of it) is not a half-hour value, and half-hour "
                                "operational demand is not a 5-minute value. Fix the label or delete the number.",
-    "DOC_CLAIM_UNCITED": "In a document answer, end every summary sentence with the [citation_id] of the passage it "
-                         "relies on.",
+    "DOC_CLAIM_UNCITED": "In a document answer, write every sentence as a document_statement tied to the citation_id "
+                         "of the passage it relies on (quote or close paraphrase); a document answer has no summary.",
     "DOC_CLAIM_UNSUPPORTED": "Restate only what the cited passage says, close to its wording, or quote it; drop claims "
                              "the passage does not make. Give each cited passage its own sentence: a sentence citing "
                              "two notices must be supported by each of them. In an event or forecast review, delete "
@@ -717,7 +736,8 @@ class LiveController:
                 items.append({"role": "user", "content": "Notice timing computed by the controller (JSON):\n" +
                               json.dumps(timing, indent=1, ensure_ascii=False)})
             items.append({"role": "user", "content": prompt("synthesis")})
-            mrep, raw = self._structured(trace, "synthesis", ModelReport, prompt("system"), items)
+            draft, raw = self._structured(trace, "synthesis", synthesis_schema(res.intent), prompt("system"), items)
+            mrep = as_model_report(draft)
             _trace_draft(trace, "synthesis", mrep)
         except BudgetExceeded as exc:
             trace.add("model", "budget_exceeded", reason=str(exc))
@@ -747,7 +767,8 @@ class LiveController:
                                   patch=patch.model_dump())
                 else:
                     trace.add("model", "repair:full", unmapped_codes=sorted(set(unmapped)))
-                    mrep2, _ = self._structured(trace, "repair", ModelReport, prompt("system"), items)
+                    rewrite, _ = self._structured(trace, "repair", synthesis_schema(res.intent), prompt("system"), items)
+                    mrep2 = as_model_report(rewrite)
                 _trace_draft(trace, "repair", mrep2)
             except BudgetExceeded as exc:
                 mrep2 = None
@@ -761,16 +782,22 @@ class LiveController:
         return report
 
     def _run_issued_at(self, region: str, issued: datetime) -> dict[str, Any]:
-        """The forecast run a question names by its issue time, looked up by code (never an as-of cutoff)."""
+        """The forecast run a question names by its issue time, looked up by code (never an as-of cutoff): the run issued
+        nearest that time, within 10 minutes ("issued at about 07:57Z" is the run issued 07:57:01Z)."""
         assert self.d is not None
         rows = self.d.store.query(
             "SELECT run_id, MIN(issued_at_utc) AS issued_at_utc FROM opdemand_forecast WHERE region=? AND "
-            "issued_at_utc BETWEEN ? AND ? GROUP BY run_id ORDER BY 2", [region, issued - timedelta(minutes=1),
-                                                                        issued + timedelta(minutes=1)])
-        return {"issued_at_utc": iso_utc(issued), "run_id": rows[0]["run_id"] if rows else None,
+            "issued_at_utc BETWEEN ? AND ? GROUP BY run_id", [region, issued - timedelta(minutes=10),
+                                                               issued + timedelta(minutes=10)])
+        best = min(rows, key=lambda r: abs(r["issued_at_utc"] - issued)) if rows else None
+        return {"issued_at_utc_asked": iso_utc(issued),
+                "issued_at_utc": iso_utc(best["issued_at_utc"]) if best else None,
+                "run_id": best["run_id"] if best else None,
                 "note": ("The question names a forecast by its issue time. It is not an as-of cutoff: actuals may be "
-                         "used. Select this run with compare_forecast_actual(run_selector='run_id', run_id=<run_id>)."
-                         if rows else "No forecast run issued at that time is held; say so rather than use another run.")}
+                         "used. Select this run with compare_forecast_actual(run_selector='run_id', run_id=<run_id>); "
+                         "its pairs give POE10, POE50 and POE90, and where the actual falls against that range."
+                         if best else "No forecast run issued within 10 minutes of that time is held; say so rather "
+                         "than use another run.")}
 
     def _notice_timing(self, res: Resolution) -> dict[str, Any] | None:
         """Each retrieved market notice for the investigated region, with its clock times set against the event's

@@ -110,7 +110,9 @@ NOTICE_Q_RE = re.compile(r"\b(?:what did|what does|what do|according to)\b[^?]*\
                          r"\bnotices?\b[^?]*\b(?:say|said|state[sd]?|report(?:ed)?)\b", re.I)
 # "the forecast AEMO issued at 2026-07-30T11:56:59Z": an issue time names a forecast run; it is not an as-of cutoff
 # (held-out H05 treated it as one and hid the actuals the question asked about)
-ISSUED_AT_RE = re.compile(r"\bissued\s+(?:at\s+|on\s+)?(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?Z)", re.I)
+# "issued at about <time>" names the same thing, approximately (held-out v3 V07, V08 were read as as-of cutoffs)
+ISSUED_AT_RE = re.compile(r"\bissued\s+(?:at\s+|on\s+)?(?:(?:about|around|approximately|approx\.?|roughly|circa|"
+                          r"near|~)\s*)?(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?Z)", re.I)
 
 
 TOTAL_DEMAND_Q_RE = re.compile(r"\btotal[- ]?demand\b", re.I)
