@@ -44,6 +44,7 @@ class FindMarketEventsArgs(StrictArgs):
     kind: Literal["high_price", "low_price"]
     threshold_aud_per_mwh: float | None = Field(None, description="defaults to the project analysis threshold")
     max_results: int = Field(5, ge=1, le=20)
+    as_of_utc: IsoTs | None = None
 
     @model_validator(mode="after")
     def _r(self) -> FindMarketEventsArgs:

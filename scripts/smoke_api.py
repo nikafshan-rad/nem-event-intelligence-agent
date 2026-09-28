@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import time
@@ -27,8 +28,12 @@ def main() -> int:
     ap.add_argument("--transcript", default="artifacts/api_smoke_transcript.json")
     args = ap.parse_args()
     base = f"http://127.0.0.1:{args.port}"
+    # The smoke test never makes a paid model call: the server runs without OPENAI_API_KEY even when the caller's
+    # environment has one (in a Codespace with the secret, the live step below previously started a real, billed run).
+    env = {k: v for k, v in os.environ.items() if k != "OPENAI_API_KEY"}
     proc = subprocess.Popen([sys.executable, "-m", "uvicorn", "nem_agent.api:app", "--host", "127.0.0.1",
-                             "--port", str(args.port)], cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+                             "--port", str(args.port)], cwd=ROOT, env=env, stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT)
     transcript: dict = {"base": base, "steps": []}
     ok = True
     try:
@@ -41,7 +46,7 @@ def main() -> int:
         h = httpx.get(f"{base}/health", timeout=10).json()
         print("GET /health ->", h)
         transcript["steps"].append({"GET /health": h})
-        ok &= h["status"] == "ok" and h["replay_available"]
+        ok &= h["status"] == "ok" and h["replay_available"] and not h["live_available"]
         ev = load_selection().primary
         day = parse_iso(ev.peak_interval_end_utc).astimezone(region_zone(ev.region)).date().isoformat()
         body = {"question": f"What happened around the {ev.region} price spike on {day}?", "mode": "replay"}
@@ -66,7 +71,8 @@ def main() -> int:
         ok &= bad.status_code == 422 and bad.json()["error"] == "invalid_request"
         live = httpx.post(f"{base}/investigate", json={"question": body["question"], "mode": "live"}, timeout=30)
         print(f"POST /investigate (live, no key) -> {live.status_code} {live.json()}")
-        ok &= live.status_code in (400, 200)
+        transcript["steps"].append({"live_without_key": live.status_code, "body": live.json()})
+        ok &= live.status_code == 400
     finally:
         proc.terminate()
         try:

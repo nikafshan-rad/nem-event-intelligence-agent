@@ -141,6 +141,16 @@ def flagged_hits(recs: list[ToolCallRecord]) -> int:
     return sum(1 for r in ok(recs, "retrieve_public_evidence") for h in r.view.get("results", []) if h.get("instruction_like"))
 
 
+def forecast_focus(res: Resolution) -> tuple[datetime, datetime]:
+    """The project's forecast-review scope: a 12-hour slice (24 half-hours) around the event peak, clipped to the
+    window. Shared by the replay and live controllers so both answer the same question."""
+    assert res.window is not None
+    a, b = res.window
+    centre = parse_iso(res.event.peak_interval_end_utc) if res.event else a + (b - a) / 2
+    c = half_hour_end_for(centre)
+    return max(a, c - timedelta(hours=6)), min(b, c + timedelta(hours=6))
+
+
 class ReplayController:
     def __init__(self, dispatcher: Dispatcher, registry: EvidenceRegistry, versions: Versions) -> None:
         self.d, self.reg, self.versions = dispatcher, registry, versions
@@ -158,13 +168,7 @@ class ReplayController:
         return iso_utc(res.as_of) if res.as_of else None
 
     def _focus(self, res: Resolution) -> tuple[datetime, datetime]:
-        """A 12-hour slice (24 half-hours) around the event peak, clipped to the window, for forecast tools."""
-        assert res.window is not None
-        a, b = res.window
-        centre = parse_iso(res.event.peak_interval_end_utc) if res.event else a + (b - a) / 2
-        c = half_hour_end_for(centre)
-        lo, hi = max(a, c - timedelta(hours=6)), min(b, c + timedelta(hours=6))
-        return lo, hi
+        return forecast_focus(res)
 
     def _plan_market_event_review(self, res: Resolution) -> None:
         w = self._window_args(res)

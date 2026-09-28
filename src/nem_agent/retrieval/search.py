@@ -30,6 +30,19 @@ from .embed import Embedder, load_model2vec
 EVENT_SPECIFIC = {"market_notice", "event_report"}
 DEFN_WORDS = {"definition", "define", "defined", "meaning", "explain", "explained", "term", "terms", "data", "s", "nem",
               "used", "use", "context", "field", "value"}
+def defn_phrase(query: str) -> str:
+    """The term a definition query asks about: a quoted phrase if there is one, else the remaining words, each once.
+
+    A live model wrote `operational demand definition "operational demand" AEMO definition`; without de-duplication
+    the phrase became "operational demand operational demand" and the definitional rerank missed the definition."""
+    quoted = re.findall(r"[\"\u201c]([^\"\u201d]{2,80})[\"\u201d]", query)
+    words: list[str] = []
+    for t in re.findall(r"[a-z0-9_]+", (quoted[0] if quoted else query).lower()):
+        if t not in STOP | DEFN_WORDS and t not in words:
+            words.append(t)
+    return " ".join(words)
+
+
 DEFN_QUERY_RE = re.compile(r"\b(definition|define[sd]?|meaning|what (is|are|does)|mean(s)? by|explain)\b", re.I)
 STOP = {"the", "a", "an", "of", "and", "or", "in", "on", "for", "to", "is", "are", "was", "what", "does", "do", "how",
         "did", "this", "that", "with", "by", "at", "as", "be", "it", "from", "about", "which", "mean", "means", "aemo"}
@@ -125,7 +138,7 @@ def search(query: str, *, region: str | None = None, event_start: datetime | Non
         "SELECT rowid, bm25(chunks_fts, 0.5, 3.0, 1.0) FROM chunks_fts WHERE chunks_fts MATCH ? ORDER BY 2 LIMIT 400",
         [_fts_query(query)]) if rid in allowed_rowids][:30]
     con.close()
-    phrase = " ".join(t for t in re.findall(r"[a-z0-9_]+", query.lower()) if t not in STOP | DEFN_WORDS)
+    phrase = defn_phrase(query)
     is_defn_query = bool(DEFN_QUERY_RE.search(query)) and bool(phrase)
     # Definition-style questions: the dense query also carries the templated form "<term> is defined as".
     qv = emb.encode([query + (f". {phrase} is defined as" if is_defn_query else "")])[0]

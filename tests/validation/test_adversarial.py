@@ -22,6 +22,9 @@ EXPECTED = {
     "quote_from_irrelevant_report": "FINDING_WRONG_REGION",
     "paraphrased_finding": "FINDING_NOT_QUOTED",
     "citation_not_retrieved": "CITATION_UNKNOWN_CHUNK",
+    "time_mislabelled": "TIME_NOT_IN_EVIDENCE",
+    "claim_other_region": "CLAIM_REGION_MISMATCH",
+    "interval_mislabelled": "CLAIM_INTERVAL_MISMATCH",
     "unsupported_causality": "UNSUPPORTED_CAUSALITY",
     "unhedged_hypothesis": "HYPOTHESIS_UNHEDGED",
     "injection_echo": "INJECTION_ECHO",
@@ -86,3 +89,84 @@ def test_degree_celsius_is_the_same_unit_as_c():
     from nem_agent.validation import _unit
 
     assert _unit("\u00b0C") == _unit("C") == "C" and _unit("MW") != _unit("C")
+
+
+def test_correct_local_and_utc_times_pass_and_shifted_times_fail(selection):
+    from nem_agent.evaluation.adversarial import _base
+    from nem_agent.validation import validate
+
+    base = _base(selection)
+    res = base.resolution
+    peak = next(c for c in base.report.numeric_claims if c.unit == "$/MWh" and c.value > 1000)
+    price = f"${peak.value:,.2f}/MWh"
+
+    def time_codes(sentence):
+        r = base.report.model_copy(update={"summary": [*base.report.summary, sentence]})
+        return [x for x in validate(r, base.registry, window=res.window, records=base.records).violations
+                if x.code == "TIME_NOT_IN_EVIDENCE"]
+    assert not time_codes(f"The price peaked at {price} at 2026-07-31 02:05 ACST (2026-07-30T16:35:00Z).")
+    assert time_codes(f"The price peaked at {price} at 2026-07-31 02:35 ACST.")          # shifted 30 minutes
+    assert time_codes(f"The price peaked at {price} at 2026-07-30 16:35 ACST.")          # UTC relabelled as local
+    assert time_codes("The window opened at 2026-07-29 03:17 ACST.")                     # no tool returned it
+
+
+def test_document_claims_must_be_cited_and_supported(selection):
+    from nem_agent.agent.request import InvestigateRequest
+    from nem_agent.service import investigate
+    from nem_agent.validation import support, validate
+
+    res = investigate(InvestigateRequest(question="What does operational demand mean?", mode="replay"), write_trace=False)
+    rep = res.report
+    assert rep.intent == "source_explanation" and rep.citations
+    cid = rep.citations[0].citation_id
+    chunk = res.registry.chunks[rep.citations[0].chunk_id].text
+
+    def codes(summary):
+        r = rep.model_copy(update={"summary": summary})
+        return {x.code for x in validate(r, res.registry, records=res.records).violations}
+    assert "DOC_CLAIM_UNCITED" in codes(["Operational demand is measured every half-hour."])
+    # a claim the cited definition does not make
+    assert "DOC_CLAIM_UNSUPPORTED" in codes([f"Operational demand is forecast from weather models and published daily [{cid}]."])
+    close = f"Operational demand in a region is demand met by local scheduled and semi-scheduled generation [{cid}]."
+    assert support(close, chunk) >= 0.6 and not codes([close]) & {"DOC_CLAIM_UNCITED", "DOC_CLAIM_UNSUPPORTED"}
+
+
+def test_hyphenated_identifiers_are_names_but_numbers_beside_them_are_checked():
+    """L2 live run: '2' inside the constraint set S-DVBL_BC-2CP was read as an untracked number."""
+    from nem_agent.validation import narrative_numbers
+
+    assert narrative_numbers("constraint set S-DVBL_BC-2CP was invoked") == []
+    assert narrative_numbers("S-DVBL_BC-2CP limited flows to 250 MW on the 275 kV line") == [250.0, 275.0]
+
+
+def test_single_quoted_text_is_not_a_quote():
+    """L2 run 3: single quotes stay unquoted text, so an apostrophe can never hide a number from the check."""
+    from nem_agent.validation import narrative_numbers
+
+    assert narrative_numbers("'At 1140 hrs the 275 kV breaker 6675 tripped.' [c1]") == [1140.0, 275.0, 6675.0]
+    assert narrative_numbers("AEMO's price was 4981 in the region's peak") == [4981.0]
+    assert narrative_numbers("“At 1140 hrs the 275 kV breaker 6675 tripped.” [c1]") == []
+
+
+def test_numbers_must_be_described_at_their_own_resolution(selection):
+    """L2 live run 4: an hourly sample of the 5-minute RRP was presented as 'the peak half-hour had RRP = …'."""
+    from nem_agent.evaluation.adversarial import _base
+    from nem_agent.validation import validate
+
+    base = _base(selection)
+    reg = base.registry
+    five = next(c for c in base.report.numeric_claims if reg.get(c.evidence_id).interval_minutes == 5 and c.unit == "$/MWh")
+    half = next(c for c in base.report.numeric_claims if reg.get(c.evidence_id).interval_minutes == 30)
+
+    def interval_codes(sentence, claims=None):
+        r = base.report.model_copy(update={"summary": [*base.report.summary, sentence],
+                                           **({"numeric_claims": claims} if claims else {})})
+        return [x.detail for x in validate(r, reg, window=base.resolution.window, records=base.records).violations
+                if x.code == "CLAIM_INTERVAL_MISMATCH"]
+    assert not interval_codes(f"The 5-minute price was ${five.value:,.2f}/MWh.")
+    assert not interval_codes(f"In the half-hour containing the 5-minute peak, demand was {half.value:,.1f} {half.unit}.")
+    assert interval_codes(f"The half‑hour price was ${five.value:,.2f}/MWh.")
+    assert interval_codes(f"Demand in that 5-minute interval was {half.value:,.1f} {half.unit}.")
+    relabelled = [c.model_copy(update={"text": "half-hour RRP"}) if c is five else c for c in base.report.numeric_claims]
+    assert interval_codes("No numbers here.", relabelled) == [f"{five.claim_id}: labelled 30-minute but "
+                                                             f"{five.evidence_id} is a 5-minute value"]

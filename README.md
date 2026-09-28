@@ -9,9 +9,14 @@ kept separate.
 > Independent public-data project. It is not affiliated with AEMO or any employer, uses no private data, and does not
 > trade, bid or control anything. AEMO data and documents are attributed in [`data/SOURCES.md`](data/SOURCES.md).
 
-![Replay investigation of the SA1 price spike on 31 July 2026](docs/img/ui_replay_sa1.png)
+![Live investigation of the SA1 price spike on 31 July 2026, written by gpt-5-mini and checked by the validator](docs/img/ui_live_sa1.png)
 
-*Screenshot of the running Streamlit app (replay mode, real data), captured 2026-09-23.*
+*A real **Live** run in the Streamlit app, captured 2026-09-28. The answer was written by gpt-5-mini through the
+OpenAI Responses API and passed the independent validator on its first draft. It took 4 model calls, 29,598 / 9,744
+tokens and USD 0.023. The trace `tr-55be527379b5` is in [`artifacts/live/L4/`](artifacts/live/L4/) with its checksums.
+The demand chart's legend lists a forecast series that this run did not fetch; that UI bug was fixed after the
+capture. The same question in Replay mode, which uses no language model and is labelled as such:
+[`docs/img/ui_replay_sa1_labels.png`](docs/img/ui_replay_sa1_labels.png).*
 
 ## What is built (verified in this repository)
 
@@ -21,14 +26,14 @@ kept separate.
 | Ingestion with per-row provenance, UTC/DST handling, revisions, idempotent rebuild | built, verified | G1, `tests/data`, `tests/time` |
 | 8 typed read-only tools, as-of rules, forecast-error arithmetic in code | built, verified | G2, `tests/tools` |
 | Hybrid RAG (SQLite FTS5 + model2vec embeddings), eligibility filters, injection handling | built, verified | G3, `tests/retrieval` |
-| Scripted replay controller, and a live OpenAI Responses API function-calling controller | replay verified; live loop tested with a fake transport and an SDK mock-HTTP test | G4, `tests/agent`, `tests/provider` |
+| Scripted replay controller, and a live OpenAI Responses API function-calling controller | both verified. Live: gpt-5-mini on the real API, gates L0–L6 (per-case traces, costs and failures) | G4, `tests/provider`, [`docs/live-gates.md`](docs/live-gates.md) |
 | Independent validators (numbers, quotes, as-of, metrics, causality, injection) + approval-gated local write | built, verified | G5, `make safety` |
 | 40-case evaluation, two baselines, held-out split | built, measured (replay) | G6, [`artifacts/eval/report.md`](artifacts/eval/report.md) |
 | FastAPI + Streamlit UI + API smoke test | built, verified | G7, [`docs/demo.md`](docs/demo.md) |
 | Approved-bytes store: builds that restore every approved publisher file, verified by SHA-256, without contacting AEMO/NASA | built, verified 2026-09-27 (fresh machine, no cache) | [`docs/pinned-store.md`](docs/pinned-store.md) |
 | Separate day-ahead quantile experiment (our model, not AEMO's) | built, measured | G8, [`artifacts/ml/report.md`](artifacts/ml/report.md) |
-| Hosted-model (live) smoke test | verified 2026-09-25 with gpt-5-mini: narrative passed validation after one repair turn in the last 3 of 8 runs (2 earlier runs fell back to facts only) | `make live-smoke`, [`docs/progress.md`](docs/progress.md) Post-PR |
-| **Hosted-model 40-case evaluation** | **UNVERIFIED**: not run (estimate 1.90 USD > configured budget 1.00 USD) | `make eval-live` |
+| Live answer in the UI (real model, real data) | verified 2026-09-28: the model's answer passed validation, and the screenshot and redacted trace come from the same run | [`docs/live-gates.md`](docs/live-gates.md) L4, `artifacts/live/L4/` |
+| **Live evaluation (hosted model)** | **gate FAIL** on a 10-case held-out sample (run 2): safety criteria all met, 0 fallbacks, but routing 8/10 is below the declared 90% bar. The 8-case fresh held-out run is **incomplete**, and the full 40-case hosted evaluation is **UNVERIFIED** (not run) | [`docs/live-gates.md`](docs/live-gates.md) L3, `make eval-live` |
 | **GitHub Actions CI** | configured (lint, mypy, real-data build, tests, eval, safety on Python 3.12 and 3.14); the result is shown in the pull request checks | [`.github/workflows/ci.yml`](.github/workflows/ci.yml) |
 
 ## The question it answers
@@ -96,24 +101,67 @@ make ml         # optional separate quantile experiment → artifacts/ml/report.
 make rolloff-sim # simulate a fresh setup after NEMWeb's rolling folder drops the pinned Current files
 ```
 
-No API key is needed for any of the above. The default mode is **replay**: a scripted controller over real data.
+No API key is needed for any of the above, and none of them calls a paid API. `make smoke` starts its server
+without the key even when one is set. The default mode is **replay**: a scripted controller over real data.
 
-### Optional: live mode (a hosted model issues the function calls)
+### Optional: live mode (a hosted model issues the function calls; paid)
 
 A ChatGPT or Claude subscription is **not** API access. Live mode needs an OpenAI API key billed separately. In
-Codespaces, add `OPENAI_API_KEY` as a Codespaces secret (GitHub → Settings → Codespaces → Secrets), then:
+Codespaces, add `OPENAI_API_KEY` as a Codespaces secret (GitHub → Settings → Codespaces → Secrets). The key is only
+ever checked for presence: it is never printed, stored or written to a trace, and CI never receives it.
 
 ```bash
-export NEM_AGENT_MODEL=<a Responses-API model available to your account>   # default: gpt-5-mini (priced in config.py)
-export NEM_AGENT_SESSION_BUDGET_USD=0.25                                # per question; enforced before every model call
-make live-smoke                                                        # one bounded hosted run; PASS only if the model's narrative validates
+make app            # choose "live" in the sidebar, then Investigate. The banner says who wrote the result shown:
+                    #   "LIVE — answer written by gpt-5-mini, checked by the independent validator", or
+                    #   "LIVE — the model's answer failed validation; showing validated tool facts only"
 python -m nem_agent.cli investigate --mode live --region SA1 --event 2026-07-31 --out artifacts/live_case.json
-NEM_AGENT_EVAL_BUDGET_USD=2.50 make eval-live                           # hosted evaluation: estimated first, refused if over budget
+make live-smoke     # one bounded hosted run; PASS only if the model's own narrative validates
+python scripts/live_diagnose.py --cases DOC01,FC01,EV01 --label mycheck   # frozen cases → artifacts/live/mycheck/
+NEM_AGENT_EVAL_BUDGET_USD=2.50 make eval-live   # all 40 cases: estimated first, refused if over the run budget
 ```
 
-Without a key these commands print `UNVERIFIED` and exit non-zero. They never relabel replay results as hosted.
-A model with no known price (`NEM_AGENT_PRICE_INPUT_PER_MTOK` / `_OUTPUT_PER_MTOK`) is refused, because its budget
-could not be enforced. The first live results and what was fixed are recorded in `docs/progress.md` (Post-PR).
+Measured with gpt-5-mini over 40 real-API question runs ([`docs/live-gates.md`](docs/live-gates.md)):
+- an investigated question costs **USD 0.014–0.042**;
+- it takes 4–7 model calls, 10k–113k input and 6k–16k output tokens, and 1–4 minutes;
+- a refusal or clarification stops after one routing call, about USD 0.001.
+
+**Cost controls** (all enforced in code, before each call):
+- **Task-wide ledger** (`nem_agent/budget.py`): every model call reserves its worst case (input characters ÷ 2 at
+  the input price, plus the stage's `max_output_tokens` at the output price) against a cap shared by all processes.
+  - The cap is `NEM_AGENT_TOTAL_BUDGET_USD`, default USD 5.00.
+  - The actual cost is settled after the call. An interrupted call stays counted at its worst case.
+  - The next call is refused, fail-closed, before it is sent.
+- **Per question:** `NEM_AGENT_SESSION_BUDGET_USD` (default USD 0.50); **per evaluation run:** `NEM_AGENT_EVAL_BUDGET_USD`.
+- **Output caps per stage:** route 2k, tools 8k, synthesis and repair 16k tokens.
+- **Call cap:** at most `MAX_MODEL_CALLS` model calls per question, with **one** repair turn at most, then a
+  facts-only fallback.
+- **Prices:** gpt-5-mini list prices (USD 0.25 input, 0.025 cached input, 2.00 output per 1M tokens, re-checked
+  2026-09-28) are in `config.py`. A model with no known price (`NEM_AGENT_PRICE_INPUT_PER_MTOK` /
+  `_OUTPUT_PER_MTOK`) is refused, because its budget could not be enforced.
+
+Without a key these commands print `UNVERIFIED` and exit non-zero. Replay results are never relabelled as Live.
+
+### What the language model does (and does not do)
+
+This is an **LLM application**. It uses retrieval (RAG) and controlled tool calls, and **no model is trained or
+fine-tuned**. In Live mode, gpt-5-mini is used unchanged through the OpenAI Responses API.
+1. It **routes** the question to one of three intents (or refuses or asks for clarification).
+2. It **chooses tool calls and their arguments** from eight typed, read-only tools. The dispatcher validates every
+   argument against a strict schema and injects the as-of cutoff before execution.
+3. It **writes the report** as structured JSON: headline, summary, numeric claims that cite evidence IDs, citations
+   with verbatim quotes, hedged hypotheses with tests, and missing evidence.
+
+Code, not the model, does everything else:
+- all arithmetic;
+- data access (no SQL, URLs or paths reach the model);
+- the as-of rules;
+- rendering the verbatim notice findings;
+- the **independent validator**, which checks every number against its evidence value, unit, region, time and
+  interval length; every quote against the retrieved text; document claims against their passage; causal and
+  unhedged wording; and injection echoes.
+
+A draft that fails gets exactly one repair turn. If that fails, the user sees validated tool facts only, labelled as
+such. A separate small experiment (G8) fits a linear quantile *forecasting* model; it is not a language model.
 
 ## Architecture
 
@@ -156,13 +204,45 @@ Held-out split = 21 of 40 cases (split by event group; no event group appears in
 - Retrieval (15 hand-reviewed queries): **Recall@5 = 16/21**, Hit@5 = 15/15, MRR@5 = 0.830 (`artifacts/eval/retrieval_eval.json`,
   `make retrieval-eval`). It was 17/21 before AEMO revised SO_OP_3705 on 2026-09-23, which shifted keyword-search
   statistics (docs/decisions.md D20).
-- Safety suite: 15/15 SYNTHETIC corruptions of real reports detected, 0 critical violations left after the pipeline,
+- Safety suite: 18/18 SYNTHETIC corruptions of real reports detected, 0 critical violations left after the pipeline,
   0 unauthorized writes, exactly 1 write for a valid distinct approval (`artifacts/g5_safety_summary.json`).
 - Scripted router (test): macro-F1 0.83. **Known failure**: DOC04 ("How does AEMO produce the 10% and 90% POE demand
   forecasts?") was routed to a forecast review and asked for a region instead of answering from SO_OP_3710.
 - Separate experiment, SA1 day-ahead demand, 6 monthly rolling-origin folds, 8,408 test half-hours: linear quantile
   model MAE **159.7 MW** vs seasonal-naive 173.6 MW and persistence 185.3 MW; q10–q90 coverage 0.796 (target 0.80).
   This is this project's model, not an AEMO forecast.
+
+### Live results (hosted model; measured separately, never pooled with Replay)
+
+gpt-5-mini, prompts v6, on 10 held-out evaluation cases. Questions and gold labels are unedited; the cases include a
+missing-evidence case (AMB06) and a prompt-injection case (ADV04). Details, per-case traces and a manual check of
+every number: [`docs/live-gates.md`](docs/live-gates.md) L3.
+
+| Criterion (declared before running) | Run 1 (prompts v5) | Run 2 (prompts v6) |
+| --- | --- | --- |
+| Unauthorized writes / forbidden tool calls | 0 / 0 | 0 / 0 |
+| Unsupported causal claims | 0 | 0 |
+| As-of leaks in the answers shown | 0 | 0 |
+| Numbers presented as facts traced to evidence | 100% | 100% |
+| Injection followed / quoted | 0 / 0 | 0 / 0 |
+| Model answer rejected → facts-only fallback | 2/10 | **0/10** |
+| Expected status (bar ≥ 8/10) | 8/10 | 9/10 |
+| Correct intent and required tools (bar ≥ 90%) | 10/10 | **8/10: FAIL** |
+| Gold labels hit by the model's own answer (bar ≥ 80%) | 4/6: FAIL | 5/6 |
+| Relevant, judged by hand (bar ≥ 8/10) | 8/10 | 9/10 |
+| Cost / median latency | USD 0.262 / 104 s | USD 0.228 / 109 s |
+
+**Gate: FAIL.** The safety criteria held in both runs, but each run missed one declared quality bar.
+
+The remaining Live failures:
+- **Routing variance.** A definition question was sent back for a region and date (DOC03). An as-of forecast
+  question was routed as an event review (AMB06; Replay does the same).
+- **Time errors inside hedged hypotheses.** A notice's NEM-time clock (11:00 hrs) was set beside UTC times, and a
+  UTC window was called "morning". The validator cannot check times written without a date and zone.
+- **Hypotheses lean on descriptive data.** They cite SCADA endpoint changes or single-point weather: always hedged,
+  never stated as causes, but not strong evidence.
+- **Held-out coverage is incomplete.** The fresh 8-case held-out run stopped after its first case; the full 40-case
+  hosted evaluation has not been run.
 
 ## Reproducibility: what is verified
 
@@ -187,9 +267,10 @@ Held-out split = 21 of 40 cases (split by event group; no event group appears in
 
 ## Honest limitations
 
-- Replay measures tools, retrieval, validators and templates, not a language model. The hosted model has passed
-  only a smoke test (8 runs, one question): its first draft needed a repair turn every time, and validators check
-  numbers, quotes and wording, not whether an explanation is apt. Hosted evaluation metrics are **UNVERIFIED**.
+- Replay measures tools, retrieval, validators and templates, not a language model. Live quality is measured
+  separately (above). On a 10-case held-out sample it met every safety criterion, but it did not meet the declared
+  routing bar. Validators check numbers, quotes, times, units, interval lengths and wording, not whether an
+  explanation is apt. The full hosted evaluation is **UNVERIFIED**.
 - 40 cases over 8 events in one fortnight is small. The numbers above show the pipeline behaves as designed; they are
   not a general accuracy claim.
 - No AEMO market event report was retrievable. Market notices describe events but do not explain prices, and the

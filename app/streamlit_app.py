@@ -15,7 +15,7 @@ from nem_agent.agent.request import InvestigateRequest
 from nem_agent.approvals import CaseNoteStore, note_content_from_report
 from nem_agent.selection import load_selection
 from nem_agent.timeutil import REGION_TZ, local_str, parse_iso, region_zone
-from nem_agent.ui_data import demand_chart, frames, observation_table, price_chart
+from nem_agent.ui_data import demand_chart, frames, observation_table, price_chart, result_provenance
 
 st.set_page_config(page_title="NEM Event Intelligence", layout="wide")
 
@@ -76,9 +76,9 @@ with st.sidebar:
         st.caption(f"Source status unavailable: {type(_exc).__name__}")
 
 st.title("NEM Event Intelligence Agent")
-badge = "LIVE — hosted model tool calling" if mode == "live" else "REPLAY — scripted controller, no LLM"
-st.markdown(f"**Mode:** `{badge}` · data `{sel.generated_at[:10]}` snapshot · independent public-data project "
-            "(AEMO NEMWeb + NASA POWER), not affiliated with AEMO.")
+selected = "LIVE — hosted model with read-only tools" if mode == "live" else "REPLAY — scripted controller, no LLM"
+st.markdown(f"**Selected mode:** `{selected}` · data `{sel.generated_at[:10]}` snapshot · independent public-data "
+            "project (AEMO NEMWeb + NASA POWER), not affiliated with AEMO.")
 
 if run:
     from nem_agent.service import investigate
@@ -102,12 +102,31 @@ region = rep["region"]
 status_icon = {"answered": "✅", "answered_with_caveats": "⚠️", "needs_clarification": "❓", "abstained": "⛔",
                "refused": "⛔"}[rep["status"]]
 v = rep["validation"]
+prov = result_provenance(rep, res.usage)
+# the label comes from the report on screen, never from the mode selector
+banner = {"replay": st.info, "live_answer": st.success, "live_fallback": st.warning, "live_no_answer": st.info}
+banner[prov["kind"]](f"**Result shown: {prov['label']}** · trace `{rep['trace_id']}`")
+if rep["mode"] != mode:
+    st.warning(f"The result below was produced in {rep['mode'].upper()} mode. Press **Investigate** to run "
+               f"{mode.upper()}.")
+short_status = {"answered": "answered", "answered_with_caveats": "caveats", "needs_clarification": "clarify",
+                "abstained": "abstained", "refused": "refused"}[rep["status"]]
+short_validation = {"passed on the first draft": "passed", "passed after one repair": "passed (1 repair)",
+                    "passed": "passed"}.get(prov["validation"], "facts only" if "fallback" in prov["validation"]
+                                            else prov["validation"])
 cols = st.columns(4)
-cols[0].metric("Status", f"{status_icon} {rep['status'].replace('_', ' ')}")
-cols[1].metric("Validation", "passed" if v.get("initial", {}).get("passed") else
-               ("fallback: facts only" if v.get("fallback_applied") else "failed"))
+cols[0].metric("Status", f"{status_icon} {short_status}")  # metric tiles truncate long values; full text below
+cols[1].metric("Validation", short_validation)
 cols[2].metric("Tool calls", len(res.records))
-cols[3].metric("Latency", f"{res.latency_ms:,.0f} ms")
+cols[3].metric("Latency", f"{res.latency_ms / 1000:,.1f} s")
+st.caption(f"Status: {rep['status'].replace('_', ' ')} · independent validation: {prov['validation']}")
+if rep["mode"] == "live":
+    lc = st.columns(4)
+    lc[0].metric("Model", prov["model"] or "-")
+    lc[1].metric("Model calls", prov["model_calls"])
+    lc[2].metric("Tokens in / out", f"{prov['input_tokens']:,} / {prov['output_tokens']:,}")
+    lc[3].metric("Cost (USD)", "-" if prov["cost_usd"] is None else f"{prov['cost_usd']:.4f}")
+    st.caption(f"generator `{prov['generator']}` · prompts `{prov['prompt']}` · cost: {prov['cost_note']}")
 st.subheader(md(rep["headline"]))
 for s in rep["summary"]:
     st.markdown(md(f"- {s}"))
@@ -160,7 +179,8 @@ with right:
 st.markdown("#### Citations")
 for c in rep["citations"]:
     loc = f"p.{c['page']}" if c.get("page") else (c.get("section") or "")
-    st.markdown(md(f"**[{c['citation_id']}]** [{c['title']}]({c['url']}) {loc} — “{c['quote']}”"))
+    pub = f" · published {c['publication_date'][:10]}" if c.get("publication_date") else ""
+    st.markdown(md(f"**[{c['citation_id']}]** [{c['title']}]({c['url']}) {loc}{pub} — “{c['quote']}”"))
 if not rep["citations"]:
     st.caption("No citations.")
 

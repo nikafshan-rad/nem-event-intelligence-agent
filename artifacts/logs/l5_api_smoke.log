@@ -1,0 +1,8 @@
+.venv/bin/python scripts/smoke_api.py --port 8765
+GET /health -> {'status': 'ok', 'version': '0.1.0', 'code': 'e5e41ed-dirty', 'data_version': '8c14c217f5570d32', 'corpus_version': '221b6ea0f21e006d', 'replay_available': True, 'live_available': False, 'sources': {'pinned': 245, 'revised_in_use_pending_review': 0, 'revised_excluded': 0, 'unavailable_excluded': 0}}
+POST /investigate -> 200 status=answered validation_passed=True tool_calls=['find_market_events', 'get_price_timeline', 'get_actual_demand', 'retrieve_public_evidence', 'retrieve_public_evidence', 'get_generation_change', 'compare_forecast_actual']
+   headline: SA1 5-minute dispatch price peaked at $4,981.00/MWh for the interval ending 2026-07-31 02:05 ACST (UTC+0930).
+GET /evidence/DISPATCHIS:PUBLIC_DISPATCHIS_202607310235_0000000530110070:L32 -> https://nemweb.com.au/Reports/ARCHIVE/DispatchIS_Reports/PUBLIC_DISPATCHIS_20260731.zip line 32: D,DISPATCH,PRICE,5,"2026/07/31 02:35:00",1,SA1,20260730271,0,4981,0,4981,0,0,"2026/07/31 0...
+POST /investigate (bad input) -> 422 {'error': 'invalid_request', 'details': [{'field': 'question', 'message': 'String should have at least 3 characters'}, {'field': 'region', 'message': "Input should be 'NSW1', 'QLD1', 'SA1', 'TAS1' or 'VIC1'"}], 'hint': 'See GET /docs for the InvestigateRequest schema.'}
+POST /investigate (live, no key) -> 400 {'detail': 'Live mode needs OPENAI_API_KEY on the server; use mode=replay.'}
+API-SMOKE: PASS (server stopped)

@@ -20,6 +20,7 @@ the claim. Findings are therefore restricted to verbatim quotation of event-matc
 
 from __future__ import annotations
 
+import contextlib
 import re
 import unicodedata
 from dataclasses import dataclass, field
@@ -49,6 +50,8 @@ IGNORE_RES = [re.compile(p) for p in (
     r"\bSO_OP_\d+\b",
     r"\b(?:s\d{2}|ev\d{4}|c\d{3}|tr-[0-9a-f]+)\b",
     r"\b[A-Z][A-Z0-9_]*\d[A-Z0-9_]*\b",
+    # hyphenated upper-case identifiers (e.g. constraint set S-DVBL_BC-2CP): names, like the pattern above, not numbers
+    r"\b[A-Z][A-Z0-9_]*(?:-[A-Z0-9_]+)+\b",
     r"\b[a-z]+[0-9]+[a-z0-9]*\b",
 )]
 NUM_RE = re.compile(r"(?<![\w.])[-+−]?\$?\d[\d,]*(?:\.\d+)?")
@@ -135,6 +138,64 @@ def _narratives(r: InvestigationReport) -> list[tuple[str, str]]:
     return out
 
 
+ZONE_OFFSET_MIN = {"UTC": 0, "Z": 0, "AEST": 600, "AEDT": 660, "ACST": 570, "ACDT": 630, "AWST": 480, "NEM": 600}
+DATETIME_RE = re.compile(r"\b(\d{4}-\d{2}-\d{2})[ T](\d{1,2}):(\d{2})(?::\d{2})?\s*(UTC|Z|AEST|AEDT|ACST|ACDT|AWST|NEM)\b")
+SENTENCE_RE = re.compile(r"(?<=[.;!?])\s+")
+ISO_Z_RE = re.compile(r"\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?Z\b")
+_DASH = "[-\u2010\u2011\u2012\u2013 ]?"
+DURATION_RES = ((30, re.compile(rf"\bhalf{_DASH}hour|\b30{_DASH}min", re.I)),
+                (5, re.compile(rf"\b(?:5|five){_DASH}min", re.I)))
+
+
+def _durations(text: str) -> set[int]:
+    """Interval lengths (minutes) a text names: 'half-hour'/'30-minute' and '5-minute'."""
+    return {m for m, rx in DURATION_RES if rx.search(text)}
+CITE_RE = re.compile(r"\[([A-Za-z0-9_#.\-]+)\]")
+WORD_RE = re.compile(r"[a-z][a-z0-9]+")
+SUPPORT_STOP = {"the", "and", "for", "that", "this", "with", "from", "which", "are", "was", "were", "has", "have",
+                "its", "their", "into", "than", "then", "also", "such", "any", "all", "not", "can", "may", "might",
+                "could", "aemo", "says", "said", "states", "stated", "according", "defines", "defined", "definition",
+                "document", "passage", "text", "retrieved", "notice", "notices", "market", "reported", "published"}
+SUPPORT_MIN = 0.6  # share of a cited sentence's content words that must appear in the cited passage
+
+
+def _known_instants(registry: EvidenceRegistry, records: list[Any] | None, report: InvestigationReport,
+                    window: tuple[datetime, datetime] | None) -> set[datetime]:
+    """Every instant the tools or the request produced: a narrative time must be one of these."""
+    out: set[datetime] = set()
+
+    def add(v: Any) -> None:
+        with contextlib.suppress(ValueError, TypeError):
+            out.add(parse_iso(str(v)).replace(second=0, microsecond=0))
+    for ev in registry.items.values():
+        for v in (ev.valid_at_utc, ev.published_at_utc, ev.available_at_utc):
+            if v:
+                add(v)
+                if v == ev.valid_at_utc and ev.interval_minutes:
+                    add(parse_iso(v) - timedelta(minutes=ev.interval_minutes))  # interval start
+    for r in records or []:
+        for m in ISO_Z_RE.finditer(repr(getattr(r, "view", "")) + repr(getattr(r, "args", ""))):
+            add(m.group(0))
+    for v in (report.as_of, *(window or ()), *((report.event_window.start_utc, report.event_window.end_utc)
+                                               if report.event_window else ())):
+        if v:
+            add(v.isoformat() if isinstance(v, datetime) else v)
+    return out
+
+
+def _stems(text: str) -> list[str]:
+    return [w[:5] for w in WORD_RE.findall(text.lower()) if len(w) > 2 and w not in SUPPORT_STOP]
+
+
+def support(sentence: str, passage: str) -> float:
+    """Share of the sentence's content words (5-letter stems) found in the passage: a lexical, not semantic, test."""
+    words = _stems(QUOTED_RE.sub(" ", CITE_RE.sub(" ", sentence)))
+    if not words:
+        return 1.0
+    have = set(_stems(passage))
+    return sum(w in have for w in words) / len(words)
+
+
 def validate(report: InvestigationReport, registry: EvidenceRegistry, *, as_of: datetime | None = None,
              window: tuple[datetime, datetime] | None = None, records: list[Any] | None = None,
              required_tools: tuple[str, ...] = ()) -> ValidationResult:
@@ -155,6 +216,14 @@ def validate(report: InvestigationReport, registry: EvidenceRegistry, *, as_of: 
         if abs(float(c.value) - float(ev.value)) > max(c.rounding, 1e-9) + 1e-9:
             V.append(Violation("CLAIM_VALUE_MISMATCH", "critical",
                                f"{c.claim_id}: claimed {c.value} {c.unit} but {c.evidence_id} = {ev.value} {ev.unit}"))
+        if report.region and ev.region and ev.region != report.region:
+            V.append(Violation("CLAIM_REGION_MISMATCH", "critical",
+                               f"{c.claim_id}: {c.evidence_id} is for {ev.region}, the report is about {report.region}"))
+        named = _durations(c.text)
+        if named and ev.interval_minutes and ev.interval_minutes not in named:
+            V.append(Violation("CLAIM_INTERVAL_MISMATCH", "critical",
+                               f"{c.claim_id}: labelled {'/'.join(f'{m}-minute' for m in sorted(named))} but "
+                               f"{c.evidence_id} is a {ev.interval_minutes}-minute value"))
 
     # -- every number in narrative text must be a claim
     res.checks_run.append("narrative_numbers")
@@ -200,6 +269,71 @@ def validate(report: InvestigationReport, registry: EvidenceRegistry, *, as_of: 
                                f"{cit.citation_id}: {cit.doc_id} published {ch.publication_date} after as_of {as_of.isoformat()}"))
         if INJECTION_RE.search(cit.quote):
             V.append(Violation("INJECTION_QUOTED_AS_EVIDENCE", "critical", f"{cit.citation_id}: quotes instruction-like text"))
+
+    # -- times written in the narrative: a time stated with a traced number must be that evidence's time, and every
+    #    time must be an instant the tools or the request produced (times without a date are not checked)
+    res.checks_run.append("narrative_times")
+    known = _known_instants(registry, records, report, window)
+    for where, text in _narratives(report):
+        for sentence in SENTENCE_RE.split(QUOTED_RE.sub(" ", text)):
+            times = []
+            for m in DATETIME_RE.finditer(sentence):
+                d, hh, mm, zone = m.groups()
+                local = datetime.fromisoformat(f"{d}T{int(hh):02d}:{mm}:00+00:00")
+                times.append((m.group(0), local - timedelta(minutes=ZONE_OFFSET_MIN[zone])))
+            if not times:
+                continue
+            tied: set[datetime] = set()
+            for n in narrative_numbers(sentence, chunk_ids):
+                for c in report.numeric_claims:
+                    ev = registry.get(c.evidence_id)
+                    if ev is not None and ev.valid_at_utc and (abs(n - c.value) <= c.rounding + 1e-9 or
+                                                               abs(abs(n) - abs(c.value)) <= c.rounding + 1e-9):
+                        t = parse_iso(ev.valid_at_utc).replace(second=0, microsecond=0)
+                        tied |= {t, t - timedelta(minutes=ev.interval_minutes or 0)}
+            if tied and not any(u in tied for _, u in times):
+                V.append(Violation("TIME_NOT_IN_EVIDENCE", "critical",
+                                   f"{where}: {', '.join(t for t, _ in times)} does not match the evidence time of the "
+                                   f"number(s) stated with it ({', '.join(sorted(f'{x:%Y-%m-%dT%H:%MZ}' for x in tied))})"))
+            for label, utc in times:
+                if utc not in known:
+                    V.append(Violation("TIME_NOT_IN_EVIDENCE", "critical",
+                                       f"{where}: '{label}' ({utc:%Y-%m-%dT%H:%MZ}) is not a time any tool returned"))
+
+    # -- a number stated with an interval length ("half-hour", "5-minute") must come from evidence of that resolution
+    res.checks_run.append("narrative_intervals")
+    for where, text in _narratives(report):
+        for sentence in SENTENCE_RE.split(QUOTED_RE.sub(" ", text)):
+            named = _durations(sentence)
+            if not named:
+                continue
+            for n in narrative_numbers(sentence, chunk_ids):
+                resolutions = {ev.interval_minutes for c in report.numeric_claims
+                               if (ev := registry.get(c.evidence_id)) is not None and ev.interval_minutes
+                               and (abs(n - c.value) <= c.rounding + 1e-9 or abs(abs(n) - abs(c.value)) <= c.rounding + 1e-9)}
+                if resolutions and not resolutions & named:
+                    V.append(Violation("CLAIM_INTERVAL_MISMATCH", "critical",
+                                       f"{where}: {n:g} is stated as a {'/'.join(f'{m}-minute' for m in sorted(named))} "
+                                       f"value but its evidence is {'/'.join(f'{m}-minute' for m in sorted(resolutions))}"))
+
+    # -- document claims: cited, and supported by the cited passage (quoted, or mostly in its words)
+    res.checks_run.append("document_claims")
+    items = [("headline", report.headline)] + [(f"summary[{i}]", s_) for i, s_ in enumerate(report.summary)]
+    for where, text in items:
+        cited_ids = [c for c in CITE_RE.findall(text) if c in cites]
+        if report.intent == "source_explanation" and where != "headline" and not cited_ids and \
+                QUOTED_RE.sub(" ", text).strip() and _stems(QUOTED_RE.sub(" ", text)):
+            V.append(Violation("DOC_CLAIM_UNCITED", "critical", f"{where}: a document answer states this without citing "
+                                                               "a retrieved passage"))
+        quoted = [q.strip("“”\"") for q in QUOTED_RE.findall(text)]
+        for cid in cited_ids:
+            ch = registry.chunks.get(cites[cid].chunk_id)
+            if ch is None or any(q and _norm(q) in _norm(ch.text) for q in quoted):
+                continue
+            sc = support(text, ch.text)
+            if sc < SUPPORT_MIN:
+                V.append(Violation("DOC_CLAIM_UNSUPPORTED", "critical",
+                                   f"{where}: only {sc:.0%} of its content words appear in [{cid}] ({cites[cid].chunk_id})"))
 
     # -- published findings: event-specific, same region/window, verbatim quote
     res.checks_run.append("published_findings")

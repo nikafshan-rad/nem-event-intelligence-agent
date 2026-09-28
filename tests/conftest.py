@@ -50,3 +50,9 @@ def require_notice(doc_id: str) -> None:
     con.close()
     if not present:
         pytest.skip(f"{doc_id} not in corpus: NEMWeb Current notices have rolling retention (docs/decisions.md D2)")
+
+
+@pytest.fixture(autouse=True)
+def _isolated_budget_ledger(tmp_path, monkeypatch):
+    """Tests never touch the real task-wide spending ledger (nem_agent.budget)."""
+    monkeypatch.setenv("NEM_AGENT_BUDGET_LEDGER", str(tmp_path / "budget_ledger.jsonl"))

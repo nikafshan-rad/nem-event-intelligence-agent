@@ -102,9 +102,14 @@ def find_market_events(ctx: ToolContext, a: A.FindMarketEventsArgs) -> ToolOutpu
         "WHERE region=? AND interval_end_utc > ? AND interval_end_utc <= ? ORDER BY interval_end_utc",
         [a.region, start, end])
     expected = int((end - start) / timedelta(minutes=5))
+    in_store = len(rows)
+    # the as-of cutoff applies before any episode is formed: a price not yet public at as_of is never shown
+    rows, excluded = _as_of_filter(rows, a.ts("as_of_utc"))
     if not rows:
-        return ToolOutput("unavailable", {"reason": "no dispatch price rows for this region/window"},
-                          missing=[f"No 5-minute price data for {a.region} {a.start_utc}..{a.end_utc}. {_coverage_note(ctx)}"])
+        reason = (f"all {excluded} intervals were published after as_of {a.as_of_utc}" if excluded
+                  else "no dispatch price rows for this region/window")
+        return ToolOutput("unavailable", {"reason": reason},
+                          missing=[f"Market events unavailable: {reason}. {'' if excluded else _coverage_note(ctx)}".strip()])
     hits = [r for r in rows if (r["rrp"] >= thr if a.kind == "high_price" else r["rrp"] < thr)]
     episodes: list[list[dict[str, Any]]] = []
     for r in hits:
@@ -141,11 +146,14 @@ def find_market_events(ctx: ToolContext, a: A.FindMarketEventsArgs) -> ToolOutpu
     view = {
         "region": a.region, "kind": a.kind, "threshold": _threshold_item(ctx, a.region, thr, origin),
         "threshold_note": "project analysis threshold, not an AEMO incident label",
-        "coverage": {"intervals_in_store": len(rows), "intervals_expected": expected},
+        "coverage": {"intervals_in_store": in_store, "intervals_expected": expected},
+        "as_of_utc": a.as_of_utc, "excluded_not_yet_available_at_as_of": excluded,
         "n_intervals_meeting_threshold": len(hits), "n_episodes": len(episodes), "episodes": out,
     }
-    missing = [] if len(rows) == expected else [
-        f"Only {len(rows)} of {expected} 5-minute intervals in the requested range are in the snapshot. {_coverage_note(ctx)}"]
+    missing = [] if in_store == expected else [
+        f"Only {in_store} of {expected} 5-minute intervals in the requested range are in the snapshot. {_coverage_note(ctx)}"]
+    if excluded:
+        missing.append(f"{excluded} 5-minute intervals were published after as_of {a.as_of_utc} and are not searched.")
     return ToolOutput("ok", view, missing=missing, source_row_ids=[e["peak_rrp"]["evidence_id"] for e in out])
 
 

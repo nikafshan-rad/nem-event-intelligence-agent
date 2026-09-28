@@ -50,6 +50,7 @@ def _good_report(kw):
         "possible_explanations": [{"statement": "Supply conditions may have tightened.", "supporting_evidence_ids": [],
                                    "what_would_test_it": "offer data"}],
         "published_findings": [], "citations": cites[:1], "uncertainties": ["synthetic test"], "missing_evidence": [],
+        "forecast_mae_evidence_id": None,
     }
 
 
@@ -281,3 +282,150 @@ def test_live_eval_budget_is_run_wide_and_estimated(tmp_path):
     res = run(mode="live", out=tmp_path / "live.json", budget_usd=0.0)  # exhausted before the first question
     assert res["incomplete"] and res["rows_completed"] == [] and not any(res["gate_checks"].values())
     assert not (tmp_path / "report.md").exists()  # never overwrites the committed offline report
+
+
+def test_every_call_is_capped_and_recorded_in_the_task_ledger(ev):
+    from nem_agent import budget
+
+    fake = FakeModel(_route(ev), [_required_turn(ev)], _good_report)
+    res = investigate(InvestigateRequest(question="What happened around the SA1 price spike on 2026-07-31?", mode="live"),
+                      live_client=fake, write_trace=False)
+    stages = [e["name"] for e in res.trace.events if e["kind"] == "model" and e.get("max_output_tokens")]
+    assert all(r["max_output_tokens"] == config.MAX_OUTPUT_TOKENS[s] for r, s in zip(fake.requests, stages, strict=True))
+    assert len(stages) == len(fake.requests) == res.usage["model_calls"]
+    entries = [json.loads(ln) for ln in budget.ledger_path().read_text().splitlines()]
+    assert sum(e["kind"] == "reserve" for e in entries) == sum(e["kind"] == "settle" for e in entries) == len(fake.requests)
+    assert budget.spent() == pytest.approx(res.usage["cost_usd"], abs=1e-6)
+    # what the model was shown is in the trace: tool outputs and ranked retrieval candidates
+    outs = [e for e in res.trace.events if e["kind"] == "tool_output"]
+    assert len(outs) == len(res.records) and all(e["output"] for e in outs)
+    assert any(e.get("candidates") and "score" in e["candidates"][0] for e in outs)
+
+
+def test_task_budget_refuses_the_next_call_before_it_is_sent(ev, monkeypatch):
+    from nem_agent import budget
+
+    monkeypatch.setenv("NEM_AGENT_TOTAL_BUDGET_USD", "0.01")  # the route call fits; a tools call (8,000 tokens) cannot
+    fake = FakeModel(_route(ev), [_required_turn(ev)], _good_report)
+    res = investigate(InvestigateRequest(question="What happened around the SA1 price spike on 2026-07-31?", mode="live"),
+                      live_client=fake, write_trace=False)
+    assert len(fake.requests) == 1  # only the routing call was sent
+    assert any("task budget 0.01 USD" in m for m in res.report.missing_evidence)
+    assert res.report.status in ("abstained", "answered_with_caveats") and budget.spent() < 0.01
+
+
+def test_ledger_counts_unsettled_reservations(monkeypatch):
+    from nem_agent import budget
+
+    a = budget.reserve("gpt-5-mini", "tools", 0.02)
+    budget.reserve("gpt-5-mini", "synthesis", 0.03)  # never settled (e.g. a crash): stays counted
+    budget.settle(a, 0.005, {"input_tokens": 10, "output_tokens": 2})
+    assert budget.spent() == pytest.approx(0.035)
+    monkeypatch.setenv("NEM_AGENT_TOTAL_BUDGET_USD", "0.04")
+    with pytest.raises(budget.BudgetExceeded):
+        budget.reserve("gpt-5-mini", "tools", 0.01)
+    assert budget.call_cost("gpt-5-mini", {"input_tokens": 1_000_000, "output_tokens": 0,
+                                           "input_tokens_details": {"cached_tokens": 1_000_000}}) == pytest.approx(0.025)
+
+
+def _forecast_turn(ev):
+    return [("get_forecast_runs", {"region": ev.region, "target_start_utc": "2026-07-30T11:00:00Z",
+                                   "target_end_utc": "2026-07-30T23:00:00Z", "as_of_utc": None, "max_runs": 4}),
+            ("get_actual_demand", {"region": ev.region, "start_utc": "2026-07-30T11:00:00Z",
+                                   "end_utc": "2026-07-30T23:00:00Z", "revision_policy": "latest_available", "as_of_utc": None}),
+            ("compare_forecast_actual", {"region": ev.region, "target_start_utc": "2026-07-30T11:00:00Z",
+                                         "target_end_utc": "2026-07-30T23:00:00Z", "run_selector": "latest_before_target",
+                                         "min_lead_hours": None, "run_id": None, "as_of_utc": None,
+                                         "actual_revision": "latest_available", "actual_metric": "OPERATIONAL_DEMAND"}),
+            ("retrieve_public_evidence", {"query": "operational demand definition", "region": None, "event_start_utc": None,
+                                          "event_end_utc": None, "as_of_utc": None, "top_k": 3, "doc_types": ["definition"]})]
+
+
+def _forecast_report(kw, mae_id=None):
+    cmp_ = next(v["result"] for v in outputs(kw).values() if v["status"] == "ok" and "mae_mw" in v.get("result", {}))
+    return {"status": "answered_with_caveats", "headline": "Forecast review for SA1 (synthetic).", "summary": [],
+            "observation_evidence_ids": [], "numeric_claims": [], "possible_explanations": [], "published_findings": [],
+            "citations": [], "uncertainties": ["synthetic test"], "missing_evidence": [],
+            "forecast_mae_evidence_id": mae_id or cmp_["mae_mw"]["evidence_id"]}
+
+
+def test_forecast_context_and_comparison_built_from_the_named_mae(ev):
+    def report(kw):
+        return _forecast_report(kw)
+
+    fake = FakeModel(_route(ev, "forecast_review"), [_forecast_turn(ev)], report)
+    res = investigate(InvestigateRequest(question="Did AEMO's demand forecast miss in SA1 on 2026-07-31?", mode="live"),
+                      live_client=fake, write_trace=False)
+    ctx = json.loads(fake.requests[1]["input"][0]["content"].split("\n", 1)[1])
+    assert ctx["forecast_targets_utc"] == ["2026-07-30T11:00:00Z", "2026-07-30T23:00:00Z"]
+    assert ctx["event_peak_interval_end_local"].startswith("2026-07-31 02:05 ACST")
+    assert ctx["peak_half_hour_end_utc"] == "2026-07-30T17:00:00Z"  # the half-hour containing the 16:35 UTC interval
+    fc = res.report.forecast_comparison
+    assert fc is not None and fc.n_pairs == 24 and fc.mae_mw == pytest.approx(32.88, abs=0.01)
+    assert res.registry.get(fc.mae_evidence_id).value == fc.mae_mw  # copied from the tool, not from the model
+
+
+def test_unknown_forecast_evidence_is_reported_not_invented(ev):
+    def report(kw):
+        return _forecast_report(kw, mae_id="ev9999")
+
+    fake = FakeModel(_route(ev, "forecast_review"), [_forecast_turn(ev)], report)
+    res = investigate(InvestigateRequest(question="Did AEMO's demand forecast miss in SA1 on 2026-07-31?", mode="live"),
+                      live_client=fake, write_trace=False)
+    assert res.report.forecast_comparison is None
+    assert any("ev9999" in m for m in res.report.missing_evidence)
+
+
+def test_large_tool_outputs_stay_valid_json():
+    """L1 live run: a 112,364-character forecast output was cut mid-JSON before it reached the model."""
+    from nem_agent.agent.live import compact_json
+
+    big = {"status": "ok", "result": {"mae_mw": {"value": 32.88, "evidence_id": "ev0001"},
+                                      "runs": [{"run_id": i, "targets": [{"poe50": j, "evidence_id": f"ev{j:04d}"}
+                                                                         for j in range(48)]} for i in range(40)]}}
+    text, omitted = compact_json(big, 6000)
+    data = json.loads(text)  # valid JSON
+    assert len(text) <= 6000 and omitted > 0 and data["result"]["mae_mw"]["value"] == 32.88
+    assert any(isinstance(x, dict) and "_omitted_items" in x for x in data["result"]["runs"])
+    assert compact_json({"a": [1, 2]}, 100) == ('{"a": [1, 2]}', 0)
+
+
+def test_repair_message_quotes_the_failing_sentence(ev):
+    from nem_agent.agent.live import repair_message
+    from nem_agent.validation import ValidationResult, Violation
+
+    rep = type("R", (), {"headline": "h", "summary": ["ok", "AEMO reported a line outage of No 2 line [c2]."],
+                         "possible_explanations": [], "published_findings": []})()
+    res = ValidationResult(violations=[Violation("NUMERIC_UNTRACKED", "critical", "summary[1]: number 2 is not a "
+                                                                                   "registered claim")])
+    msg = repair_message(res, rep)
+    assert "failed independent validation" in msg and 'in: "AEMO reported a line outage of No 2 line [c2]."' in msg
+
+
+def test_repair_says_what_counts_as_a_quote():
+    """L2 run 3: the repair put notice text in single quotes, which the validator (rightly) does not treat as a quote."""
+    from nem_agent.agent.live import REPAIR_HINTS, prompt
+
+    assert "double quotation marks" in REPAIR_HINTS["NUMERIC_UNTRACKED"]
+    assert "single quotes" in REPAIR_HINTS["NUMERIC_UNTRACKED"]
+    assert "own sentence" in REPAIR_HINTS["DOC_CLAIM_UNSUPPORTED"]
+    assert "single quotes is not a quote" in prompt("system")
+
+
+def test_tool_outputs_reach_the_model_with_real_characters():
+    """L3 run 1 (DOC03): the model saw '\\u2013' instead of an en dash and could not quote the passage verbatim."""
+    from nem_agent.agent.live import compact_json
+
+    text, omitted = compact_json({"text": "units – Sum of InitialMW; ≥ 30 MW; 12 °C; “quoted”"}, 10_000)
+    assert omitted == 0 and "–" in text and "≥" in text and "°C" in text and "“quoted”" in text
+    assert "\\u2013" not in text and json.loads(text)["text"].startswith("units – Sum")
+
+
+def test_every_repair_states_the_quote_rule_and_forbids_new_details():
+    from nem_agent.agent.live import REPAIR_HINTS, repair_message
+    from nem_agent.validation import ValidationResult, Violation
+
+    msg = repair_message(ValidationResult(violations=[Violation("CITATION_QUOTE_NOT_FOUND", "critical", "c1: x")]))
+    assert "double quotation marks" in msg and "Do not add numbers, times or notice details" in msg
+    assert "published_findings already shows" in REPAIR_HINTS["DOC_CLAIM_UNSUPPORTED"]
+    assert "5MPD" in REPAIR_HINTS["NUMERIC_UNTRACKED"]

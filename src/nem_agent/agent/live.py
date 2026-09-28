@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from dataclasses import dataclass, field
 from datetime import date
@@ -24,11 +25,13 @@ from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from .. import config
+from .. import budget, config
+from ..budget import BudgetExceeded
 from ..evidence import EvidenceRegistry
 from ..report import (
     Citation,
     EventWindow,
+    ForecastComparison,
     Hypothesis,
     InvestigationReport,
     NumericClaim,
@@ -36,11 +39,12 @@ from ..report import (
     PublishedFinding,
     Versions,
 )
-from ..timeutil import iso_utc, local_str, parse_iso
+from ..timeutil import half_hour_end_for, iso_utc, local_str, parse_iso
 from ..tools import openai_function_tools
 from ..tools.args import strict_json_schema
 from .dispatcher import Dispatcher
 from .playbook import PLAYBOOKS
+from .replay import forecast_focus
 from .request import Resolution
 
 CONTROLLER = "live-responses-controller/1"
@@ -118,6 +122,8 @@ class ModelReport(_S):
     citations: list[MCitation]
     uncertainties: list[str]
     missing_evidence: list[str]
+    forecast_mae_evidence_id: str | None = Field(
+        description="for a forecast review: the evidence_id of the compare_forecast_actual MAE you report (else null)")
 
 
 # ------------------------------------------------------------------------------------ transports
@@ -161,18 +167,14 @@ class Usage:
         u = resp.get("usage") or {}
         self.input_tokens += int(u.get("input_tokens") or 0)
         self.output_tokens += int(u.get("output_tokens") or 0)
-        if (p := model_prices(self.model)) is not None:  # cached input charged at the full rate: an upper bound
-            self.cost_usd = round(self.input_tokens / 1e6 * p[0] + self.output_tokens / 1e6 * p[1], 6)
+        if (c := budget.call_cost(self.model, u)) is not None:  # list price; cached input at the cached rate
+            self.cost_usd = round((self.cost_usd or 0.0) + c, 6)
 
     def as_dict(self) -> dict[str, Any]:
         return {"model_calls": self.model_calls, "input_tokens": self.input_tokens, "output_tokens": self.output_tokens,
-                "cost_usd": self.cost_usd, "cost_note": "upper bound: cached input charged at the uncached rate"
+                "cost_usd": self.cost_usd, "cost_note": "list-price estimate (cached input at the cached rate)"
                 if self.cost_usd is not None else "no price known for this model",
                 "elapsed_s": round(time.monotonic() - self.started, 2)}
-
-
-class BudgetExceeded(RuntimeError):
-    pass
 
 
 def _texts(resp: dict[str, Any]) -> str:
@@ -185,6 +187,71 @@ def _texts(resp: dict[str, Any]) -> str:
     return "".join(out)
 
 
+def compact_json(obj: Any, limit: int) -> tuple[str, int]:
+    """Serialise a tool output within ``limit`` characters while keeping it valid JSON.
+
+    Cutting the text (the previous behaviour) sent the model broken JSON: in a live run the forecast-runs output was
+    112,364 characters. Instead the longest list is shortened, keeping its first and last items and replacing the
+    middle with an explicit marker, until the output fits. Omitted values remain in the evidence registry.
+
+    Text keeps its real characters (ensure_ascii=False): with ASCII escapes the model read "\\u2013" where the
+    document has an en dash, and could not copy a quotation verbatim."""
+    data = json.loads(json.dumps(obj, default=str))
+    text = json.dumps(data, ensure_ascii=False)
+    omitted = 0
+
+    def lists(node: Any) -> list[list[Any]]:
+        if isinstance(node, dict):
+            return [x for v in node.values() for x in lists(v)]
+        if isinstance(node, list):
+            return [node] + [x for v in node for x in lists(v)]
+        return []
+    while len(text) > limit:
+        cands = [lst for lst in lists(data) if len(lst) > 3]
+        if not cands:
+            break
+        lst = max(cands, key=lambda x: len(json.dumps(x)))
+        keep = max(1, len(lst) // 4)
+        cut = len(lst) - 2 * keep
+        prev = [x for x in lst if isinstance(x, dict) and "_omitted_items" in x]
+        cut += sum(x["_omitted_items"] for x in prev)
+        body = [x for x in lst if not (isinstance(x, dict) and "_omitted_items" in x)]
+        lst[:] = body[:keep] + [{"_omitted_items": cut, "_note": "omitted to fit the model context"}] + body[-keep:]
+        omitted = sum(x["_omitted_items"] for lst_ in lists(data) for x in lst_ if isinstance(x, dict)
+                      and "_omitted_items" in x)
+        text = json.dumps(data, ensure_ascii=False)
+    if len(text) > limit:  # nothing left to shorten: say so rather than send broken JSON
+        text = json.dumps({"status": "output_too_large", "chars": len(text),
+                           "note": "ask for a narrower window or fewer items"})
+    return text, omitted
+
+
+def _forecast_comparison(recs: list[Any], mae_evidence_id: str) -> ForecastComparison | None:
+    """Built from the compare_forecast_actual record the model names; every value is copied from the tool output."""
+    for r in recs:
+        v = r.view if r.name == "compare_forecast_actual" and r.status == "ok" else {}
+        if (v.get("mae_mw") or {}).get("evidence_id") == mae_evidence_id:
+            return ForecastComparison(
+                status="ok", run_selector=v["run_selector"] + (f" ({v['min_lead_hours']} h)" if v.get("min_lead_hours")
+                                                               else ""),
+                as_of_utc=v.get("as_of_utc"), definition_check=v["definition_check"], n_pairs=v["n_pairs"],
+                mae_mw=v["mae_mw"]["value"], mae_evidence_id=mae_evidence_id,
+                mean_error_mw=v["mean_error_mw"]["value"], mean_error_evidence_id=v["mean_error_mw"]["evidence_id"],
+                largest_abs_error=v.get("largest_abs_error"), note=f"{v['error_definition']}; {v['actuals_are']}.")
+    return None
+
+
+def _trace_tool_output(trace: Any, call_id: str, rec: Any, payload: str) -> None:
+    """What the model was shown: the tool output (truncated) and, for retrieval, the ranked candidates."""
+    extra: dict[str, Any] = {}
+    view = rec.model_payload().get("result") or {}
+    if rec.name == "retrieve_public_evidence" and isinstance(view, dict):
+        extra["candidates"] = [{k: h.get(k) for k in ("chunk_id", "doc_type", "score", "event_region", "event_date",
+                                                     "eligibility_reason")} for h in view.get("results", [])]
+    trace.add("tool_output", rec.name, call_id=call_id, status=rec.status, chars=len(payload),
+              output=payload[:6000], **extra)
+
+
 def _trace_draft(trace: Any, stage: str, draft: BaseModel | None) -> None:
     """Keep the model's draft in the (local, redacted) trace so a rejected narrative can be inspected later."""
     if draft is not None:
@@ -195,7 +262,10 @@ def _trace_draft(trace: Any, stage: str, draft: BaseModel | None) -> None:
 REPAIR_HINTS = {
     "NUMERIC_UNTRACKED": "Every number outside a quote must be a numeric_claim that cites the evidence_id holding it. "
                          "Otherwise delete the number: write clock times as HH:MM, name variables (e.g. WS50M) "
-                         "instead of restating numbers in their names, and keep document numbers inside quotes.",
+                         "instead of restating numbers in their names, and keep a document's numbers, voltages, "
+                         "equipment and line names inside its quote (or leave them out of the sentence shown). A "
+                         "quote is text inside double quotation marks (\"...\" or “...”); single quotes are not. "
+                         "Spell out terms that begin with a digit (write 'five-minute pre-dispatch', not 5MPD).",
     "CLAIM_EVIDENCE_MISSING": "A numeric_claim must cite an evidence_id (ev + 4 digits) returned by a tool. Chunk and "
                               "citation ids are not numeric evidence: delete such claims and the numbers they covered.",
     "CLAIM_UNIT_MISMATCH": "Cite the evidence item that holds exactly this value in this unit; if no tool returned it "
@@ -208,19 +278,58 @@ REPAIR_HINTS = {
                              "inside a citation quote.",
     "HYPOTHESIS_UNHEDGED": "Word every possible explanation with may, might or could.",
     "CITATION_QUOTE_NOT_FOUND": "Copy a short quote (one sentence) character-for-character, including "
-                                "capitalisation, from the retrieved passage, or drop the citation.",
+                                "capitalisation, from the retrieved passage, or drop the citation. Put quotes in "
+                                "double quotation marks.",
     "CITATION_UNKNOWN_CHUNK": "Cite only chunk_ids returned by retrieve_public_evidence in this investigation.",
+    "TIME_NOT_IN_EVIDENCE": "Copy clock times from a *_local or *_utc field of a tool output or the context, with the "
+                            "zone as given; never convert or shift a time yourself.",
+    "CLAIM_REGION_MISMATCH": "Only state numbers for the investigated region.",
+    "CLAIM_INTERVAL_MISMATCH": "Describe each number at its tool's resolution: a 5-minute value (dispatch RRP, "
+                               "including the hourly samples of it) is not a half-hour value, and half-hour "
+                               "operational demand is not a 5-minute value. Fix the label or delete the number.",
+    "DOC_CLAIM_UNCITED": "In a document answer, end every summary sentence with the [citation_id] of the passage it "
+                         "relies on.",
+    "DOC_CLAIM_UNSUPPORTED": "Restate only what the cited passage says, close to its wording, or quote it; drop claims "
+                             "the passage does not make. Give each cited passage its own sentence: a sentence citing "
+                             "two notices must be supported by each of them. In an event or forecast review, delete "
+                             "a summary sentence that describes market notices: published_findings already shows "
+                             "each notice verbatim.",
 }
 
 
-def repair_message(result: Any) -> str:
+def _where_text(report: Any, detail: str) -> str | None:
+    """The narrative item a violation points at (e.g. 'summary[4]'), so the repair can see the exact sentence."""
+    m = re.match(r"(headline|summary|possible_explanations|published_findings)(?:\[(\d+)\])?", detail)
+    if report is None or not m:
+        return None
+    if m.group(1) == "headline":
+        return str(report.headline)
+    items = getattr(report, m.group(1), [])
+    i = int(m.group(2) or 0)
+    if i >= len(items):
+        return None
+    item = items[i]
+    return str(getattr(item, "statement", item))
+
+
+def repair_message(result: Any, report: Any = None) -> str:
     crit = result.critical
-    lines = [f"- {v.code}: {v.detail}" for v in crit[:20]]
+    lines = []
+    for v in crit[:20]:
+        text = _where_text(report, v.detail)
+        lines.append(f"- {v.code}: {v.detail}" + (f'\n    in: "{text[:240]}"' if text else ""))
     if len(crit) > 20:
         lines.append(f"- ... and {len(crit) - 20} more of the same kinds")
     hints = [f"- {c}: {REPAIR_HINTS[c]}" for c in sorted({v.code for v in crit}) if c in REPAIR_HINTS]
     return ("The report failed independent validation. Fix ONLY these problems and return the full corrected JSON:\n"
-            + "\n".join(lines) + ("\nHow to fix them:\n" + "\n".join(hints) if hints else ""))
+            + "\n".join(lines) + ("\nHow to fix them:\n" + "\n".join(hints) if hints else "") + "\n" + REPAIR_RULES)
+
+
+# Stated with every repair: the one repair turn must not introduce a new violation.
+REPAIR_RULES = ("While fixing: a quote is text inside double quotation marks (\"...\" or “...”) copied exactly from a "
+                "passage; text copied without them counts as your own words, so its numbers must be registered claims. "
+                "Do not add numbers, times or notice details that were not in the draft; deleting a sentence is an "
+                "acceptable fix.")
 
 
 def _replayable(item: dict[str, Any]) -> dict[str, Any] | None:
@@ -254,16 +363,27 @@ class LiveController:
         if model_prices(self.model) is None:  # without a price the budget cannot be enforced: fail closed
             raise BudgetExceeded(f"no price known for model {self.model!r}; set NEM_AGENT_PRICE_INPUT_PER_MTOK and "
                                  "NEM_AGENT_PRICE_OUTPUT_PER_MTOK")
-        budget = float(os.environ.get("NEM_AGENT_SESSION_BUDGET_USD", "0.50"))
-        if self.usage.cost_usd is not None and self.usage.cost_usd >= budget:
-            raise BudgetExceeded(f"session budget {budget} USD reached")
+        session = float(os.environ.get("NEM_AGENT_SESSION_BUDGET_USD", "0.50"))
+        if self.usage.cost_usd is not None and self.usage.cost_usd >= session:
+            raise BudgetExceeded(f"session budget {session} USD reached")
+        max_out = config.MAX_OUTPUT_TOKENS[stage]
+        worst = budget.worst_case_cost(self.model, len(json.dumps(kwargs, default=str)), max_out)
+        rid = budget.reserve(self.model, stage, worst)  # refuses when the task-wide cap could be exceeded
         t0 = time.monotonic()
-        resp = self.client.create(model=self.model, store=False, **kwargs)
+        try:
+            resp = self.client.create(model=self.model, store=False, max_output_tokens=max_out, **kwargs)
+        except Exception:
+            budget.settle(rid, 0.0)  # a failed request is not billed
+            raise
+        cost = budget.call_cost(self.model, resp.get("usage"))
+        budget.settle(rid, cost if cost is not None else worst, resp.get("usage"))
         self.usage.add(resp)
         calls = [{"call_id": i.get("call_id"), "name": i.get("name"), "arguments": i.get("arguments")}
                  for i in resp.get("output", []) if i.get("type") == "function_call"]
         trace.add("model", stage, model=self.model, response_id=resp.get("id"), function_calls=calls,
-                  usage=resp.get("usage"), duration_ms=round((time.monotonic() - t0) * 1000, 1))
+                  usage=resp.get("usage"), cost_usd=cost, max_output_tokens=max_out,
+                  status=resp.get("status"), incomplete=resp.get("incomplete_details"),
+                  duration_ms=round((time.monotonic() - t0) * 1000, 1))
         self.transcript.append({"stage": stage, "response_id": resp.get("id"), "function_calls": calls})
         return resp
 
@@ -311,9 +431,23 @@ class LiveController:
             if res.window and res.region else None,
             "as_of_utc": iso_utc(res.as_of) if res.as_of else None,
             "event_peak_interval_end_utc": res.event.peak_interval_end_utc if res.event else None,
+            "event_peak_interval_end_local": local_str(parse_iso(res.event.peak_interval_end_utc), res.region)
+            if res.event and res.region else None,
             "required_tools": list(pb.required), "optional_tools_max_2": list(pb.optional),
         }
-        items: list[Any] = [{"role": "user", "content": "Investigation context (JSON):\n" + json.dumps(context, indent=1)}]
+        if res.event and res.region:  # computed here so the model never does time arithmetic
+            hh = half_hour_end_for(parse_iso(res.event.peak_interval_end_utc))
+            context["peak_half_hour_end_utc"] = iso_utc(hh)
+            context["peak_half_hour_end_local"] = local_str(hh, res.region)
+        if res.window and res.region and res.intent in ("forecast_review", "market_event_review"):
+            lo, hi = forecast_focus(res)  # the same forecast-review scope the replay controller uses
+            context["forecast_targets_utc"] = [iso_utc(lo), iso_utc(hi)]
+            context["forecast_targets_local"] = [local_str(lo, res.region), local_str(hi, res.region)]
+            context["forecast_note"] = ("A forecast review compares the 24 half-hours around the event peak: use "
+                                        "forecast_targets_utc as target_start_utc/target_end_utc (forecast tools accept "
+                                        "at most 24 h).")
+        items: list[Any] = [{"role": "user", "content": "Investigation context (JSON):\n" +
+                             json.dumps(context, indent=1, ensure_ascii=False)}]
         tools = openai_function_tools(allowed)
         nudged = False
         stopped: list[str] = []
@@ -330,10 +464,12 @@ class LiveController:
                 items += [x for x in (_replayable(i) for i in resp.get("output", [])) if x]
                 for c in calls:
                     rec = self.d.call(c["name"], c.get("arguments") or "{}", call_id=c["call_id"], origin="model")
-                    payload = json.dumps(rec.model_payload(), default=str)
-                    if len(payload) > MAX_TOOL_OUTPUT_CHARS:
-                        trace.add("model", "tool_output_truncated", call_id=c["call_id"], chars=len(payload))
-                        payload = payload[:MAX_TOOL_OUTPUT_CHARS] + '..."[truncated]"'
+                    full = json.dumps(rec.model_payload(), default=str, ensure_ascii=False)
+                    payload, omitted = compact_json(rec.model_payload(), MAX_TOOL_OUTPUT_CHARS)
+                    _trace_tool_output(trace, c["call_id"], rec, payload)
+                    if omitted:
+                        trace.add("model", "tool_output_compacted", call_id=c["call_id"], chars=len(full),
+                                  chars_sent=len(payload), items_omitted=omitted)
                     items.append({"type": "function_call_output", "call_id": c["call_id"], "output": payload})
                 if calls:
                     continue
@@ -357,7 +493,8 @@ class LiveController:
         first = validate(report, self.reg, as_of=res.as_of, window=res.window, records=self.d.records,
                          required_tools=pb.required)
         if first.critical and self.usage.model_calls < config.MAX_MODEL_CALLS:
-            items += [{"role": "assistant", "content": raw or ""}, {"role": "user", "content": repair_message(first)}]
+            items += [{"role": "assistant", "content": raw or ""},
+                      {"role": "user", "content": repair_message(first, report)}]
             try:
                 mrep2, _ = self._structured(trace, "repair", ModelReport, prompt("system"), items)
                 _trace_draft(trace, "repair", mrep2)
@@ -415,6 +552,12 @@ class LiveController:
             findings.append(PublishedFinding(
                 statement=f"An AEMO {fc.doc_type.replace('_', ' ')} for {res.region} [{fc.citation_id}] says: “{fc.quote}”",
                 citation_ids=[fc.citation_id], doc_type=fc.doc_type, applies_to_event=f.applies_to_event))
+        fcomp = None
+        if m is not None and m.forecast_mae_evidence_id:
+            fcomp = _forecast_comparison(recs, m.forecast_mae_evidence_id)
+            if fcomp is None:
+                missing.append(f"model referenced forecast MAE evidence {m.forecast_mae_evidence_id}, which no "
+                               "compare_forecast_actual call returned")
         ew = None
         if res.window and res.region:
             ew = EventWindow(start_utc=iso_utc(res.window[0]), end_utc=iso_utc(res.window[1]),
@@ -430,7 +573,7 @@ class LiveController:
             possible_explanations=[Hypothesis(statement=h.statement, supporting_evidence_ids=h.supporting_evidence_ids,
                                               what_would_test_it=h.what_would_test_it) for h in m.possible_explanations] if m else [],
             published_findings=findings,
-            citations=cites, uncertainties=m.uncertainties if m else [],
+            citations=cites, uncertainties=m.uncertainties if m else [], forecast_comparison=fcomp,
             missing_evidence=list(dict.fromkeys((m.missing_evidence if m else []) + missing)),
             source_manifest={"data_version": self.versions.data, "corpus_version": self.versions.corpus,
                              "model": self.model, "usage": self.usage.as_dict(), "transcript": self.transcript},

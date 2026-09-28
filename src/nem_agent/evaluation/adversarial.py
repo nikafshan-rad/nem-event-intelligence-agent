@@ -110,6 +110,27 @@ def build_fixtures(selection: Any) -> list[Fixture]:
     add("paraphrased_finding", "FINDING_NOT_QUOTED", "a notice paraphrased as a finding instead of quoted verbatim",
         paraphrase)
 
+    def mislabelled_time(r: InvestigationReport, g: EvidenceRegistry) -> InvestigationReport:
+        # Observed in a live gpt-5-mini run: the 16:35 UTC peak written as "2026-07-30 16:30 ACST".
+        c = first_claim(r, "$/MWh")
+        return r.model_copy(update={"summary": [*r.summary, f"The price was ${c.value:,.2f}/MWh at 2026-07-30 16:35 ACST."]})
+    add("time_mislabelled", "TIME_NOT_IN_EVIDENCE", "a UTC time relabelled as local time", mislabelled_time)
+
+    def other_region(r: InvestigationReport, g: EvidenceRegistry) -> InvestigationReport:
+        c = first_claim(r, "$/MWh")
+        ev = g.get(c.evidence_id)
+        assert ev is not None
+        ev.region = "VIC1"  # the claim's evidence now belongs to another region
+        return r
+    add("claim_other_region", "CLAIM_REGION_MISMATCH", "a number taken from another region's evidence", other_region)
+
+    def half_hour_label(r: InvestigationReport, g: EvidenceRegistry) -> InvestigationReport:
+        c = next(c for c in r.numeric_claims if (ev := g.get(c.evidence_id)) and ev.interval_minutes == 5
+                 and c.unit == "$/MWh")  # a 5-minute dispatch price presented as a half-hour price
+        return r.model_copy(update={"summary": [*r.summary, f"The half-hour price was ${c.value:,.2f}/MWh."]})
+    add("interval_mislabelled", "CLAIM_INTERVAL_MISMATCH", "a 5-minute value labelled as a half-hour value",
+        half_hour_label)
+
     def unknown_chunk(r: InvestigationReport, g: EvidenceRegistry) -> InvestigationReport:
         c = r.citations[0].model_copy(update={"citation_id": "sY", "chunk_id": "made_up#0"})
         return r.model_copy(update={"citations": [*r.citations, c]})
