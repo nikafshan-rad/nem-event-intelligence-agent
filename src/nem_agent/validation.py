@@ -180,7 +180,10 @@ DURATION_RES = ((30, re.compile(rf"\bhalf{_DASH}hour|\b30{_DASH}min", re.I)),
 def _durations(text: str) -> set[int]:
     """Interval lengths (minutes) a text names: 'half-hour'/'30-minute' and '5-minute'."""
     return {m for m, rx in DURATION_RES if rx.search(text)}
-CITE_RE = re.compile(r"\[([A-Za-z0-9_#.\-]+)\]")
+# a citation marker: any schema-valid citation ID, including ':' (held-out v4 W10 named citations
+# 'aemo_so_op_3705#p12c33:supply'; the narrower pattern could never recognise them). Only IDs of the report's own
+# citations count wherever this is used.
+CITE_RE = re.compile(r"\[([A-Za-z0-9_#.:\-]+)\]")
 WORD_RE = re.compile(r"[a-z][a-z0-9]+")
 SUPPORT_STOP = {"the", "and", "for", "that", "this", "with", "from", "which", "are", "was", "were", "has", "have",
                 "its", "their", "into", "than", "then", "also", "such", "any", "all", "not", "can", "may", "might",
