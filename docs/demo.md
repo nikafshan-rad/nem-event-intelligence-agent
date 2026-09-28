@@ -92,11 +92,16 @@ are rejected (`tests/approvals`). Nothing leaves `data/case_notes/`.
   It contains no credentials.
 - The two L4 runs, with checksums: `artifacts/live/L4/provenance.json`.
 
-**Known Live behaviour** (measured on held-out cases in [`live-gates.md`](live-gates.md) L3):
-- The router sometimes asks for a region on a pure definition question, or treats an as-of forecast question as an
-  event review.
-- Hypotheses can mislabel a time of day or set a notice's NEM-time clock beside UTC times. They are hedged and never
-  stated as findings, but read them with that in mind.
+**Known Live behaviour** (measured on held-out cases in [`live-gates.md`](live-gates.md) L3; the Live evaluation
+gate is FAIL):
+- Some answerable questions end in the amber "validated tool facts only" result instead of a model answer: 2 of 8
+  fresh cases.
+  - A document answer about "10% and 90% POE" forecasts: the repair copied the passage without quotation marks.
+  - A question about other regions' notices: the model searched without a region and found nothing.
+- Descriptions the validator cannot check can be wrong even when every number and time is right, e.g. hourly samples
+  described as "immediately before and after", or 19:00 called "daytime".
+- Times in answers and hypotheses carry a zone and are checked against tool times. Hypotheses remain hedged
+  possibilities, never findings.
 
 ## Terminal-only version
 
