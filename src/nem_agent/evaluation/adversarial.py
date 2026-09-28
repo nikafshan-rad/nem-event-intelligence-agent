@@ -144,6 +144,12 @@ def build_fixtures(selection: Any) -> list[Fixture]:
     add("measure_substituted", "MEASURE_SUBSTITUTED", "total demand asked, only operational demand given",
         measure_substituted)
 
+    def notice_timing_omitted(r: InvestigationReport, g: EvidenceRegistry) -> InvestigationReport:
+        # the report cites the region's notices but never sets their times against the event (held-out H13)
+        return r.model_copy(update={"question": r.question + " Was it caused by the line outage in AEMO's notice?"})
+    add("notice_timing_omitted", "NOTICE_TIMING_OMITTED", "asked whether a notice's outage explains the spike; the "
+        "notice's time is never set against the event", notice_timing_omitted)
+
     def unzoned_hypothesis_time(r: InvestigationReport, g: EvidenceRegistry) -> InvestigationReport:
         return r.model_copy(update={"possible_explanations": [*r.possible_explanations, Hypothesis(
             statement="Constraint automation invoked from 11:00 might have limited imports around the peak.",

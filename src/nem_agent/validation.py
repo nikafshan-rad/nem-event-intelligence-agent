@@ -13,6 +13,8 @@ Nothing here trusts the controller or the model. Checks (all deterministic):
 * metric compatibility — forecast errors derive only from operational-demand forecast/actual rows;
 * language — no causal assertions outside hedged hypotheses; no echo of instruction-like retrieved text;
 * status honesty — an "answered" report must carry evidence, and required tools must have run.
+* decisive timing — when a question asks whether something a market notice reports explains the event, the
+  answer must set the notice's time against the event's intervals.
 
 Semantic support beyond these rules is not claimed: a matching quote proves the text exists, not that it proves
 the claim. Findings are therefore restricted to verbatim quotation of event-matching documents.
@@ -24,7 +26,7 @@ import contextlib
 import re
 import unicodedata
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from .evidence import EvidenceRegistry
@@ -208,6 +210,43 @@ def _known_instants(registry: EvidenceRegistry, records: list[Any] | None, repor
         if v:
             add(v.isoformat() if isinstance(v, datetime) else v)
     return out
+
+
+# parsed here, not taken from the tool output: a notice writes "At 1100 hrs 20/08/2026" in NEM market time (UTC+10,
+# docs/decisions.md D18), and a phrase without a date takes the notice's event date
+NOTICE_HRS_RE = re.compile(r"\b([01]\d|2[0-3]):?([0-5]\d) hrs\b(?:,? (?:on )?(\d{2})/(\d{2})/(\d{4}))?")
+RELATION_RE = re.compile(r"\b(before|after|between|earlier|later|during|within|while|preced\w*|follow\w*|prior to|"
+                         r"ahead of|until)\b", re.I)
+
+
+def _notice_instants(text: str, event_date: str | None) -> set[datetime]:
+    out: set[datetime] = set()
+    for m in NOTICE_HRS_RE.finditer(text):
+        day = f"{m[5]}-{m[4]}-{m[3]}" if m[3] else event_date
+        if day:
+            with contextlib.suppress(ValueError):
+                out.add(datetime.fromisoformat(f"{day}T{m[1]}:{m[2]}:00+10:00").astimezone(UTC))
+    return out
+
+
+def _states_timing(sentence: str, instants: set[datetime]) -> bool:
+    """The sentence gives one of these instants on a stated basis (a dated or undated time with its zone) and says how
+    it relates to something else (before, after, during ...)."""
+    if not RELATION_RE.search(sentence):
+        return False
+    s = PAREN_OFFSET_RE.sub(" ", sentence)
+    for m in DATETIME_RE.finditer(s):
+        d, hh, mm, zone = m.groups()
+        if datetime.fromisoformat(f"{d}T{int(hh):02d}:{mm}:00+00:00") - timedelta(minutes=_zone_offset(zone)) in instants:
+            return True
+    for m in CLOCK_RE.finditer(DATETIME_RE.sub(" ", s)):
+        h1, m1, h2, m2, zone = m.groups()
+        if zone is None:
+            continue
+        clocks = {(t + timedelta(minutes=_zone_offset(zone))).strftime("%H:%M") for t in instants}
+        if any(hh is not None and f"{int(hh):02d}:{mm}" in clocks for hh, mm in ((h1, m1), (h2, m2))):
+            return True
+    return False
 
 
 def _stems(text: str) -> list[str]:
@@ -423,6 +462,32 @@ def validate(report: InvestigationReport, registry: EvidenceRegistry, *, as_of: 
                 and not OPERATIONAL_DEMAND_Q_RE.search(said):
             V.append(Violation("MEASURE_SUBSTITUTED", "critical", "the question asks for operational demand but the "
                                "answer gives only dispatch TOTALDEMAND"))
+
+    # -- a question asking whether something a market notice reports (an outage, trip, constraint ...) explains the
+    #    event is answered with the notice's time set against the event: that time on a stated basis (a UTC or zoned
+    #    time) with before, after or during in the same sentence. Held-out H13 cited the Hazelwood outage notice and
+    #    never said that its time (1100 hrs NEM time, 01:00Z) came after every high-price interval. A time inside a
+    #    quote or only in a hypothesis's test does not count.
+    if report.intent == "market_event_review":
+        from .agent.request import asks_if_notice_event_caused
+
+        if asks_if_notice_event_caused(report.question):
+            res.checks_run.append("notice_timing")
+            notice_at: dict[datetime, str] = {}
+            for cit in report.citations:
+                ch = registry.chunks.get(cit.chunk_id)
+                if ch is not None and ch.doc_type == "market_notice" and ch.event_region in (None, report.region):
+                    for t in sorted(_notice_instants(ch.text, ch.event_date)):
+                        notice_at.setdefault(t, ch.doc_id)
+            texts = [report.headline, *report.summary, *report.uncertainties,
+                     *(h.statement for h in report.possible_explanations)]
+            if notice_at and not any(_states_timing(s, set(notice_at)) for t in texts
+                                     for s in SENTENCE_RE.split(QUOTED_RE.sub(" ", t))):
+                shown = ", ".join(f"{d} {t:%Y-%m-%dT%H:%MZ}" for t, d in sorted(notice_at.items()))
+                V.append(Violation("NOTICE_TIMING_OMITTED", "critical",
+                                   "the question asks whether something a cited market notice reports explains the "
+                                   f"event, but no sentence sets the notice's time ({shown}) against the event (before, "
+                                   "between or after its intervals)"))
 
     # -- document claims: cited, and supported by the cited passage (quoted, or mostly in its words)
     res.checks_run.append("document_claims")

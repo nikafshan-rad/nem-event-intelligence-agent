@@ -1502,3 +1502,160 @@ retrieval checks were re-run offline, with no model calls.
   - a draft citing an injected chunk (regression ADV04; caught, but it caused a fallback);
   - descriptions the validator cannot check.
 - Event reviews that mention other regions' notices still have a 3-call retrieval bound.
+
+## Second unpaid round after held-out v2: decisive notice timing, before/after tests, source review
+
+No paid call was made in this round. **L3 remains FAIL.** Held-out v2 and the 18 earlier cases are development and
+regression data; none of them was re-run.
+
+### H13, omitted decisive notice timing: diagnosis by boundary
+
+The question asked whether the VIC1 spike was caused by the Hazelwood outage in an AEMO notice. The notice gives the
+outage at "1100 hrs 20/08/2026" (NEM time, 01:00Z). The last of the six intervals at or above 300 $/MWh ended 23:45Z,
+75 minutes before it.
+
+| Boundary | What happened |
+| --- | --- |
+| Interpretation and routing | correct: a market-event review for VIC1 on 2026-08-20 |
+| Tool output | the notice's `clock_times` gave 01:00Z. But `get_price_timeline` never said when the threshold intervals began and ended, only their count, the peak and hourly samples. Nothing set the two times side by side |
+| Retrieval | correct: notice 144893 was retrieved and cited |
+| Answer construction | **the v8/v9 synthesis prompt told the model not to describe notices in the summary, and to mention them in hypotheses "without their times"**. The time appeared only in a hypothesis's *test*, and the finding showed the bare "1100 hrs" in the notice's quote |
+| Validation | no rule required it: every check passed |
+
+**Fix** (no question, label, threshold or existing rule changed; the new check only adds a rejection):
+- **Tool:** `get_price_timeline` returns the first and last intervals at or above the threshold, and below the
+  low-price threshold, with evidence IDs.
+- **Controller:** `asks_if_notice_event_caused()` detects a question asking whether something a market notice reports
+  explains the event. That needs causal wording plus an outage, trip, line, transformer, constraint, contingency,
+  notice or network term. Of the 54 labelled questions (40 in `eval/cases.json`, 14 in held-out v2) only H13 matches
+  (ADV01, "did low wind cause", does not).
+  - Only for such questions, the controller gives the synthesis step `notice_timing`. For each retrieved notice for
+    the region, it lists each clock time in UTC and local time, set against the threshold intervals and the price
+    extreme by code.
+  - The relations are "before the first", "between the first and last" (not "during": the intervals may form
+    several episodes) and "after the last".
+- **Prompt v10:** a rule to add one summary sentence per relevant notice, stating its time with the zone and that
+  relation, without causal wording. The sentence carries no `[citation_id]`: the converted time is not in the notice's
+  words, so a citation would fail the lexical support check. The notice stays cited in the findings.
+  - The example uses placeholders, not values from any evaluation case.
+  - All other answers get the same synthesis input as before.
+- **Validator:** new critical `NOTICE_TIMING_OMITTED`, for such questions when the report cites a same-region notice
+  that states a clock time. It requires some sentence in the headline, summary, uncertainties or hypotheses to give
+  one of the notice's times on a stated basis (a dated or zoned time) together with a relation word.
+  - The validator parses the notice's times itself; it does not reuse the tool's conversion.
+  - A time inside a quote, a bare "1100 hrs", or a time only in a hypothesis's test does not count.
+  - The violation names no single item, so the one repair is a full rewrite (the same path as `MEASURE_SUBSTITUTED`).
+- **Replay** is unchanged. Its scripted report does not state notice timing, so a Replay question of this kind
+  (none is in `eval/cases.json`) is rejected and falls back to facts only.
+
+### Before/after demonstration of all seven failure modes
+
+- **Test file:** `tests/provider/test_v2_failure_modes.py`, 8 tests, one or more per failure mode. It uses only
+  interfaces that existed at `431b9d6`, the code held-out v2 was diagnosed on.
+- **Method:** it was run unchanged in a worktree of each commit (git-ignored data linked in; logs in
+  `artifacts/logs/v2_failure_modes_<commit>.log`).
+- **Results:** every test fails on its target behaviour at `431b9d6`, none on an import error. The two
+  notice-timing tests are the only failures at `f3b2822`.
+
+| # | Failure mode (case) | Test asserts | `431b9d6` | `f3b2822` | now |
+| --- | --- | --- | --- | --- | --- |
+| 1 | TOTALDEMAND answered with operational demand (H02, H03) | a total-demand question answered only with operational demand is rejected; TOTALDEMAND is returned at and around both extremes | fail (accepted) | pass | pass |
+| 2 | issue time used as the as-of cutoff (H05) | "the forecast AEMO issued at T" gives no cutoff | fail (cutoff T) | pass | pass |
+| 3 | answering passage not retrieved (H07, H14) | both passages are retrieved, and the controller retrieves for the question | fail | pass | pass |
+| 4 | interval count without an evidence ID (H02) | the window count (197) is an evidence item | fail (bare 197) | pass | pass |
+| 5 | notice question in a workflow that cannot search every region (H10, ADV02) | routed to `source_explanation`; five regional searches all run | fail (event review) | pass | pass |
+| 6 | decisive notice timing omitted (H13) | an answer without it is rejected; the controller hands the timing ("after the last …, 23:45Z") to the synthesis step | fail (accepted; no timing) | fail | pass |
+| 7 | quoted sentence absent from its cited passage (PR #5 review) | rejected with `QUOTE_NOT_IN_SOURCE` | fail (accepted) | pass | pass |
+
+**Further tests:** 5 in `tests/provider/test_heldout_v2_fixes.py`:
+- the controller's timing for H13 (01:00Z, after the last interval ending 23:45Z);
+- rejection and a successful full repair;
+- the check is not triggered for neighbouring questions (ADV01's wind question, a plain "what happened", a document
+  question), and those answers are unchanged;
+- relation wording;
+- "before" and "between" on the SA1 event.
+
+A synthetic safety fixture `notice_timing_omitted` was also added.
+
+### Unpaid verification (working tree before commit)
+
+| Check | Result |
+| --- | --- |
+| lint (ruff), typecheck (mypy, 58 files) | clean |
+| full test suite | **265 passed** (251 before this round) |
+| Replay regression (`eval --mode replay`, to a scratch file) | every row identical to `artifacts/eval/offline.json` apart from trace IDs and latency; every gate true |
+| safety suite | PASS: **23/23** fixtures detected, 0 critical after fallback, 0 unauthorized writes |
+| retrieval benchmark | identical |
+| paid API calls | **none**; ledger unchanged at USD 2.7340 counted, USD 2.2660 remaining |
+
+### Remaining risks
+
+- None of the fixes is measured in Live. Whether gpt-5-mini uses `notice_timing`, `requested_measures`,
+  `requested_forecast_run` and the controller passages is unknown until a paid run.
+- The three new rejections (`MEASURE_SUBSTITUTED`, `QUOTE_NOT_IN_SOURCE`, `NOTICE_TIMING_OMITTED`) can turn answers into
+  repairs or fallbacks.
+  - The notice-timing and measure repairs are full rewrites, which have introduced new errors before (EV09).
+- The notice-timing trigger is a keyword pattern. A question without both kinds of word gets no timing requirement:
+  "was the Hazelwood outage behind the spike?" matches, but "did the transformer trip matter for the spike?" does
+  not.
+- The check requires a stated relation, but does not verify its direction. The relation comes from the controller;
+  a model that reverses it is not caught.
+- H07's passage ranks 8th for the raw question: retrieval still depends on wording.
+- Not addressed:
+  - a draft citing an injected chunk (ADV04: caught, but it causes a fallback);
+  - descriptions the validator cannot check;
+  - the 3-call retrieval bound for event reviews that mention other regions' notices.
+
+### Source change under review (not applied)
+
+`publisher-refresh` reported REVIEW NEEDED for `mmsdm_dudetailsummary`: AEMO re-issued the August 2026 archive.
+- The substantive change is 8 registrations added and 6 closed, all effective from 2026-09-11, plus restamped
+  `LASTCHANGED` values.
+- It feeds only `duid_region`, read by `get_generation_change`. Every analysed window ends by 2026-08-20.
+- The sandbox evaluation is identical for pinned and candidate; only the data version would change.
+- **Recommendation:** keep the pin in PR #5, and re-pin in a separate approved change afterwards.
+- The full review is in `docs/source-review-2026-09-28-mmsdm_dudetailsummary.md`. No pin, data or evaluation file was
+  changed.
+
+### Proposal: held-out set v3 (not written, frozen or run; awaiting approval)
+
+**Set:** 20 new cases, following the v2 process exactly:
+- **Writer:** an independent writer agent works from a sanitized kit (the neutral v2 brief scaled to 20 cases, the
+  data description and copies of the data). It has no access to this repository, the failure analyses, the prompts
+  or any Live output.
+- **Mix:** 4 event, 4 forecast (at least 1 as-of), 4 document, 3 notice, 1 ambiguous, 1 out-of-scope, 2 causal-bait,
+  1 injection.
+- **Checks before freezing:**
+  - a separate verifier agent re-derives every gold value and snippet from the data;
+  - an automated check rejects any case sharing a 6-word phrase with the 54 existing questions or with the prompts.
+- **Freeze:** SHA-256 recorded, then committed and pushed before any Live call. The set is never edited after
+  results are seen.
+
+**Pass rule** (the original L3 percentage bars; v2 used the same bars):
+- H1–H5 all zero;
+- Q1 ≥ 16/20;
+- Q2 ≥ 18/20;
+- Q3 ≥ ⌈0.8 × gold cases⌉;
+- Q4 ≥ 16/20 (judged by hand).
+
+**L3 decision:**
+- **PASS** only if all 20 cases complete, v3 meets every criterion, and the regression run has no H1–H5 violation.
+- **INCOMPLETE** if any v3 case errors or is stopped.
+- **FAIL** otherwise. v3 would then become development data.
+
+**Runs, each once, with prompts v10:**
+1. v3 (20 cases).
+2. Regression: the 14 v2 cases plus ADV02, ADV04, DOC04 and EV09 (18 cases; reported separately, not gating quality).
+
+**Budget:** measured on v2 at USD 0.026 per case on average (maximum 0.064), and on the regression at USD 0.028
+(maximum 0.046). This round adds retrieval and timing context, so estimates use about USD 0.030 per case.
+
+| Run | Cases | Expected | Cap |
+| --- | --- | --- | --- |
+| v3 | 20 | USD 0.60 | USD 0.90 |
+| regression | 18 | USD 0.54 | USD 0.70 |
+| **Total** | 38 | USD 1.14 | **USD 1.60** |
+
+- **Enforcement:** the ledger enforces the caps. The v3 run uses `NEM_AGENT_TOTAL_BUDGET_USD` = counted + 0.90; the
+  regression uses counted-after-v3 + 0.70, never above 4.3340. The task total stays under USD 5.
+- A case stopped by the cap is recorded as stopped.

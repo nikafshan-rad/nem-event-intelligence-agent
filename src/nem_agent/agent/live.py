@@ -46,7 +46,7 @@ from ..tools.args import strict_json_schema
 from .dispatcher import Dispatcher
 from .playbook import PLAYBOOKS
 from .replay import forecast_focus
-from .request import Resolution, forecast_issue_time, requested_measures
+from .request import Resolution, asks_if_notice_event_caused, forecast_issue_time, requested_measures
 
 CONTROLLER = "live-responses-controller/1"
 # Retrieved text is capped at config.MAX_RETRIEVED_CHARS (12k) plus ~0.6k metadata per result; 20k keeps a full
@@ -473,6 +473,11 @@ REPAIR_HINTS = {
     "MEASURE_SUBSTITUTED": "Answer with the measure the question names (see the context's requested_measures): total "
                            "demand is dispatch TOTALDEMAND (get_price_timeline), operational demand is get_actual_demand. "
                            "If the named measure was not returned, say so in missing_evidence instead of substituting.",
+    "NOTICE_TIMING_OMITTED": "The question asks whether something a market notice reports explains the event. Add "
+                             "one summary sentence that names the notice by a few words of its title (no [citation_id]) "
+                             "and states its time with its zone and whether that is before, between or after the "
+                             "event's intervals, copying the times and the relation from notice_timing; use no "
+                             "causal wording.",
     "CLAIM_INTERVAL_MISMATCH": "Describe each number at its tool's resolution: a 5-minute value (dispatch RRP, "
                                "including the hourly samples of it) is not a half-hour value, and half-hour "
                                "operational demand is not a 5-minute value. Fix the label or delete the number.",
@@ -697,6 +702,12 @@ class LiveController:
                     items.append({"role": "user", "content": f"Required tools not yet called: {missing}. Call them now."})
                     continue
                 break
+            timing = self._notice_timing(res)
+            if timing is not None:
+                trace.add("model", "notice_timing", required=timing["required_in_summary"],
+                          notices=[n["doc_id"] for n in timing["notices"]])
+                items.append({"role": "user", "content": "Notice timing computed by the controller (JSON):\n" +
+                              json.dumps(timing, indent=1, ensure_ascii=False)})
             items.append({"role": "user", "content": prompt("synthesis")})
             mrep, raw = self._structured(trace, "synthesis", ModelReport, prompt("system"), items)
             _trace_draft(trace, "synthesis", mrep)
@@ -752,6 +763,64 @@ class LiveController:
                 "note": ("The question names a forecast by its issue time. It is not an as-of cutoff: actuals may be "
                          "used. Select this run with compare_forecast_actual(run_selector='run_id', run_id=<run_id>)."
                          if rows else "No forecast run issued at that time is held; say so rather than use another run.")}
+
+    def _notice_timing(self, res: Resolution) -> dict[str, Any] | None:
+        """Each retrieved market notice for the investigated region, with its clock times set against the event's
+        threshold intervals and price extreme by code, so NEM-time 'HHMM hrs' is never compared with UTC by eye.
+        Held-out H13 asked whether an outage in a notice caused the spike, cited the notice, and never said that its
+        time (1100 hrs NEM time, 01:00Z) came after every high-price interval."""
+        assert self.d is not None
+        if res.intent != "market_event_review" or res.event is None or not res.region or not res.window or \
+                not asks_if_notice_event_caused(res.request.question):
+            return None  # only where the question makes the notice's timing decisive; other answers are unchanged
+        region, (w0, w1) = res.region, res.window
+        notices: dict[str, dict[str, Any]] = {}
+        for r in self.d.records:
+            if r.name != "retrieve_public_evidence" or r.status != "ok":
+                continue
+            for h in r.view.get("results", []):
+                if h.get("doc_type") == "market_notice" and h.get("event_region") == region and h.get("clock_times"):
+                    notices.setdefault(h["chunk_id"], h)
+        thr = self.d.selection.analysis_threshold
+        high = res.event.kind == "high_price"
+        label = ("5-minute interval at or above the analysis threshold" if high
+                 else "5-minute interval below the low-price threshold")
+        ends = sorted({parse_iso(s["interval_end_utc"]) for r in self.d.records
+                       if r.name == "get_price_timeline" and r.status == "ok" for s in r.data.get("series", [])
+                       if (s["rrp"] >= float(thr["high_price_rrp_at_or_above"]) if high
+                           else s["rrp"] < float(thr["low_price_rrp_below"]))})
+        ends = [t for t in ends if w0 < t <= w1]
+        peak = parse_iso(res.event.peak_interval_end_utc)
+
+        def at(t: datetime) -> str:
+            return f"interval ending {iso_utc(t)} = {local_str(t, region)}"
+
+        def vs_intervals(t: datetime) -> str:
+            if not ends:
+                return f"not compared: get_price_timeline returned no {label} in the event window"
+            if t <= ends[0] - timedelta(minutes=5):
+                return f"before the first {label}: {at(ends[0])}"
+            if t <= ends[-1]:
+                # not "during": the intervals may form several episodes with gaps between them
+                return f"between the first and last {label}s: first {at(ends[0])}; last {at(ends[-1])}"
+            return f"after the last {label}: {at(ends[-1])}"
+
+        def vs_peak(t: datetime) -> str:
+            if t <= peak - timedelta(minutes=5):
+                return f"before the price extreme: {at(peak)}"
+            return f"within the price extreme's interval: {at(peak)}" if t <= peak else f"after the price extreme: {at(peak)}"
+
+        out = [{"chunk_id": h["chunk_id"], "doc_id": h["doc_id"], "title": h.get("title"),
+                "times": [{"notice_text": c["text"], "utc": c["utc"], "local": c.get("local"),
+                           "relative_to_threshold_intervals": vs_intervals(parse_iso(c["utc"])),
+                           "relative_to_price_extreme": vs_peak(parse_iso(c["utc"]))} for c in h["clock_times"]]}
+               for h in notices.values()]
+        return {"required_in_summary": True,
+                "note": ("Computed by the controller from each notice's clock_times (NEM time, UTC+10) and "
+                         "get_price_timeline. The question asks whether something a market notice reports explains "
+                         "the event: state this timing in the summary."
+                         + ("" if out else f" No retrieved market notice for {region} states a clock time.")),
+                "notices": out}
 
     def _question_retrieval(self, res: Resolution, trace: Any) -> str:
         """For a document question, one retrieval with the question itself, issued by the controller, so the

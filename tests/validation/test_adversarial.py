@@ -29,6 +29,7 @@ EXPECTED = {
     "part_of_day_from_utc": "TIME_OF_DAY_UNVERIFIED",
     "quote_fabricated": "QUOTE_NOT_IN_SOURCE",
     "measure_substituted": "MEASURE_SUBSTITUTED",
+    "notice_timing_omitted": "NOTICE_TIMING_OMITTED",
     "unsupported_causality": "UNSUPPORTED_CAUSALITY",
     "unhedged_hypothesis": "HYPOTHESIS_UNHEDGED",
     "injection_echo": "INJECTION_ECHO",

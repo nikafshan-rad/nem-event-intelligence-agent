@@ -237,6 +237,9 @@ def get_price_timeline(ctx: ToolContext, a: A.PriceTimelineArgs) -> ToolOutput:
         return {"interval_end_utc": s["interval_end_utc"], "interval_end_local": s["interval_end_local"],
                 "value": s[key], "evidence_id": s[f"{'rrp' if key == 'rrp' else key.replace('_mw', '')}_evidence_id"]}
 
+    hi_rows = [s for s in series if s["rrp"] >= thr]
+    lo_rows = [s for s in series if s["rrp"] < thr_lo]
+
     def around(ext: dict[str, Any]) -> list[dict[str, Any]]:
         t0 = parse_iso(ext["interval_end_utc"])
         return [pt(s, "totaldemand_mw") for s in series if s["totaldemand_evidence_id"]
@@ -253,6 +256,12 @@ def get_price_timeline(ctx: ToolContext, a: A.PriceTimelineArgs) -> ToolOutput:
         "analysis_threshold": _threshold_item(ctx, a.region, thr, "project setting (data/source_selection.json)"),
         "intervals_below_low_threshold": {"value": n_lo, "unit": "intervals", "evidence_id": n_lo_ev.evidence_id,
                                           "threshold": thr_lo},
+        # when the threshold intervals began and ended, so another time (e.g. a notice's) can be set against them
+        # (held-out H13)
+        "first_interval_at_or_above_threshold": pt(hi_rows[0]) if hi_rows else None,
+        "last_interval_at_or_above_threshold": pt(hi_rows[-1]) if hi_rows else None,
+        "first_interval_below_low_threshold": pt(lo_rows[0]) if lo_rows else None,
+        "last_interval_below_low_threshold": pt(lo_rows[-1]) if lo_rows else None,
         "totaldemand_at_peak": pt(peak, "totaldemand_mw") if peak["totaldemand_evidence_id"] else None,
         "totaldemand_at_minimum": pt(low, "totaldemand_mw") if low["totaldemand_evidence_id"] else None,
         # dispatch TOTALDEMAND (5-minute) for the 30 minutes either side of each extreme, so a question about total

@@ -268,7 +268,12 @@ After held-out v2, with tests but **not yet measured in Live** (`docs/live-gates
 - a forecast's issue time kept separate from as-of;
 - POE and definitional retrieval fixes, and a controller retrieval of the question;
 - notice questions routed as document questions;
-- quotations checked against their cited passage.
+- quotations checked against their cited passage;
+- when a question asks whether something in a market notice caused the event, the controller sets the notice's time
+  against the event's intervals (before, between or after), and an answer that leaves this out is rejected.
+
+Each of these seven failure modes has a behaviour test that fails on the code as it was run on held-out v2 (`431b9d6`)
+and passes now (`tests/provider/test_v2_failure_modes.py`; logs in `artifacts/logs/v2_failure_modes_*.log`).
 
 Fixed during the evaluation, each with tests:
 - routing of definition and as-of forecast questions;
@@ -317,6 +322,9 @@ Fixed during the evaluation, each with tests:
 - **Publisher revisions.** Pins are exact. When a publisher replaces a file at a pinned URL (AEMO SO_OP_3705
   Version 98; NASA POWER provisional → final weather, both seen on 2026-09-25), fresh setups fail the checksum
   until a reviewer re-pins it with `scripts/repin_source.py`. History is kept in `data/SOURCES.md`.
+  - On 2026-09-28 the check reported AEMO's re-issued August DUDETAILSUMMARY archive: registrations effective from
+    2026-09-11 only, with no effect on any analysed window. The pin is kept pending a reviewer's decision
+    ([`docs/source-review-2026-09-28-mmsdm_dudetailsummary.md`](docs/source-review-2026-09-28-mmsdm_dudetailsummary.md)).
 - **Rolling retention.** The 198 AEMO market notices are served by NEMWeb's rolling "Current" folder. NEMWeb's
   `Archive/Market_Notice` directory exists, but its listing was empty when checked on 2026-09-27. Notices are leaving
   Current: **12 had gone by 2026-09-25 and 66 by 2026-09-27** (reported as missing evidence; the build still

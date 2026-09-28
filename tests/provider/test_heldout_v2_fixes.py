@@ -19,7 +19,7 @@ from nem_agent.retrieval.search import defn_phrase, expand_query, search
 from nem_agent.service import investigate, route_policy
 from nem_agent.timeutil import parse_iso
 from nem_agent.trace import Trace
-from tests.provider.fake_model import FakeModel
+from tests.provider.fake_model import FakeModel, outputs
 
 pytestmark = pytest.mark.synthetic
 
@@ -213,3 +213,137 @@ def test_quotations_must_be_verbatim_in_a_cited_passage():
     assert "QUOTE_NOT_IN_SOURCE" not in codes(f"“{real}” [{cid}]")
     assert "QUOTE_NOT_IN_SOURCE" not in codes(f"AEMO calls it “as generated” demand [{cid}].")  # under three words
     assert "QUOTE_NOT_IN_SOURCE" in codes("AEMO says “demand is measured by satellite daily” here.")  # uncited, not cited
+
+
+# ------------------------------------------------------------------------------------ decisive notice timing
+NOTICE_Q = "Did the Hazelwood bus tie outage in AEMO's notice cause the VIC1 price spike on 2026-08-20?"
+HAZELWOOD = "At 1100 hrs 20/08/2026 there was a short notice outage of Hazelwood PS 4 6 bus tie 220kV."
+
+
+def _vic_notice_investigation(selection, summary_fn, *, repair=False, question=NOTICE_Q):
+    ev = next(e for e in selection.events if e.region == "VIC1" and e.peak_interval_end_utc.startswith("2026-08-19T23"))
+    w = {"region": "VIC1", "start_utc": ev.window_start_utc, "end_utc": ev.window_end_utc}
+    turn = [("find_market_events", {**w, "kind": "high_price", "threshold_aud_per_mwh": None, "max_results": 5}),
+            ("get_price_timeline", {**w, "as_of_utc": None}),
+            ("get_actual_demand", {**w, "revision_policy": "latest_available", "as_of_utc": None}),
+            ("retrieve_public_evidence", {"query": "Hazelwood outage", "region": "VIC1", "top_k": 5,
+                                          "event_start_utc": ev.window_start_utc, "event_end_utc": ev.window_end_utc,
+                                          "as_of_utc": None, "doc_types": ["market_notice"]})]
+
+    def report(kw):
+        results = [v.get("result", {}) for v in outputs(kw).values()]
+        tl = next(r for r in results if "peak" in r)
+        hit = next(h for r in results for h in r.get("results", []) if HAZELWOOD in h["text"])
+        p = tl["peak"]
+        return {"status": "answered", "headline": f"VIC1 RRP peaked at {p['value']} $/MWh at {p['interval_end_local']}.",
+                "summary": summary_fn(tl, _timing(kw)), "document_statements": [],
+                "observation_evidence_ids": [p["evidence_id"]],
+                "numeric_claims": [{"claim_id": "n1", "text": "peak", "value": p["value"], "unit": "$/MWh",
+                                    "evidence_id": p["evidence_id"], "rounding": 0.0}],
+                "possible_explanations": [], "published_findings": [{"citation_id": "c1", "applies_to_event": True}],
+                "citations": [{"citation_id": "c1", "chunk_id": hit["chunk_id"], "quote": HAZELWOOD,
+                               "supports": "the outage notice"}],
+                "uncertainties": [], "missing_evidence": [], "forecast_mae_evidence_id": None}
+    fake = FakeModel({"intent": "market_event_review", "region": "VIC1", "event_date": "2026-08-20", "as_of_utc": None,
+                      "needs_clarification": False, "clarification_reason": None, "clarification": None,
+                      "out_of_scope": False}, [turn], report, repair_fn=report if repair else None)
+    return investigate(InvestigateRequest(question=question, mode="live"), live_client=fake, write_trace=False), fake
+
+
+def _timing(kw):
+    return next((json.loads(i["content"].split("\n", 1)[1]) for i in kw["input"] if isinstance(i, dict)
+                 and str(i.get("content", "")).startswith("Notice timing computed by the controller")), None)
+
+
+def _timing_sentence(tl, timing):
+    t = next(x for n in timing["notices"] if n["doc_id"] == "market_notice_144893" for x in n["times"])
+    last = tl["last_interval_at_or_above_threshold"]
+    return (f"The Hazelwood bus tie outage notice gives {t['local']} ({t['utc']}), after the last 5-minute interval at "
+            f"or above the analysis threshold, which ended {last['interval_end_local']}.")
+
+
+def test_the_controller_sets_notice_times_against_the_event(selection):
+    """H13: the Hazelwood notice's 1100 hrs NEM time (01:00Z) is after every high-price interval (the last ends
+    23:45Z), which the answer never said. The controller now computes it and hands it to the synthesis step."""
+    res, fake = _vic_notice_investigation(selection, lambda tl, timing: [_timing_sentence(tl, timing)])
+    timing = _timing(fake.requests[-1])
+    assert timing["required_in_summary"] is True
+    t = next(x for n in timing["notices"] if n["doc_id"] == "market_notice_144893" for x in n["times"])
+    assert (t["utc"], t["local"]) == ("2026-08-20T01:00:00Z", "2026-08-20 11:00 AEST (UTC+1000)")
+    assert t["relative_to_threshold_intervals"] == ("after the last 5-minute interval at or above the analysis "
+                                                    "threshold: interval ending 2026-08-19T23:45:00Z = 2026-08-20 09:45 "
+                                                    "AEST (UTC+1000)")
+    assert t["relative_to_price_extreme"].startswith("after the price extreme: interval ending 2026-08-19T23:10:00Z")
+    # a sentence built from it passes every check, and the report keeps it
+    rep = res.report
+    assert rep.validation["initial"]["passed"], rep.validation["initial"]["violations"]
+    assert any("2026-08-20 11:00 AEST" in s and "after the last" in s for s in rep.summary)
+
+
+def test_omitting_the_decisive_notice_time_is_rejected_and_repaired(selection):
+    """H13 mechanism: the notice was cited and quoted (with its bare '1100 hrs'), but its time was never set against
+    the event. The draft is rejected, and the one repair (a full one: the violation names no item) adds the sentence."""
+    drafts: list[int] = []
+
+    def summary(tl, timing):
+        drafts.append(1)
+        return [] if len(drafts) == 1 else [_timing_sentence(tl, timing)]
+    res, _ = _vic_notice_investigation(selection, summary, repair=True)
+    v = res.report.validation
+    assert v["pre_repair_codes"] == ["NOTICE_TIMING_OMITTED"] and v["repair_mode"] == "full"
+    assert v["initial"]["passed"] and not v["fallback_applied"]
+    assert any("after the last 5-minute interval" in s for s in res.report.summary)
+
+
+def test_notice_timing_is_required_only_when_the_question_asks_about_a_notice_reported_event(selection):
+    from nem_agent.agent.request import asks_if_notice_event_caused
+
+    assert asks_if_notice_event_caused(NOTICE_Q)
+    for q in ("Did low wind cause the SA1 price spike on 2026-07-31?",                  # ADV01: no notice-reported event
+              "What happened to VIC1 prices on 2026-08-20?",                            # no causal question
+              "What did AEMO's market notice say about the City West transformer?"):    # a document question
+        assert not asks_if_notice_event_caused(q)
+    # otherwise the synthesis input is unchanged, and the same draft without a timing sentence passes
+    res, fake = _vic_notice_investigation(selection, lambda tl, timing: [],
+                                          question="What happened to VIC1 prices on 2026-08-20?")
+    assert _timing(fake.requests[-1]) is None
+    assert res.report.validation["initial"]["passed"], res.report.validation["initial"]["violations"]
+
+
+def test_notice_timing_needs_the_time_on_a_stated_basis_and_its_relation():
+    from datetime import UTC, datetime
+
+    from nem_agent.validation import _states_timing
+
+    t = {datetime(2026, 8, 20, 1, 0, tzinfo=UTC)}
+    assert _states_timing("The notice gives 2026-08-20 11:00 AEST, after the last interval.", t)
+    assert _states_timing("Its time, 01:00 UTC, is after the spike.", t)
+    assert not _states_timing("The notice gives 2026-08-20 11:00 AEST.", t)              # no relation
+    assert not _states_timing("The notice's 1100 hrs is after the spike.", t)            # bare NEM clock, no basis
+    assert not _states_timing("The notice gives 2026-08-20 10:00 AEST, after the spike.", t)  # a different time
+
+
+def test_notice_times_before_and_between_the_threshold_intervals(selection):
+    """SA1, 2026-07-31: one notice time falls before the first high-price interval, and one between the first and last
+    (not 'during': the 214 intervals form several episodes)."""
+    ev = selection.primary
+    turn = [("get_price_timeline", {"region": "SA1", "start_utc": ev.window_start_utc, "end_utc": ev.window_end_utc,
+                                    "as_of_utc": None}),
+            ("retrieve_public_evidence", {"query": "line outage transformer trip", "region": "SA1", "top_k": 8,
+                                          "event_start_utc": ev.window_start_utc, "event_end_utc": ev.window_end_utc,
+                                          "as_of_utc": None, "doc_types": ["market_notice"]})]
+    fake = FakeModel({"intent": "market_event_review", "region": "SA1", "event_date": "2026-07-31", "as_of_utc": None,
+                      "needs_clarification": False, "clarification_reason": None, "clarification": None,
+                      "out_of_scope": False}, [turn],
+                     lambda kw: {"status": "abstained", "headline": "x", "summary": [], "document_statements": [],
+                                 "observation_evidence_ids": [], "numeric_claims": [], "possible_explanations": [],
+                                 "published_findings": [], "citations": [], "uncertainties": [], "missing_evidence": [],
+                                 "forecast_mae_evidence_id": None})
+    investigate(InvestigateRequest(question="Was the SA1 price spike on 2026-07-31 caused by the line outage in AEMO's "
+                                            "notice?", mode="live"), live_client=fake, write_trace=False)
+    times = {n["doc_id"]: n["times"][0] for n in _timing(fake.requests[-1])["notices"]}
+    assert times["market_notice_144692"]["utc"] == "2026-07-30T01:40:00Z"
+    assert times["market_notice_144692"]["relative_to_threshold_intervals"].startswith("before the first 5-minute")
+    assert times["market_notice_144693"]["utc"] == "2026-07-30T06:30:00Z"
+    assert times["market_notice_144693"]["relative_to_threshold_intervals"].startswith("between the first and last")
+    assert times["market_notice_144693"]["relative_to_price_extreme"].startswith("before the price extreme")

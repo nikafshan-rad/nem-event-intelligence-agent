@@ -133,6 +133,20 @@ def asks_about_notices(question: str) -> bool:
     return bool(NOTICE_Q_RE.search(question))
 
 
+# "Was the spike caused by the Hazelwood transmission outage that AEMO put out a notice about?": whether something a
+# market notice reports (an outage, trip, constraint ...) explains the event. The notice's time against the event's
+# intervals is then the decisive observation (held-out H13 cited the notice but never said its time came after every
+# high-price interval). Of the 54 labelled questions only H13 matches; "Did low wind cause ..." does not.
+CAUSE_Q_RE = re.compile(r"\b(caus\w*|because|due to|responsible|drove|driven|behind|trigger\w*|led to|lead to|"
+                        r"result(?:ed)? (?:of|from|in)|blame\w*|attribut\w*)\b", re.I)
+NOTICE_EVENT_Q_RE = re.compile(r"\b(notices?|outages?|trip(?:s|ped)?|lines?|transformers?|constraints?|contingenc\w*|"
+                               r"bus ties?|interconnectors?|transmission|network)\b", re.I)
+
+
+def asks_if_notice_event_caused(question: str) -> bool:
+    return bool(CAUSE_Q_RE.search(question) and NOTICE_EVENT_Q_RE.search(question))
+
+
 def forecast_issue_time(question: str) -> datetime | None:
     """The issue time of a forecast run the question names, when it names one and asks nothing 'as of'."""
     m = ISSUED_AT_RE.search(question)
