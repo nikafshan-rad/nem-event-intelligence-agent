@@ -33,7 +33,7 @@ capture. The same question in Replay mode, which uses no language model and is l
 | Approved-bytes store: builds that restore every approved publisher file, verified by SHA-256, without contacting AEMO/NASA | built, verified 2026-09-27 (fresh machine, no cache) | [`docs/pinned-store.md`](docs/pinned-store.md) |
 | Separate day-ahead quantile experiment (our model, not AEMO's) | built, measured | G8, [`artifacts/ml/report.md`](artifacts/ml/report.md) |
 | Live answer in the UI (real model, real data) | verified 2026-09-28: the model's answer passed validation, and the screenshot and redacted trace come from the same run | [`docs/live-gates.md`](docs/live-gates.md) L4, `artifacts/live/L4/` |
-| **Live evaluation (hosted model)** | **gate FAIL** on two independent held-out sets, each frozen before its run and run once. **Safety held in both** (no writes, causal claims or as-of leaks; every shown number traced; injection ignored). v2 (14 cases): gold labels 8/13 (bar 11), relevance 10/14 (bar 12). v3 (20 cases, after fixes): gold labels 13/18 (bar 15), relevance 15/20 (bar 16); two of its four fallbacks were validator false positives. Earlier cases are regression data. The 40-case hosted evaluation is **UNVERIFIED** (not run) | [`docs/live-gates.md`](docs/live-gates.md) L3, [`eval/holdout_v2/`](eval/holdout_v2/), [`eval/holdout_v3/`](eval/holdout_v3/) |
+| **Live evaluation (hosted model)** | **v4 passed its pre-registered bars**: 20 independent held-out cases, frozen before the run and run once. Safety H1–H5 all 0; expected status 18/20; intent and tools 20/20; gold labels 15/18 (bar 15, met exactly); relevance 17/20 (bar 16). The pass rule's regression safety condition was **not evaluated** (the regression was not run), so L3 is recorded as passed on v4 only. Margins are thin; v2 and v3 had failed. The 40-case hosted evaluation is **UNVERIFIED** (not run) | [`docs/live-gates.md`](docs/live-gates.md) L3, [`eval/holdout_v4/`](eval/holdout_v4/) |
 | **GitHub Actions CI** | configured (lint, mypy, real-data build, tests, eval, safety on Python 3.12 and 3.14); the result is shown in the pull request checks | [`.github/workflows/ci.yml`](.github/workflows/ci.yml) |
 
 ## The question it answers
@@ -286,7 +286,10 @@ Details are in `docs/live-gates.md`, "Results: held-out set v3".
 The v3 failures have since been fixed without a Live run: the notice-time false positives, "issued at about", the
 citable low-price threshold, the schema for document answers, and the POE10/POE90 range for a named run. Each fix has
 a test that fails on the code v3 ran on and passes now (`tests/provider/test_v3_failure_modes.py`). A fresh independent set, `eval/holdout_v4/` (20 cases, gold-checked 20/20),
-is frozen with its pass rule and interruption rule. It has **not been run**.
+was frozen with its pass rule and interruption rule and **run once**. It met every pre-registered v4 criterion,
+narrowly: gold labels 15/18 (bar 15), relevance 17/20 (bar 16). The regression condition was not evaluated. The
+remaining failures (citation-ID mismatches in two document answers, one non-answer) are in `docs/live-gates.md`,
+"Results: held-out set v4".
 
 Each of these seven failure modes has a behaviour test that fails on the code as it was run on held-out v2 (`431b9d6`)
 and passes now (`tests/provider/test_v2_failure_modes.py`; logs in `artifacts/logs/v2_failure_modes_*.log`).
@@ -324,8 +327,9 @@ Fixed during the evaluation, each with tests:
 
 - Replay measures tools, retrieval, validators and templates, not a language model. Live quality is measured
   separately (above).
-  - Live met every safety criterion in every run, but it fails the declared quality bars on an independent
-    held-out set: gold labels hit in 8/13 and relevance 10/14.
+  - Live met every safety criterion in every run. On independent held-out sets it failed the declared quality bars
+    twice (v2: gold 8/13, relevance 10/14; v3: gold 13/18, relevance 15/20), then met them narrowly on v4 (gold 15/18
+    at the bar, relevance 17/20 by the developer's judgement). The pass rule's regression condition was not evaluated.
   - Validators check numbers, quotes, times, units, interval lengths and wording, not whether an explanation is apt
     or whether a description such as "immediately before" is true.
   - The full hosted evaluation is **UNVERIFIED**.
