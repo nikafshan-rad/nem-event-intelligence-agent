@@ -1,0 +1,554 @@
+{
+  "question": "As of 2026-07-30T16:00:00Z, which was the newest available run of Victoria's operational demand forecast, and what POE50 did it give for the 30-minute period ending 2026-07-30T21:30:00Z?",
+  "request": {},
+  "expected": {
+    "intent": "forecast_review",
+    "status_in": [
+      "answered",
+      "answered_with_caveats"
+    ],
+    "required_tools": [
+      "get_forecast_runs",
+      "get_actual_demand",
+      "compare_forecast_actual",
+      "retrieve_public_evidence"
+    ]
+  },
+  "score": {
+    "case_id": "W05",
+    "category": "forecast",
+    "split": "holdout_v4",
+    "status": "answered_with_caveats",
+    "status_ok": true,
+    "accepted": true,
+    "routed_intent": "forecast_review",
+    "expected_intent": "forecast_review",
+    "required_tools": [
+      "get_forecast_runs",
+      "get_actual_demand",
+      "compare_forecast_actual",
+      "retrieve_public_evidence"
+    ],
+    "required_tools_executed": [
+      "get_forecast_runs",
+      "get_actual_demand",
+      "compare_forecast_actual",
+      "retrieve_public_evidence"
+    ],
+    "blocked_calls": 0,
+    "n_claims": 2,
+    "n_citations": 2,
+    "critical_final": 0,
+    "fallback_applied": false,
+    "gold_numbers_hit": 1,
+    "gold_numbers_total": 1,
+    "as_of_leaks": 0,
+    "latency_ms": 109914.1,
+    "model_calls": 5,
+    "input_tokens": 53036,
+    "output_tokens": 8479,
+    "cost_usd": 0.029641,
+    "trace_id": "tr-61b078039a48",
+    "forbidden_calls": 0,
+    "claim_violations_final": 0,
+    "citation_violations_final": 0,
+    "generator": "live-model:gpt-5-mini",
+    "case_note_files_written": 0,
+    "ledger_cost_usd": 0.029641
+  },
+  "route": {
+    "intent": "forecast_review",
+    "region": "VIC1",
+    "event_date": "2026-07-31",
+    "as_of_utc": "2026-07-30T16:00:00Z",
+    "needs_clarification": false,
+    "clarification_reason": null,
+    "clarification": null,
+    "out_of_scope": false
+  },
+  "tools": [
+    {
+      "name": "get_forecast_runs",
+      "call_id": "call_pjLJifSBWr3yogWfAqjntS0b",
+      "status": "ok",
+      "args": {
+        "region": "VIC1",
+        "target_start_utc": "2026-07-30T15:30:00Z",
+        "target_end_utc": "2026-07-31T03:30:00Z",
+        "as_of_utc": "2026-07-30T16:00:00Z",
+        "max_runs": 8
+      },
+      "blocked_reason": null,
+      "policy_notes": [],
+      "source_ids": [
+        "OPDEM_FORECAST_HH:PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607281500_20260728143224:L1733",
+        "OPDEM_FORECAST_HH:PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607281500_20260728143224:L1734",
+        "OPDEM_FORECAST_HH:PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607281500_20260728143224:L1735",
+        "OPDEM_FORECAST_HH:PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607281500_20260728143224:L1736",
+        "OPDEM_FORECAST_HH:PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607281500_20260728143224:L1737",
+        "OPDEM_FORECAST_HH:PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607281500_20260728143224:L1738",
+        "OPDEM_FORECAST_HH:PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607281500_20260728143224:L1739",
+        "OPDEM_FORECAST_HH:PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607281500_20260728143224:L1740",
+        "OPDEM_FORECAST_HH:PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607281500_20260728143224:L1741",
+        "OPDEM_FORECAST_HH:PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607281500_20260728143224:L1742",
+        "OPDEM_FORECAST_HH:PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607281500_20260728143224:L1743",
+        "OPDEM_FORECAST_HH:PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607281500_20260728143224:L1744"
+      ],
+      "n_source_ids": 192,
+      "output_excerpt": "{\"status\": \"ok\", \"result\": {\"region\": \"VIC1\", \"targets_utc\": [\"2026-07-30T15:30:00Z\", \"2026-07-31T03:30:00Z\"], \"as_of_utc\": \"2026-07-30T16:00:00Z\", \"definition\": \"OPERATIONAL_DEMAND (half-hour average, MW, interval-ending)\", \"runs_in_snapshot\": 142, \"runs_eligible\": 114, \"runs_excluded_created_after_as_of\": 23, \"runs_excluded_created_but_not_proven_public_by_as_of\": 5, \"availability_rule\": \"available_at = file creation + 166 min\", \"poe_note\": \"POE10/POE90 are AEMO-published values derived from POE50 by scaling factors (SO_OP_3710); they are not calibrated intervals and not this project's quantiles.\", \"runs\": [{\"run_id\": \"PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607281500_20260728143224\", \"issued_at_utc\": \"2026-07-28T04:27:00Z\", \"published_at_utc\": \"2026-07-28T04:32:24Z\", \"available_at_utc\"",
+      "retrieval_candidates": null
+    },
+    {
+      "name": "get_actual_demand",
+      "call_id": "call_jGuOlUZlGa5tHStmpcFfgRh4",
+      "status": "ok",
+      "args": {
+        "region": "VIC1",
+        "start_utc": "2026-07-30T09:30:00Z",
+        "end_utc": "2026-07-31T09:30:00Z",
+        "revision_policy": "latest_available",
+        "as_of_utc": "2026-07-30T16:00:00Z"
+      },
+      "blocked_reason": null,
+      "policy_notes": [],
+      "source_ids": [
+        "OPDEM_ACTUAL_HH:PUBLIC_ACTUAL_OPERATIONAL_DEMAND_HH_202607302000_20260730200006:L7",
+        "OPDEM_ACTUAL_HH:PUBLIC_ACTUAL_OPERATIONAL_DEMAND_HH_202607302030_20260730203006:L7",
+        "OPDEM_ACTUAL_HH:PUBLIC_ACTUAL_OPERATIONAL_DEMAND_HH_202607302100_20260730210006:L7",
+        "OPDEM_ACTUAL_HH:PUBLIC_ACTUAL_OPERATIONAL_DEMAND_HH_202607302130_20260730213006:L7",
+        "OPDEM_ACTUAL_HH:PUBLIC_ACTUAL_OPERATIONAL_DEMAND_HH_202607302200_20260730220006:L7",
+        "OPDEM_ACTUAL_HH:PUBLIC_ACTUAL_OPERATIONAL_DEMAND_HH_202607302230_20260730223006:L7",
+        "OPDEM_ACTUAL_HH:PUBLIC_ACTUAL_OPERATIONAL_DEMAND_HH_202607302300_20260730230006:L7"
+      ],
+      "n_source_ids": 7,
+      "output_excerpt": "{\"status\": \"ok\", \"result\": {\"region\": \"VIC1\", \"window_utc\": [\"2026-07-30T09:30:00Z\", \"2026-07-31T09:30:00Z\"], \"as_of_utc\": \"2026-07-30T16:00:00Z\", \"definition\": \"Average 30-minute measured operational demand MW value (unadjusted)\", \"revision_policy\": \"latest_available\", \"revisions_used\": {\"initial\": 7, \"updated\": 0}, \"intervals_where_updated_differs_from_initial\": 0, \"excluded_not_yet_available_at_as_of\": 89, \"n_intervals\": 7, \"max\": {\"interval_end_utc\": \"2026-07-30T10:00:00Z\", \"interval_end_local\": \"2026-07-30 20:00 AEST (UTC+1000)\", \"operational_demand_mw\": 8345.0, \"evidence_id\": \"ev0577\"}, \"series\": [{\"interval_end_utc\": \"2026-07-30T10:00:00Z\", \"operational_demand_mw\": 8345.0, \"evidence_id\": \"ev0577\", \"revision\": \"initial\"}, {\"interval_end_utc\": \"2026-07-30T10:30:00Z\", \"operational_dema",
+      "retrieval_candidates": null
+    },
+    {
+      "name": "compare_forecast_actual",
+      "call_id": "call_OUpaJ0Ro7YDWejvoqRwklIjU",
+      "status": "unavailable",
+      "args": {
+        "region": "VIC1",
+        "target_start_utc": "2026-07-30T15:30:00Z",
+        "target_end_utc": "2026-07-31T03:30:00Z",
+        "run_selector": "latest_available_as_of",
+        "min_lead_hours": null,
+        "run_id": null,
+        "as_of_utc": "2026-07-30T16:00:00Z",
+        "actual_revision": "latest_available",
+        "actual_metric": "OPERATIONAL_DEMAND"
+      },
+      "blocked_reason": null,
+      "policy_notes": [],
+      "source_ids": [],
+      "n_source_ids": 0,
+      "output_excerpt": "{\"status\": \"unavailable\", \"result\": {\"reason\": \"no aligned forecast/actual pairs\", \"details\": [\"2026-07-30T16:00:00Z: no actual (latest_available) provably public by as_of\", \"2026-07-30T16:30:00Z: no actual (latest_available) provably public by as_of\", \"2026-07-30T17:00:00Z: no actual (latest_available) provably public by as_of\", \"2026-07-30T17:30:00Z: no actual (latest_available) provably public by as_of\", \"2026-07-30T18:00:00Z: no actual (latest_available) provably public by as_of\", \"2026-07-30T18:30:00Z: no actual (latest_available) provably public by as_of\", \"2026-07-30T19:00:00Z: no actual (latest_available) provably public by as_of\", \"2026-07-30T19:30:00Z: no actual (latest_available) provably public by as_of\", \"2026-07-30T20:00:00Z: no actual (latest_available) provably public by as",
+      "retrieval_candidates": null
+    },
+    {
+      "name": "retrieve_public_evidence",
+      "call_id": "call_qwViz9PHwLUpfCzZCIK3wqJQ",
+      "status": "ok",
+      "args": {
+        "query": "Victoria operational demand forecast POE50 run 2026-07-30 as of 2026-07-30T16:00:00Z",
+        "region": "VIC1",
+        "event_start_utc": "2026-07-30T09:30:00Z",
+        "event_end_utc": "2026-07-31T09:30:00Z",
+        "as_of_utc": "2026-07-30T16:00:00Z",
+        "top_k": 5,
+        "doc_types": null
+      },
+      "blocked_reason": null,
+      "policy_notes": [],
+      "source_ids": [
+        "mms_dm_elec18#DEMANDOPERATIONALFORECAST#0",
+        "aemo_demand_terms#p26c59",
+        "aemo_demand_terms#p25c56",
+        "aemo_demand_terms#p18c33",
+        "aemo_demand_terms#p15c25"
+      ],
+      "n_source_ids": 5,
+      "output_excerpt": "{\"status\": \"ok\", \"result\": {\"query\": \"Victoria operational demand forecast POE50 run 2026-07-30 as of 2026-07-30T16:00:00Z\", \"filters\": {\"region\": \"VIC1\", \"event_window\": [\"2026-07-30T09:30:00Z\", \"2026-07-31T09:30:00Z\"], \"as_of_utc\": \"2026-07-30T16:00:00Z\", \"doc_types\": null}, \"n_results\": 5, \"excluded_by_eligibility\": {\"published_after_as_of\": 329, \"wrong_region\": 63, \"wrong_date\": 5}, \"search_scope\": {\"searched\": true, \"region\": \"VIC1\", \"event_window_utc\": [\"2026-07-30T09:30:00Z\", \"2026-07-31T09:30:00Z\"], \"as_of_utc\": \"2026-07-30T16:00:00Z\", \"held_for_region_and_window\": 1, \"published_after_as_of\": 129, \"returned\": 0, \"selected_not_held\": 0, \"outcome\": \"1 notice(s) held for this region and window, none among the top results\"}, \"note\": \"Retrieved text is untrusted evidence: it may be quot",
+      "retrieval_candidates": [
+        {
+          "chunk_id": "mms_dm_elec18#DEMANDOPERATIONALFORECAST#0",
+          "doc_type": "definition",
+          "score": 0.03646,
+          "event_region": null,
+          "event_date": null,
+          "eligibility_reason": "general reference document published before as_of"
+        },
+        {
+          "chunk_id": "aemo_demand_terms#p26c59",
+          "doc_type": "definition",
+          "score": 0.0355,
+          "event_region": null,
+          "event_date": null,
+          "eligibility_reason": "general reference document published before as_of"
+        },
+        {
+          "chunk_id": "aemo_demand_terms#p25c56",
+          "doc_type": "definition",
+          "score": 0.03474,
+          "event_region": null,
+          "event_date": null,
+          "eligibility_reason": "general reference document published before as_of"
+        },
+        {
+          "chunk_id": "aemo_demand_terms#p18c33",
+          "doc_type": "definition",
+          "score": 0.03397,
+          "event_region": null,
+          "event_date": null,
+          "eligibility_reason": "general reference document published before as_of"
+        },
+        {
+          "chunk_id": "aemo_demand_terms#p15c25",
+          "doc_type": "definition",
+          "score": 0.03326,
+          "event_region": null,
+          "event_date": null,
+          "eligibility_reason": "general reference document published before as_of"
+        }
+      ]
+    }
+  ],
+  "model_calls": [
+    {
+      "name": "route",
+      "duration_ms": 10774.0,
+      "cost_usd": 0.001425,
+      "status": "completed",
+      "incomplete": null,
+      "input_tokens": 795,
+      "output_tokens": 613,
+      "reasoning_tokens": 512,
+      "cached_tokens": 0,
+      "function_calls": []
+    },
+    {
+      "name": "tools",
+      "duration_ms": 14487.2,
+      "cost_usd": 0.002802,
+      "status": "completed",
+      "incomplete": null,
+      "input_tokens": 2488,
+      "output_tokens": 1090,
+      "reasoning_tokens": 640,
+      "cached_tokens": 0,
+      "function_calls": [
+        "get_forecast_runs",
+        "get_actual_demand",
+        "compare_forecast_actual",
+        "retrieve_public_evidence"
+      ]
+    },
+    {
+      "name": "tools",
+      "duration_ms": 17914.1,
+      "cost_usd": 0.006575,
+      "status": "completed",
+      "incomplete": null,
+      "input_tokens": 15331,
+      "output_tokens": 1659,
+      "reasoning_tokens": 1408,
+      "cached_tokens": 2560,
+      "function_calls": []
+    },
+    {
+      "name": "synthesis",
+      "duration_ms": 50844.9,
+      "cost_usd": 0.011523,
+      "status": "completed",
+      "incomplete": null,
+      "input_tokens": 16421,
+      "output_tokens": 3709,
+      "reasoning_tokens": 2496,
+      "cached_tokens": 0,
+      "function_calls": []
+    },
+    {
+      "name": "repair",
+      "duration_ms": 15638.2,
+      "cost_usd": 0.007316,
+      "status": "completed",
+      "incomplete": null,
+      "input_tokens": 18001,
+      "output_tokens": 1408,
+      "reasoning_tokens": 1216,
+      "cached_tokens": 0,
+      "function_calls": []
+    }
+  ],
+  "drafts": {
+    "synthesis:draft": {
+      "status": "answered_with_caveats",
+      "headline": "Newest available VIC1 operational-demand run (PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607302330_20260730230149, available_at_utc 2026-07-30T15:47:49Z) gave POE50 7942.0 MW for the half-hour ending 2026-07-30T21:30:00Z (2026-07-31 07:30 AEST (UTC+1000)).",
+      "summary": [
+        "The newest available run as of 2026-07-30T16:00:00Z is PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607302330_20260730230149 (issued_at_utc: 2026-07-30T12:56:59Z; published_at_utc: 2026-07-30T13:01:49Z; available_at_utc: 2026-07-30T15:47:49Z).",
+        "That run's POE50 for target_end_utc 2026-07-30T21:30:00Z (target_end_local: 2026-07-31 07:30 AEST (UTC+1000)) is 7942.0 MW [ev0538].",
+        "An earlier run (PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607281500_20260728143224) gave POE50 7810.0 MW for the same interval [ev0034].",
+        "compare_forecast_actual returned no aligned forecast/actual pairs; in particular, \"2026-07-30T21:30:00Z: no actual (latest_available) provably public by as_of\" (so the actual operational demand for that half-hour is not available to compare)."
+      ],
+      "document_statements": [],
+      "observation_evidence_ids": [
+        "ev0538",
+        "ev0034"
+      ],
+      "numeric_claims": [
+        {
+          "claim_id": "num1",
+          "text": "POE50 for 2026-07-30T21:30:00Z from the newest run",
+          "value": 7942.0,
+          "unit": "MW",
+          "evidence_id": "ev0538",
+          "rounding": 0.0
+        },
+        {
+          "claim_id": "num2",
+          "text": "POE50 for 2026-07-30T21:30:00Z from the earlier run",
+          "value": 7810.0,
+          "unit": "MW",
+          "evidence_id": "ev0034",
+          "rounding": 0.0
+        }
+      ],
+      "possible_explanations": [
+        {
+          "statement": "The newest run's higher POE50 (7942.0 MW [ev0538]) compared with the earlier run's POE50 (7810.0 MW [ev0034]) may reflect updated forecast inputs or different driver data used when the run was produced.",
+          "supporting_evidence_ids": [
+            "ev0538",
+            "ev0034"
+          ],
+          "what_would_test_it": "Obtain and compare the input driver files or metadata (meteorological and demand-driver inputs) used by PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607302330_20260730230149 and PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607281500_20260728143224; if inputs changed in ways that raise demand, this would support the hypothesis."
+        }
+      ],
+      "published_findings": [],
+      "citations": [
+        {
+          "citation_id": "c1",
+          "chunk_id": "mms_dm_elec18#DEMANDOPERATIONALFORECAST#0",
+          "quote": "OPERATIONAL_DEMAND_POE50 (number(15,2)): 50% probability of exceedance operational demand forecast value.",
+          "supports": "Defines the OPERATIONAL_DEMAND_POE50 field used in forecast outputs."
+        },
+        {
+          "citation_id": "c2",
+          "chunk_id": "aemo_demand_terms#p25c56",
+          "quote": "50% POE demand A 50% probability of exceedance (POE) demand, also known as Demand50, implies there is a 50% probability of the forecast being met or exceeded.",
+          "supports": "Explains the meaning of POE50 (Demand50) used in operational-demand forecasts."
+        }
+      ],
+      "uncertainties": [
+        "compare_forecast_actual returned no aligned forecast/actual pairs as of 2026-07-30T16:00:00Z, so the actual operational demand for the half-hour ending 2026-07-30T21:30:00Z is not available for verification.",
+        "AEMO market notices for the region and window were searched; retrieve_public_evidence reports one notice held for this region and window but none among the top returned passages, and no market-notice text was returned for quoting as a published finding."
+      ],
+      "missing_evidence": [
+        "Actual operational demand for 2026-07-30T21:30:00Z: \"2026-07-30T21:30:00Z: no actual (latest_available) provably public by as_of\" (from compare_forecast_actual)."
+      ],
+      "forecast_mae_evidence_id": null
+    },
+    "repair:draft": {
+      "status": "answered_with_caveats",
+      "headline": "Newest available VIC1 operational-demand run (PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607302330_20260730230149, available_at_utc 2026-07-30T15:47:49Z) gave POE50 7942.0 MW for the half-hour ending 2026-07-30T21:30:00Z (2026-07-31 07:30 AEST (UTC+1000)).",
+      "summary": [
+        "The newest available run as of 2026-07-30T16:00:00Z is PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607302330_20260730230149 (issued_at_utc: 2026-07-30T12:56:59Z; published_at_utc: 2026-07-30T13:01:49Z; available_at_utc: 2026-07-30T15:47:49Z).",
+        "That run's POE50 for target_end_utc 2026-07-30T21:30:00Z (target_end_local: 2026-07-31 07:30 AEST (UTC+1000)) is 7942.0 MW [ev0538].",
+        "An earlier run (PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607281500_20260728143224) gave POE50 7810.0 MW for the same interval [ev0034].",
+        "compare_forecast_actual returned no aligned forecast/actual pairs; the tool reported that actuals for the forecast intervals, including the half-hour ending 2026-07-30T21:30:00Z, were not provably public by 2026-07-30T16:00:00Z, so the actual operational demand for that half-hour is not available to compare."
+      ],
+      "document_statements": [],
+      "observation_evidence_ids": [
+        "ev0538",
+        "ev0034"
+      ],
+      "numeric_claims": [
+        {
+          "claim_id": "num1",
+          "text": "POE50 for 2026-07-30T21:30:00Z from the newest run",
+          "value": 7942.0,
+          "unit": "MW",
+          "evidence_id": "ev0538",
+          "rounding": 0.0
+        },
+        {
+          "claim_id": "num2",
+          "text": "POE50 for 2026-07-30T21:30:00Z from the earlier run",
+          "value": 7810.0,
+          "unit": "MW",
+          "evidence_id": "ev0034",
+          "rounding": 0.0
+        }
+      ],
+      "possible_explanations": [
+        {
+          "statement": "The newest run's higher POE50 (7942.0 MW [ev0538]) compared with the earlier run's POE50 (7810.0 MW [ev0034]) may reflect updated forecast inputs or different driver data used when the run was produced.",
+          "supporting_evidence_ids": [
+            "ev0538",
+            "ev0034"
+          ],
+          "what_would_test_it": "Obtain and compare the input driver files or metadata (meteorological and demand-driver inputs) used by PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607302330_20260730230149 and PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607281500_20260728143224; if inputs changed in ways that raise demand, this would support the hypothesis."
+        }
+      ],
+      "published_findings": [],
+      "citations": [
+        {
+          "citation_id": "c1",
+          "chunk_id": "mms_dm_elec18#DEMANDOPERATIONALFORECAST#0",
+          "quote": "OPERATIONAL_DEMAND_POE50 (number(15,2)): 50% probability of exceedance operational demand forecast value.",
+          "supports": "Defines the OPERATIONAL_DEMAND_POE50 field used in forecast outputs."
+        },
+        {
+          "citation_id": "c2",
+          "chunk_id": "aemo_demand_terms#p25c56",
+          "quote": "50% POE demand A 50% probability of exceedance (POE) demand, also known as Demand50, implies there is a 50% probability of the forecast being met or exceeded.",
+          "supports": "Explains the meaning of POE50 (Demand50) used in operational-demand forecasts."
+        }
+      ],
+      "uncertainties": [
+        "compare_forecast_actual returned no aligned forecast/actual pairs as of 2026-07-30T16:00:00Z, so the actual operational demand for the half-hour ending 2026-07-30T21:30:00Z is not available for verification.",
+        "AEMO market notices for the region and window were searched; retrieve_public_evidence reports one notice held for this region and window but none among the top returned passages, and no market-notice text was returned for quoting as a published finding."
+      ],
+      "missing_evidence": [
+        "Actual operational demand for 2026-07-30T21:30:00Z: \"2026-07-30T21:30:00Z: no actual (latest_available) provably public by as_of\" (from compare_forecast_actual)."
+      ],
+      "forecast_mae_evidence_id": null
+    }
+  },
+  "validation": {
+    "pre_repair": [
+      [
+        "QUOTE_NOT_IN_SOURCE",
+        "summary[3]: the quotation \u201c2026-07-30T21:30:00Z: no actual (latest_available) provably public by \u201d is not in any cited passage"
+      ]
+    ],
+    "final_candidate": [],
+    "repair_attempted": true,
+    "fallback_applied": false,
+    "final_passed": true,
+    "shown": []
+  },
+  "report": {
+    "status": "answered_with_caveats",
+    "headline": "Newest available VIC1 operational-demand run (PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607302330_20260730230149, available_at_utc 2026-07-30T15:47:49Z) gave POE50 7942.0 MW for the half-hour ending 2026-07-30T21:30:00Z (2026-07-31 07:30 AEST (UTC+1000)).",
+    "summary": [
+      "The newest available run as of 2026-07-30T16:00:00Z is PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607302330_20260730230149 (issued_at_utc: 2026-07-30T12:56:59Z; published_at_utc: 2026-07-30T13:01:49Z; available_at_utc: 2026-07-30T15:47:49Z).",
+      "That run's POE50 for target_end_utc 2026-07-30T21:30:00Z (target_end_local: 2026-07-31 07:30 AEST (UTC+1000)) is 7942.0 MW [ev0538].",
+      "An earlier run (PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607281500_20260728143224) gave POE50 7810.0 MW for the same interval [ev0034].",
+      "compare_forecast_actual returned no aligned forecast/actual pairs; the tool reported that actuals for the forecast intervals, including the half-hour ending 2026-07-30T21:30:00Z, were not provably public by 2026-07-30T16:00:00Z, so the actual operational demand for that half-hour is not available to compare."
+    ],
+    "numeric_claims": [
+      {
+        "claim_id": "num1",
+        "text": "POE50 for 2026-07-30T21:30:00Z from the newest run",
+        "value": 7942.0,
+        "unit": "MW",
+        "evidence_id": "ev0538",
+        "rounding": 0.0
+      },
+      {
+        "claim_id": "num2",
+        "text": "POE50 for 2026-07-30T21:30:00Z from the earlier run",
+        "value": 7810.0,
+        "unit": "MW",
+        "evidence_id": "ev0034",
+        "rounding": 0.0
+      }
+    ],
+    "possible_explanations": [
+      {
+        "statement": "The newest run's higher POE50 (7942.0 MW [ev0538]) compared with the earlier run's POE50 (7810.0 MW [ev0034]) may reflect updated forecast inputs or different driver data used when the run was produced.",
+        "certainty": "hypothesis",
+        "supporting_evidence_ids": [
+          "ev0538",
+          "ev0034"
+        ],
+        "what_would_test_it": "Obtain and compare the input driver files or metadata (meteorological and demand-driver inputs) used by PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607302330_20260730230149 and PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607281500_20260728143224; if inputs changed in ways that raise demand, this would support the hypothesis."
+      }
+    ],
+    "published_findings": [],
+    "citations": [
+      {
+        "citation_id": "c1",
+        "chunk_id": "mms_dm_elec18#DEMANDOPERATIONALFORECAST#0",
+        "doc_id": "mms_dm_elec18",
+        "title": "AEMO MMS Data Model Report (Electricity)",
+        "url": "https://nemweb.com.au/Reports/Current/MMSDataModelReport/Electricity/Electricity%20Data%20Model%20Report_files/Elec18.htm",
+        "section": "Table: DEMANDOPERATIONALFORECAST",
+        "page": null,
+        "publication_date": "2026-05-14T13:59:59Z",
+        "doc_type": "definition",
+        "quote": "OPERATIONAL_DEMAND_POE50 (number(15,2)): 50% probability of exceedance operational demand forecast value.",
+        "supports": "Defines the OPERATIONAL_DEMAND_POE50 field used in forecast outputs."
+      },
+      {
+        "citation_id": "c2",
+        "chunk_id": "aemo_demand_terms#p25c56",
+        "doc_id": "aemo_demand_terms",
+        "title": "Demand Terms in EMMS Data Model",
+        "url": "https://www.aemo.com.au/-/media/files/electricity/nem/security_and_reliability/dispatch/policy_and_process/demand-terms-in-emms-data-model.pdf",
+        "section": "A1.  Probability of exceedance",
+        "page": 25,
+        "publication_date": "2025-07-31T13:59:59Z",
+        "doc_type": "definition",
+        "quote": "50% POE demand A 50% probability of exceedance (POE) demand, also known as Demand50, implies there is a 50% probability of the forecast being met or exceeded.",
+        "supports": "Explains the meaning of POE50 (Demand50) used in operational-demand forecasts."
+      }
+    ],
+    "uncertainties": [
+      "compare_forecast_actual returned no aligned forecast/actual pairs as of 2026-07-30T16:00:00Z, so the actual operational demand for the half-hour ending 2026-07-30T21:30:00Z is not available for verification.",
+      "AEMO market notices for the region and window were searched; retrieve_public_evidence reports one notice held for this region and window but none among the top returned passages, and no market-notice text was returned for quoting as a published finding."
+    ],
+    "missing_evidence": [
+      "Actual operational demand for 2026-07-30T21:30:00Z: \"2026-07-30T21:30:00Z: no actual (latest_available) provably public by as_of\" (from compare_forecast_actual).",
+      "compare_forecast_actual: unavailable \u2014 2026-07-30T16:00:00Z: no actual (latest_available) provably public by as_of"
+    ],
+    "as_of": "2026-07-30T16:00:00Z",
+    "event_window": {
+      "start_utc": "2026-07-30T09:30:00Z",
+      "end_utc": "2026-07-31T09:30:00Z",
+      "start_local": "2026-07-30 19:30 AEST (UTC+1000)",
+      "end_local": "2026-07-31 19:30 AEST (UTC+1000)",
+      "timezone": "Australia/Melbourne"
+    },
+    "search_scope": [
+      {
+        "call_id": "call_qwViz9PHwLUpfCzZCIK3wqJQ",
+        "query": "Victoria operational demand forecast POE50 run 2026-07-30 as of 2026-07-30T16:00:00Z",
+        "region": "VIC1",
+        "event_window_utc": [
+          "2026-07-30T09:30:00Z",
+          "2026-07-31T09:30:00Z"
+        ],
+        "as_of_utc": "2026-07-30T16:00:00Z",
+        "document_types": null,
+        "results": 5,
+        "market_notices": "searched: 1 notice(s) held for this region and window, none among the top results"
+      }
+    ],
+    "observations": [
+      {
+        "metric": "opdemand_forecast_poe50",
+        "value": 7942.0,
+        "unit": "MW",
+        "valid_at_utc": "2026-07-30T21:30:00Z",
+        "valid_at_local": "2026-07-31 07:30 AEST (UTC+1000)",
+        "evidence_id": "ev0538",
+        "source_row_ids": [
+          "OPDEM_FORECAST_HH:PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607302330_20260730230149:L1563"
+        ]
+      },
+      {
+        "metric": "opdemand_forecast_poe50",
+        "value": 7810.0,
+        "unit": "MW",
+        "valid_at_utc": "2026-07-30T21:30:00Z",
+        "valid_at_local": "2026-07-31 07:30 AEST (UTC+1000)",
+        "evidence_id": "ev0034",
+        "source_row_ids": [
+          "OPDEM_FORECAST_HH:PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607281500_20260728143224:L1744"
+        ]
+      }
+    ]
+  }
+}
