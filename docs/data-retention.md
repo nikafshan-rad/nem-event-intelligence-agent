@@ -73,6 +73,14 @@ date could cover it, and accepts the member only if its bytes hash to the **SHA-
   ([`docs/decisions.md` D2](decisions.md)). If you confirm the terms in a browser, the files are in
   `data/raw/MARKET_NOTICE/` on a machine that fetched them in time.
 
+## Since 2026-09-27: pinned builds restore from the approved-bytes store
+
+All 198 pinned notices, including those NEMWeb no longer serves, and every other approved file are held in the
+approved-bytes store (docs/pinned-store.md). `make restore-pinned` followed by `make data` / `make index` therefore
+reproduces the same data and corpus versions without contacting NEMWeb. This needs read access to this private
+repository. The behaviour described on the rest of this page applies to builds that download from the publishers
+instead.
+
 ## Publisher revisions (a different failure from roll-off)
 
 A file can also stay online but **change**. When a publisher replaces content at a pinned URL, the SHA-256 check

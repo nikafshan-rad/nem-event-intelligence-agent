@@ -7,6 +7,8 @@ whose old hash equals the base pin and whose ``new_sha256`` equals the new pin, 
 revision and the approving reviewer (``scripts/repin_source.py`` writes all of these). Sources may not be added or
 removed silently. Every history chain must also end at the current pin.
 
+The approved-bytes index (data/pinned_store.json) is also add-only: no object may be removed or edited.
+
 Usage: python scripts/check_pin_changes.py --base origin/main
 """
 
@@ -57,6 +59,31 @@ def check(base: dict[str, Any], head: dict[str, Any]) -> list[str]:
     return problems
 
 
+def check_store(base: dict[str, Any] | None, head: dict[str, Any] | None) -> list[str]:
+    """The approved-bytes index is add-only: existing objects stay, unchanged apart from appended approval events."""
+    if not base:
+        return []
+    if not head:
+        return ["data/pinned_store.json was removed"]
+    h = {o["sha256"]: o for o in head.get("objects", [])}
+    problems = []
+    for o in base.get("objects", []):
+        n = h.get(o["sha256"])
+        if n is None:
+            problems.append(f"store object {o['sha256'][:12]} ({o['source_id']}) was removed; the store is add-only")
+            continue
+        same = {k: v for k, v in o.items() if k != "approval"} == {k: v for k, v in n.items() if k != "approval"}
+        if not same or n.get("approval", [])[: len(o.get("approval", []))] != o.get("approval", []):
+            problems.append(f"store object {o['sha256'][:12]} ({o['source_id']}) was edited; only new approval events "
+                            "may be appended")
+    return problems
+
+
+def _show(base: str, path: str) -> dict[str, Any] | None:
+    r = subprocess.run(["git", "show", f"{base}:{path}"], cwd=REPO, capture_output=True, text=True)
+    return json.loads(r.stdout) if r.returncode == 0 else None
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--base", required=True, help="git revision to compare with, e.g. origin/main or HEAD^")
@@ -66,7 +93,9 @@ def main() -> int:
         print(f"PIN-CHECK: cannot read {SELECTION} at {args.base}: {shown.stderr.strip()[:200]}")
         return 2
     base, head = json.loads(shown.stdout), json.loads((REPO / SELECTION).read_text())
-    problems = check(base, head)
+    store_head = REPO / "data" / "pinned_store.json"
+    problems = check(base, head) + check_store(_show(args.base, "data/pinned_store.json"),
+                                               json.loads(store_head.read_text()) if store_head.exists() else None)
     changed = sum(1 for s in head["sources"] for o in base["sources"]
                   if o["source_id"] == s["source_id"] and o["sha256"] != s["sha256"])
     for p in problems:

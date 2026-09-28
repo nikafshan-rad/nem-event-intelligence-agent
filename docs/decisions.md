@@ -306,3 +306,26 @@ Each entry: the decision, why, the evidence, and what it costs. Departures from
     redistributed (D2), and a GitHub Actions cache is not an archive.
   - A fully repeatable CI would need a durable private store of pinned bytes. That depends on AEMO's terms, which
     are the owner's decision.
+
+## D22. Approved-bytes store for reproducible pinned builds (2026-09-27)
+
+- **Problem.** Pinned builds downloaded from the publishers, so a pin became unobtainable when AEMO replaced a file
+  (SO_OP_3705 Version 97), NEMWeb rolled notices off (67 of 198 by 2026-09-27), or NASA served inconsistent values.
+  GitHub deletes an Actions cache unused for 7 days, so the cache is not an archive.
+- **Decision.** Keep every approved version in a content-addressed store: assets of releases in this private
+  repository, each named by its SHA-256. The index `data/pinned_store.json` in git records each object's URL, original
+  retrieval time, the pin it satisfies (current or superseded), attribution, reuse terms and approval history.
+  - CI restores only objects that hash to their key and match a current pin (`make restore-pinned`, strict), and
+    fails if the build contacted a publisher.
+  - The store is add-only: new releases, no `--clobber`, and the pin guard rejects removed or edited index entries.
+  - Release immutability, which the owner switches on in Settings, locks assets once published.
+  - Details and alternatives are in docs/pinned-store.md.
+- **Licensing.**
+  - *AEMO:* the general permission to use AEMO Material "for any purpose" with attribution (archived page,
+    2026-09-23) covers a private, attributed store.
+  - *NASA POWER:* states no restriction and asks for acknowledgement and notification.
+  - D2 still keeps publisher files out of git, now for size and separation rather than licensing.
+- **Recovery.** SO_OP_3705 Version 97 and the two provisional NASA responses were recovered from the 2026-09-23 CI
+  cache (run 36357940231), verified against their superseded pins, and stored as `superseded` objects.
+- **Not covered.** The embedding model (Hugging Face, pinned revision) and Python packages (PyPI, pinned versions)
+  are still fetched from their services.

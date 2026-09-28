@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       fresh:
-        description: "Ignore the cache and download every pinned source from the publishers"
+        description: "Ignore the embedding-model cache"
         type: boolean
         default: false
 
@@ -37,28 +37,32 @@ jobs:
           python-version: ${{ matrix.python }}
       - name: Pin changes carry a reviewed history entry
         run: python scripts/check_pin_changes.py --base HEAD^
-      # Publisher files are fetched from AEMO/NASA by `make data`/`make index` (not committed; docs/decisions.md D2).
-      # The cache is reused only for the exact same pin set. No prefix fallback: an older cache would bring back
-      # market notices that have since rolled off NEMWeb and hide them, so any change to the pins runs against what
-      # a fresh setup gets today (docs/decisions.md D20).
-      - name: Cache verified publisher files and the embedding model
+      # Publisher bytes come from the approved-bytes store (docs/pinned-store.md), never from a cache: GitHub deletes
+      # caches unused for 7 days. Only the embedding model is cached (it is pinned by revision and re-downloadable).
+      - name: Cache the embedding model
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.fresh) }}
         uses: actions/cache@v4
         with:
-          path: |
-            data/raw
-            data/models
-          key: nem-raw-${{ hashFiles('data/source_selection.json') }}
+          path: data/models
+          key: nem-models-${{ hashFiles('src/nem_agent/retrieval/embed.py') }}
       - name: Install (pinned)
         run: make setup SYSTEM_PY=python
       - name: Lint
         run: make lint
       - name: Type check
         run: make typecheck
-      - name: Fetch real data and build the store (no secrets needed)
+      - name: Approved-bytes index covers every pin (no network)
+        run: make store-verify
+      - name: Restore approved publisher bytes (only bytes matching the current pins; fails if any is missing)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: make restore-pinned
+      - name: Build the data store from the restored pinned bytes
         run: make data
       - name: Build the document index
         run: make index
+      - name: The pinned build contacted no publisher
+        run: .venv/bin/python -m nem_agent.cli publisher-downloads --expect-none
       - name: Tests (unit, integration, real-data, synthetic safety fixtures)
         run: make test
       - name: Offline evaluation (replay; hosted-model evaluation is not run in CI)

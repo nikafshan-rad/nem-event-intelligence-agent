@@ -6,7 +6,7 @@ REGION ?= SA1
 API_PORT ?= 8000
 APP_PORT ?= 8501
 
-.PHONY: help setup probe verify data data-check index demo api app smoke lint typecheck test eval retrieval-eval refresh-check sources eval-live live-smoke safety rolloff-sim ml clean-derived
+.PHONY: help setup probe verify data data-check index demo api app smoke lint typecheck test eval retrieval-eval restore-pinned store-verify refresh-check sources eval-live live-smoke safety rolloff-sim ml clean-derived
 
 help:
 	@echo "make setup      - create .venv and install pinned dependencies (requirements.lock)"
@@ -65,6 +65,12 @@ test:
 
 eval:
 	$(PY) -m nem_agent.cli eval --mode replay --out artifacts/eval/offline.json
+
+restore-pinned:
+	$(PY) -m nem_agent.cli restore-pinned --strict
+
+store-verify:
+	$(PY) -m nem_agent.cli store-verify
 
 refresh-check:
 	$(PY) -m nem_agent.cli refresh-check --eval

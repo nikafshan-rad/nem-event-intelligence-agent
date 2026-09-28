@@ -799,3 +799,53 @@ Fresh home, no cache, 2026-09-27T22:39Z: build-data 0 (data_version 8c14c217f557
   build-index 0 (67 notices unavailable; warning quotes the Archive/Market_Notice listing: 0 files) ·
   data-check PASS · pytest 168 passed · eval PASS · safety PASS · `sources`: 178 pinned, 67 unavailable (excluded)
 ```
+
+## Approved-bytes store: reproducible pinned builds (2026-09-27)
+
+Design, storage choice, reuse terms and costs: [`docs/pinned-store.md`](pinned-store.md). Decision: D22.
+
+**Audit (2026-09-27, before any change)**
+- **Pins:** 307 current pins across 11 datasets, 98.7 MB. The 198 market notices are 0.28 MB; the rest is AEMO and
+  NASA files.
+- **Local copies:** a verified copy of every pin on this machine, including all 198 notices, 67 of which NEMWeb no
+  longer serves.
+- **Pin history:** 3 superseded pins (`aemo_so_op_3705` Version 97, and two provisional NASA POWER responses).
+  No copy of them on this machine.
+- **Reuse terms:**
+  - *AEMO:* general permission "for any purpose" with attribution. The live page answers HTTP 403 to scripts; the
+    text was read from the Internet Archive capture of 2026-09-23T18:07:05Z.
+  - *NASA POWER:* acknowledgement texts, plus polite notification requests.
+- **CI:** until now, pinned builds downloaded from the publishers, with an exact-pin-set Actions cache.
+  - Caches were visible in `gh cache list`: 6 × 200 MB.
+  - GitHub docs: a cache unused for 7 days is deleted, with a 10 GB limit per repository.
+- **Weekly workflow (`publisher-refresh`):** merged in PR #3. Its first scheduled run is due Monday 2026-09-28 19:17 UTC.
+  A manual dispatch from this environment returned HTTP 403 (the token lacks the permission).
+
+**Recovery of the superseded bytes.** The branch cache `nem-raw-3a7ea10c…` (created 2026-09-23T09:01Z, last used
+2026-09-25) still existed.
+- A one-off workflow on `feat/nem-event-intelligence-agent` (run 36357940231) restored it read-only and exported
+  three files as a private one-day artifact.
+- Verified here:
+  - SO_OP_3705 SHA-256 `481012861541…a3cd` equals the pin: 1,267,581 bytes, 66 pages, "Version 97", effective
+    1 April 2026.
+  - NASA content hashes `4ff47874…` and `b2bc691d…` equal the superseded pins (GEOSIT).
+
+**Store published:** release `pinned-bytes-2026-09-27` in this private repository (published 23:21:21Z).
+- 310 objects, 100,013,023 bytes: 307 current and 3 superseded.
+- Downloaded back from GitHub: all 310 assets hash to their names, and the index lists exactly those 310.
+
+**Executed**
+
+```
+make lint && make typecheck && make test      # clean; 178 passed (10 new: 6 store, 4 NASA inconsistency via a local HTTP server)
+make store-verify                             # PASS: 310 objects (307 current, 3 superseded), 0 unavailable
+scripts/check_pin_changes.py --base origin/main   # PASS (pins unchanged; store index add-only check included)
+Fresh home, no cache, no local publisher files (2026-09-27T23:2xZ):
+  restore-pinned --strict: 307 restored from the GitHub store, 0 missing, 0 rejected
+  build-data: data_version 8c14c217f5570d32 · build-index: corpus_version 221b6ea0f21e006d, 198/198 notices
+  publisher-downloads: none · data-check PASS · pytest 178 passed · eval PASS (82/82 rows identical to committed) ·
+  safety PASS · `sources`: 245 pinned, 0 revised, 0 unavailable
+Manual weekly refresh job (make refresh-check --eval against the store-restored baseline, 2026-09-27T23:32:39Z):
+  307 checked: unchanged 235, changed 0, inconsistent 0, unavailable 72 (all expected NEMWeb Current retention;
+  Archive/Market_Notice 0 files) -> NOTHING TO REVIEW
+```

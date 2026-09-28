@@ -398,6 +398,56 @@ def cmd_sources(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_restore_pinned(args: argparse.Namespace) -> int:
+    """Restore approved bytes for every current pin from the store; --strict fails if any pin is not in the store."""
+    from pathlib import Path
+
+    from .pinstore import LocalDirBackend, restore
+
+    backend = LocalDirBackend(Path(args.local_dir)) if args.local_dir else None
+    rep = restore(backend=backend, strict=args.strict)
+    for k in ("not_in_store", "rejected"):
+        if rep[k]:
+            print(f"[store] {k}: {rep[k][:10]}{' ...' if len(rep[k]) > 10 else ''}")
+    print("RESTORE-PINNED:", "PASS" if rep["ok"] else "FAIL")
+    return 0 if rep["ok"] else 1
+
+
+def cmd_store_verify(args: argparse.Namespace) -> int:
+    """Check the approved-bytes index covers every current pin and describes every object (no network)."""
+    from .pinstore import load_index, verify_index
+
+    problems = verify_index()
+    idx = load_index()
+    for p in problems:
+        print("STORE-VERIFY:", p)
+    print(json.dumps({"objects": len(idx.get("objects", [])),
+                      "current": sum(o["status"] == "current" for o in idx.get("objects", [])),
+                      "superseded": sum(o["status"] == "superseded" for o in idx.get("objects", [])),
+                      "unavailable": len(idx.get("unavailable", []))}))
+    print("STORE-VERIFY:", "FAIL" if problems else "PASS")
+    return 1 if problems else 0
+
+
+def cmd_publisher_downloads(args: argparse.Namespace) -> int:
+    """List publisher downloads recorded in the raw manifest; --expect-none fails if a build contacted a publisher."""
+    from . import paths
+
+    p = paths.manifest_path()
+    events = [json.loads(ln) for ln in p.read_text().splitlines()] if p.exists() else []
+    hosts: dict[str, int] = {}
+    for e in events:
+        if e.get("event") == "download":
+            h = (e.get("url") or "").split("/")[2] if "://" in (e.get("url") or "") else "?"
+            hosts[h] = hosts.get(h, 0) + 1
+    print(json.dumps({"publisher_downloads_by_host": hosts}))
+    if args.expect_none and hosts:
+        print("PUBLISHER-DOWNLOADS: FAIL (the pinned build fetched from a publisher instead of the store)")
+        return 1
+    print("PUBLISHER-DOWNLOADS:", "none" if not hosts else "recorded")
+    return 0
+
+
 COMMANDS: dict[str, tuple[Callable[[argparse.Namespace], int], str]] = {
     "build-data": (cmd_build_data, "fetch selected publisher files and build the Parquet store"),
     "data-check": (cmd_data_check, "G1 checks on the built store"),
@@ -410,6 +460,9 @@ COMMANDS: dict[str, tuple[Callable[[argparse.Namespace], int], str]] = {
     "eval": (cmd_eval, "run the 40-case evaluation and baselines"),
     "refresh-check": (cmd_refresh_check, "download current publisher content, compare with the pins, write a report"),
     "sources": (cmd_sources, "show which pinned source versions are in use, revised or unavailable"),
+    "restore-pinned": (cmd_restore_pinned, "restore approved publisher bytes from the store into data/raw"),
+    "store-verify": (cmd_store_verify, "check the approved-bytes index against the pins (no network)"),
+    "publisher-downloads": (cmd_publisher_downloads, "report publisher downloads recorded by builds"),
 }
 
 
@@ -443,6 +496,11 @@ def main(argv: list[str] | None = None) -> int:
             sp.add_argument("--eval", action="store_true", help="also evaluate changed sources in sandboxes")
         if name == "sources":
             sp.add_argument("--all", action="store_true", help="list pinned sources too")
+        if name == "restore-pinned":
+            sp.add_argument("--strict", action="store_true", help="fail if any current pin is not in the store")
+            sp.add_argument("--local-dir", help="restore from a local content-addressed directory instead")
+        if name == "publisher-downloads":
+            sp.add_argument("--expect-none", action="store_true", help="fail if any publisher download is recorded")
         if name == "eval":
             sp.add_argument("--mode", choices=["replay", "live"], default="replay")
             sp.add_argument("--out", default="artifacts/eval/offline.json")
