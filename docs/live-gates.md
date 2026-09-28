@@ -2066,3 +2066,52 @@ POE10/POE90 in comparisons) add to them.
   supported. The lexical support check remains the guard.
 - **Not measured in Live:** none of this. The validator false positives found in v3 were invisible to the unit and
   blind tests, and other false positives may remain.
+
+## Proposal: held-out set v4 (not written, frozen or run; awaiting approval)
+
+**Balance:** the task ledger counts **USD 3.8157 of USD 5.00, so USD 1.1843 remains**. Real paid use is at most USD
+3.8076.
+
+**Set:** 20 new cases (W01–W20), in v3's mix (4 event, 4 forecast with at least 1 as-of, 4 document, 3 notice,
+2 ambiguous/unavailable, 2 causal-bait, 1 injection).
+- **Writer:** a fresh agent, working only in a kit: the same brief, the data dictionary and copies of the data.
+  - It has no access to the repository, analyses, prompts, code, Live outputs, or the 74 earlier questions (40 +
+    held-out v2's 14 + v3's 20).
+  - From the start, it gets a checker holding only SHA-256 hashes of every 6-word sequence in those questions and in
+    prompts v11.
+- **Verifier:** a second fresh agent, kit-only, re-derives every gold value and snippet with its own queries. Freezing
+  requires 20/20 PASS. Problems go back to the writer by case ID only and are re-verified.
+- **Developer's blind check** (counts and IDs only): gold rows and snippets resolve in the repository; every case
+  loads and builds a request; no overlap.
+- **Freeze:** `PASS_RULE.md` is written before the writer starts. `cases.json`, `PROVENANCE.md` and
+  `VERIFICATION.json` are hashed, committed and pushed before any Live call.
+- **Code under test:** the freeze commit, prompts v11, gpt-5-mini.
+
+**Pass rule** (unchanged bars):
+- H1–H5 all 0;
+- Q1 ≥ 16/20;
+- Q2 ≥ 18/20;
+- Q3 ≥ ⌈0.8 × G⌉;
+- Q4 ≥ 16/20, by hand;
+- INCOMPLETE if any case errors or is stopped by the cap; FAIL otherwise.
+- **New, pre-registered because of v3:** runs use the detached driver that skips saved cases.
+  - If the environment kills the process (not an API error or the cap), the unfinished case is re-run once from
+    scratch, disclosed, and its partial cost counts.
+  - A second kill of the same case makes the run INCOMPLETE.
+
+**Regression** (separate, not gating): the 8 cases that failed last round.
+- From v3: V01, V07, V08, V18, V19.
+- From the regression: H03, H05, H14.
+- This checks the fixes in Live. These cases are development data.
+
+**Cap: USD 1.10**, within the USD 1.1843 left.
+
+| Run | Ledger cap | Expected |
+| --- | --- | --- |
+| v4 | counted + 0.80 | about USD 0.55; v3 measured USD 0.0246 per case, maximum 0.0535 |
+| Regression | counted-after-v4 + 0.30, never above counted-at-start + 1.10 | about USD 0.25 |
+
+About USD 0.08 of the task cap would remain.
+
+**Disclosure:** v4 uses the same 8 events, data and document corpus as every earlier set. Its questions are new, but
+the events have been used in development.
