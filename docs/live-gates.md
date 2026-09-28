@@ -1769,3 +1769,38 @@ Belalie–Davenport in ACST (1630 hrs NEM = 06:30Z = 16:00 ACST).
   rejected as unverified.
 - **Not measured in Live:** whether gpt-5-mini states timing correctly, and how many repairs and fallbacks the new
   checks cause.
+
+### Ledger accounting error found and fixed (no money spent)
+
+- **What happened:** while preparing v3, the task ledger read USD 2.742047, not the USD 2.733977 last reported.
+  Cause: two module-scoped fixtures in the new `tests/provider/test_notice_timing.py` ran the SYNTHETIC fake transport
+  outside the per-test ledger isolation. Between 10:46Z and 10:52Z on 2026-09-28, they recorded 66 fake settles of
+  USD 0.000125 each (100/50 fake tokens), USD 0.00807 in total. No API call was made.
+- **Fix:** `tests/conftest.py` now also isolates the ledger for the whole session, so fixtures of any scope use a
+  scratch ledger. A test asserts it, and a full run of 287 tests left the real ledger unchanged.
+- **Accounting:** the ledger is the enforcement record and is left as it is (over-counting only errs on the safe
+  side).
+  - **Counted: USD 2.7420.**
+  - **Real paid use: USD 2.7340** (settled 2.4842 + worst-case charges 0.1874 + two interrupted calls 0.0623).
+  - Caps for the next runs are set relative to the counted figure, so the additional real spend is still capped at
+    USD 1.60.
+
+## Held-out set v3: frozen, not run
+
+The proposal above was carried out, with no Live call. The files are in `eval/holdout_v3/`.
+
+| Item | Value |
+| --- | --- |
+| Cases | **20** (4 event, 4 forecast of which 2 as-of, 4 document, 3 notice, 2 ambiguous/unavailable, 2 causal-bait, 1 injection), IDs V01–V20 |
+| Writer | independent agent, kit only, without the 54 earlier questions, analyses, prompts, code or Live outputs |
+| Gold verification | independent agent, own queries: **20/20 PASS** (18 row-backed numbers, 5 counts, 8 citations); the 8 revised cases re-checked: PASS |
+| Blind check | 18/18 gold rows and 8/8 snippets resolve in the repository; all cases load and build a request; no 6-word overlap with earlier questions or prompts, after one revision by the writer (7 rewordings and V20's `request`; nothing else changed) |
+| `cases.json` SHA-256 | `81337e55e3e139396c57f81dbd889154f4edb624a2c644187c16b9e142ebee07` |
+| `PASS_RULE.md` SHA-256 | `ef2c9968183dd27daa3c79919677f4f63c420dfa7fe86b085553a120badeca00` |
+| `BRIEF.md` / `DATA.md` / `VERIFICATION.json` SHA-256 | `41bb1b18…` / `22276efd…` / `ed399d66…` |
+| Q3 bar | G = 18 cases with gold labels, so ≥ 15 |
+| Code under test | the commit that adds this section (prompts v10, gpt-5-mini) |
+| Cap | **USD 1.60** additional. v3 at ledger cap 3.642047 (counted 2.742047 + 0.90); regression at counted-after-v3 + 0.70, at most 4.342047 |
+
+The pass rule, run commands and decision are in `eval/holdout_v3/PASS_RULE.md`. **The paid runs have not been started
+and await approval.**

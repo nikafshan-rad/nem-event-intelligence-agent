@@ -238,3 +238,9 @@ def test_the_trigger_on_independently_written_paraphrases():
     s3 = sets["set3"]
     assert sum(asks(p["question"]) for p in s3["positive"]) >= s3["blind_result"]["positives_matched"] == 24
     assert sum(asks(n["question"]) for n in s3["negative"]) <= s3["blind_result"]["false_positives"] == 2
+
+
+def test_module_fixtures_do_not_touch_the_real_ledger(vic, sa):
+    from nem_agent import budget, paths
+
+    assert budget.ledger_path() != paths.artifacts_dir() / "live_budget" / "ledger.jsonl"

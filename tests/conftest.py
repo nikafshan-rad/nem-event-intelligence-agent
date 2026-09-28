@@ -52,6 +52,15 @@ def require_notice(doc_id: str) -> None:
         pytest.skip(f"{doc_id} not in corpus: NEMWeb Current notices have rolling retention (docs/decisions.md D2)")
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _session_budget_ledger(tmp_path_factory):
+    """Module- and session-scoped fixtures run outside the per-test fixture below, so the whole session also points
+    at a scratch ledger (a module fixture running the fake transport once wrote to the real one)."""
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setenv("NEM_AGENT_BUDGET_LEDGER", str(tmp_path_factory.mktemp("ledger") / "budget_ledger.jsonl"))
+        yield
+
+
 @pytest.fixture(autouse=True)
 def _isolated_budget_ledger(tmp_path, monkeypatch):
     """Tests never touch the real task-wide spending ledger (nem_agent.budget)."""

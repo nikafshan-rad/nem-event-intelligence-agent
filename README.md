@@ -274,6 +274,9 @@ After held-out v2, with tests but **not yet measured in Live** (`docs/live-gates
   trigger matched 24/30 blind paraphrases (2/30 false positives). Any stated before/between/after is checked against
   the notice's own time and the dispatch prices, in UTC.
 
+A new independent 20-case set, `eval/holdout_v3/`, is written, gold-checked (20/20) and frozen with its pass rule. It
+has **not been run**.
+
 Each of these seven failure modes has a behaviour test that fails on the code as it was run on held-out v2 (`431b9d6`)
 and passes now (`tests/provider/test_v2_failure_modes.py`; logs in `artifacts/logs/v2_failure_modes_*.log`).
 
