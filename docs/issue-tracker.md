@@ -11,7 +11,7 @@ One list of known defects, so that each fix is weighed against the whole. Eviden
 
 | ID | Area | Concrete example | Priority | Status |
 | --- | --- | --- | --- | --- |
-| I-1 | **Direct, complete answers** | **(a)** F04 (live check 2026-09-29) asked "Was Directlink being out of service what drove the NSW1 price spike…?": the answer lists correct observations and hedged possibilities but never says what the evidence supports. **(b)** W19 (held-out v4) does not say the reserve (LOR) forecasts were cancelled before the day, and its hypotheses lean on them | P1 | **(a): fixed offline** in PR `#16` (below), **Live unverified**. **(b): in progress** in `fix/cancelled-forecast-status` (below) |
+| I-1 | **Direct, complete answers** | **(a)** F04 (live check 2026-09-29) asked "Was Directlink being out of service what drove the NSW1 price spike…?": the answer lists correct observations and hedged possibilities but never says what the evidence supports. **(b)** W19 (held-out v4) does not say the reserve (LOR) forecasts were cancelled before the day, and its hypotheses lean on them | P1 | **(a): fixed offline** in PR `#16` (below), **Live unverified**. **(b): fixed offline** in PR `#17` (below), **Live unverified** |
 | I-2 | **Evidence selection and calculations** | **(a)** F04 never fetched the other regions' prices, so it misses that VIC1, SA1 and TAS1 were also above 470 $/MWh while QLD1 was about 65. **(b)** W04 gives both total-demand values (10046.72 and 11432.7 MW) but not the rise between them: a derived number has no evidence ID | P1 | open |
 | I-3 | **Clear presentation** | F01 shows "New South Wales 150" without "MW". F03 shows "1630 hrs" without its zone (NEM time, 06:30 UTC). Headlines are vague or off the question: F03's after repair, F04's (the peak price) | P2 | open |
 | I-4 | **Internal details in user-facing text** | Tool names (W20: "API functions named get_actual_demand / get_forecast_runs"), controller notes ("Market notices were not searched…" on document questions, F01), and evidence IDs (F04: "ev0878 … is not a time-stamped observation") | P2 | open |
@@ -130,6 +130,34 @@ reserve (LOR) for SA on 29/07 was cancelled before that day.
    incident.
 6. **Unchanged:** the Replay evaluation and the safety suite, or any change is explained.
 
+**Result** (PR `#17`, offline; evidence in `artifacts/logs/cancelled_notice_*`). All six checks are met:
+1. **Retrieval:** a notice that says it cancels another names it: 16 of the 198 corpus notices do, of five kinds
+   (reserve forecasts, directions, interventions, settlement residues, reclassifications).
+   - On W19's own query, the retrieve tool marks 144624, 144627 and 144652 as cancelled by 144626, 144628 and 144655,
+     and adds 144626.
+   - As of 23:00Z on 26/07, 144624 shows no cancellation, and 144626 is not returned.
+2. **The answer:** W19's answer opens with "AEMO later cancelled what these cited notices announced, each before the
+   price extreme (interval ending 2026-07-29T07:55:00Z = 2026-07-29 17:25 ACST): the reserve notice issued 2026-07-27
+   07:21 ACST … was cancelled by one issued 2026-07-27 08:57 ACST …; …".
+3. **No reliance on cancelled forecasts:** W19's two hypotheses resting on cancelled forecasts get
+   `CANCELLED_NOTICE_AS_ACTIVE`; the third, which cites no notice, does not. The answer fails closed if the repair
+   repeats them, and passes with no fallback after a scoped repair deletes them.
+4. **Controls:** none gets a sentence or a violation:
+   - an active SYNTHETIC forecast;
+   - one cancelled only after the price extreme;
+   - a hypothesis that says the forecast was cancelled;
+   - W01, W02, W03, W18 and F04.
+5. **Consistency with I-1a:** a question naming the cancelled "LOR2" forecast no longer gets a "cannot settle" timing
+   sentence built from a cancelled forecast's time.
+6. **Unchanged:** the Replay evaluation is identical to `main`; the safety suite passes.
+
+**Still open for I-1b:**
+- only explicit cancellations count ("is cancelled", "cancelled from", "ceased", or a title with "Cancellation"),
+  not other status changes (an updated or revised notice);
+- the sentence gives issue and cancellation times, but not the forecast period;
+- the facts-only fallback drops the sentence with the rest of the narrative;
+- **Live is unverified.**
+
 ### I-5: safety-language limitations (recorded, not being fixed)
 
 | Example | Where | Risk |
@@ -143,8 +171,9 @@ reserve (LOR) for SA on 29/07 was cancelled before that day.
 
 ## Next
 
-**I-1b (W19, cancelled reserve forecasts not mentioned).** P1, the last open item in the direct-answers area. After
-it, I-2 (evidence selection and calculations).
+**I-2 (evidence selection and calculations).** P1. **I-2a:** F04 never fetched the other regions' prices. **I-2b:** W04
+leaves the rise between two demand values implicit. I-1 (direct answers) is fixed offline for its two recorded
+examples; both fixes await the next paid Live check.
 
 ## Completed
 
@@ -159,3 +188,4 @@ it, I-2 (evidence selection and calculations).
 | Caveat fields: causal and injection checks read uncertainties and missing evidence; a qualifier counts only in its own clause | #14 | offline |
 | Live check 2026-09-29: W20 plus 4 fresh cases, recorded | #15 | Live, USD 0.106 |
 | I-1a: a causal question about a notice-reported incident gets the answer its timing supports | #16 | offline; **Live unverified** |
+| I-1b: a cited notice's cancellation is stated, and a cancelled forecast is never relied on as active | #17 | offline; **Live unverified** |
