@@ -1,0 +1,79 @@
+# Live controller replays of saved records (tool calls + model draft), SYNTHETIC fake transport, no network.
+# W19: first draft; 'repair repeats' = the fake repair returns the draft; 'scoped repair deletes the two' = a
+# patch deleting the two hypotheses that rest on cancelled forecasts (on main no repair runs: nothing is rejected).
+
+## main aaaa210
+== repair repeats the draft: pre-repair [] | mode None | fallback False | final_passed True | status answered_with_caveats
+   cancellation sentence: None
+   explanations shown: ['Offers or rebids after AEMO forecast LOR notices (for example, the PDPASA LOR1 notice [c3]', 'A tightened real‑time reserve margin (the short reserve quantities noted in AEMO notices s', 'A sudden change in unit availability or an interconnector capability change could have red']
+== scoped repair deletes the two: pre-repair [] | mode None | fallback False | final_passed True | status answered_with_caveats
+   cancellation sentence: None
+   explanations shown: ['Offers or rebids after AEMO forecast LOR notices (for example, the PDPASA LOR1 notice [c3]', 'A tightened real‑time reserve margin (the short reserve quantities noted in AEMO notices s', 'A sudden change in unit availability or an interconnector capability change could have red']
+== F04: status answered_with_caveats | first-draft critical [] | fallback False | final_passed True
+   timing answer: The records cannot settle this: the AEMO market notice that mentions Directlink gives 2026-07-27 07:00 AEST (2026-07-26T21:00:00Z), before the price e
+   cancellation answer: None
+== W18: status answered | first-draft critical [] | fallback False | final_passed True
+   timing answer: Timing rules this out: the AEMO market notice that mentions Hazelwood gives 2026-08-20 11:00 AEST (2026-08-20T01:00:00Z), after the price extreme (int
+   cancellation answer: None
+   timing answer: Timing rules this out: the AEMO market notice that mentions Hazelwood gives 2026-08-20 11:00 AEST (2026-08-20T01:00:00Z), after the price extreme (int
+   cancellation answer: None
+   timing answer: None
+   cancellation answer: None
+== W01: status answered_with_caveats | first-draft critical [] | fallback False | final_passed True
+   timing answer: None
+   cancellation answer: None
+== W02: status answered | first-draft critical [] | fallback False | final_passed True
+   timing answer: None
+   cancellation answer: None
+== W03: status answered | first-draft critical [] | fallback False | final_passed True
+   timing answer: None
+   cancellation answer: None
+== W19-LOR2: status answered_with_caveats | first-draft critical [] | fallback False | final_passed True
+   timing answer: The records cannot settle this: the AEMO market notice that mentions LOR2 gives 2026-07-27 11:30 ACST (2026-07-27T02:00:00Z), before the price extreme
+   cancellation answer: None
+   timing answer: None
+   cancellation answer: None
+   timing answer: None
+   cancellation answer: None
+
+## this branch
+== repair repeats the draft: pre-repair ['CANCELLED_NOTICE_AS_ACTIVE'] | mode scoped | fallback True | final_passed True | status answered_with_caveats
+    possible_explanations[0]: rests on market_notice_144652#0 [c3], but market_notice_144655#0 cancelled it at 2026-07-28T03:44:57Z, before the price extreme; say it was cancelled, or drop it
+    possible_explanations[0]: rests on market_notice_144624#0 [c1], but market_notice_144626#0 cancelled it at 2026-07-26T23:27:40Z, before the price extreme; say it was cancelled, or drop it
+    possible_explanations[1]: rests on market_notice_144652#0 [c3], but market_notice_144655#0 cancelled it at 2026-07-28T03:44:57Z, before the price extreme; say it was cancelled, or drop it
+    possible_explanations[1]: rests on market_notice_144624#0 [c1], but market_notice_144626#0 cancelled it at 2026-07-26T23:27:40Z, before the price extreme; say it was cancelled, or drop it
+   cancellation sentence: AEMO later cancelled what these cited notices announced, each before the price extreme (interval ending 2026-07-29T07:55:00Z = 2026-07-29 17:25 ACST): the reserve notice issued 2026-07-27 07:21 ACST (2026-07-26T21:51Z) was cancelled by one issued 2026-07-27 08:57 ACST (2026-07-26T23:27Z); the reserve notice issued 2026-07-27 10:02 ACST (2026-07-27T00:32Z) was cancelled by one issued 2026-07-27 11:58 ACST (2026-07-27T02:28Z); the reserve notice issued 2026-07-28 12:45 ACST (2026-07-28T03:15Z) was cancelled by one issued 2026-07-28 13:14 ACST (2026-07-28T03:44Z).
+   explanations shown: []
+== scoped repair deletes the two: pre-repair ['CANCELLED_NOTICE_AS_ACTIVE'] | mode scoped | fallback False | final_passed True | status answered_with_caveats
+    possible_explanations[0]: rests on market_notice_144652#0 [c3], but market_notice_144655#0 cancelled it at 2026-07-28T03:44:57Z, before the price extreme; say it was cancelled, or drop it
+    possible_explanations[0]: rests on market_notice_144624#0 [c1], but market_notice_144626#0 cancelled it at 2026-07-26T23:27:40Z, before the price extreme; say it was cancelled, or drop it
+    possible_explanations[1]: rests on market_notice_144652#0 [c3], but market_notice_144655#0 cancelled it at 2026-07-28T03:44:57Z, before the price extreme; say it was cancelled, or drop it
+    possible_explanations[1]: rests on market_notice_144624#0 [c1], but market_notice_144626#0 cancelled it at 2026-07-26T23:27:40Z, before the price extreme; say it was cancelled, or drop it
+   cancellation sentence: AEMO later cancelled what these cited notices announced, each before the price extreme (interval ending 2026-07-29T07:55:00Z = 2026-07-29 17:25 ACST): the reserve notice issued 2026-07-27 07:21 ACST (2026-07-26T21:51Z) was cancelled by one issued 2026-07-27 08:57 ACST (2026-07-26T23:27Z); the reserve notice issued 2026-07-27 10:02 ACST (2026-07-27T00:32Z) was cancelled by one issued 2026-07-27 11:58 ACST (2026-07-27T02:28Z); the reserve notice issued 2026-07-28 12:45 ACST (2026-07-28T03:15Z) was cancelled by one issued 2026-07-28 13:14 ACST (2026-07-28T03:44Z).
+   explanations shown: ['A sudden change in unit availability or an interconnector capability change could have red']
+== F04: status answered_with_caveats | first-draft critical [] | fallback False | final_passed True
+   timing answer: The records cannot settle this: the AEMO market notice that mentions Directlink gives 2026-07-27 07:00 AEST (2026-07-26T21:00:00Z), before the price e
+   cancellation answer: None
+== W18: status answered | first-draft critical [] | fallback False | final_passed True
+   timing answer: Timing rules this out: the AEMO market notice that mentions Hazelwood gives 2026-08-20 11:00 AEST (2026-08-20T01:00:00Z), after the price extreme (int
+   cancellation answer: None
+   timing answer: Timing rules this out: the AEMO market notice that mentions Hazelwood gives 2026-08-20 11:00 AEST (2026-08-20T01:00:00Z), after the price extreme (int
+   cancellation answer: None
+   timing answer: None
+   cancellation answer: AEMO later cancelled what these cited notices announced, each before the price extreme (interval ending 2026-07-29T07:55:00Z = 2026-07-29 17:25 ACST):
+== W01: status answered_with_caveats | first-draft critical [] | fallback False | final_passed True
+   timing answer: None
+   cancellation answer: None
+== W02: status answered | first-draft critical [] | fallback False | final_passed True
+   timing answer: None
+   cancellation answer: None
+== W03: status answered | first-draft critical [] | fallback False | final_passed True
+   timing answer: None
+   cancellation answer: None
+== W19-LOR2: status answered_with_caveats | first-draft critical ['CANCELLED_NOTICE_AS_ACTIVE'] | fallback True | final_passed True
+   timing answer: None
+   cancellation answer: AEMO later cancelled what these cited notices announced, each before the price extreme (interval ending 2026-07-29T07:55:00Z = 2026-07-29 17:25 ACST):
+   timing answer: None
+   cancellation answer: None
+   timing answer: None
+   cancellation answer: None

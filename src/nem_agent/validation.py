@@ -36,8 +36,8 @@ from typing import Any
 
 from .evidence import EvidenceRegistry
 from .report import InvestigationReport
-from .retrieval.corpus import INJECTION_RE
-from .timeutil import NEM_TZ, REGION_TZ, parse_iso, region_zone
+from .retrieval.corpus import INJECTION_RE, NOTICE_NUMBER_RE, cancelled_notices
+from .timeutil import NEM_TZ, REGION_TZ, iso_utc, parse_iso, region_zone
 
 CAUSAL_RE = re.compile(r"\b(caused|causes|causing|cause of|due to|because of|led to|leads to|resulted in|result of|"
                        r"drove|driven by|triggered|responsible for|was the reason|explains why)\b", re.I)
@@ -146,6 +146,21 @@ def narrative_numbers(text: str, ids: frozenset[str] = frozenset()) -> list[floa
 def _hypothesis_tests(r: InvestigationReport) -> list[tuple[str, str]]:
     return [(f"possible_explanations[{i}].what_would_test_it", h.what_would_test_it)
             for i, h in enumerate(r.possible_explanations)]
+
+
+def cancelled_notice_chunks(registry: EvidenceRegistry) -> dict[str, tuple[str, datetime]]:
+    """Each retrieved market notice that another retrieved notice cancels: its chunk_id -> (the cancelling notice's
+    chunk_id, that notice's publication time), the earliest cancellation if there are several."""
+    by_number = {m.group(1): cid for cid in registry.chunks if (m := NOTICE_NUMBER_RE.match(cid))}
+    out: dict[str, tuple[str, datetime]] = {}
+    for ch in registry.chunks.values():
+        if ch.doc_type != "market_notice" or not ch.publication_date:
+            continue
+        t = parse_iso(ch.publication_date)
+        for n in cancelled_notices(ch.title, ch.text):
+            if n in by_number and (by_number[n] not in out or t < out[by_number[n]][1]):
+                out[by_number[n]] = (ch.chunk_id, t)
+    return out
 
 
 def _narratives(r: InvestigationReport) -> list[tuple[str, str]]:
@@ -827,6 +842,26 @@ def validate(report: InvestigationReport, registry: EvidenceRegistry, *, as_of: 
                 and not OPERATIONAL_DEMAND_Q_RE.search(said):
             V.append(Violation("MEASURE_SUBSTITUTED", "critical", "the question asks for operational demand but the "
                                "answer gives only dispatch TOTALDEMAND"))
+
+    # -- cancelled notices: a hypothesis may not rest, as if it were active, on a notice that a later retrieved notice
+    #    cancelled before the price extreme (held-out v4 W19 leaned on three SA reserve forecasts cancelled on 27 and
+    #    28/07 for a spike on 29/07); saying it was cancelled is allowed
+    if report.intent == "market_event_review":
+        res.checks_run.append("cancelled_notices")
+        et = _event_times(report, registry, window, event_kind)
+        limit = et.peak if et is not None and et.peak is not None else (window[1] if window else None)
+        gone = {c: v for c, v in cancelled_notice_chunks(registry).items() if limit is None or v[1] <= limit}
+        for i, h in enumerate(report.possible_explanations):
+            if not gone or re.search(r"\bcancel", h.statement, re.I):
+                continue
+            for ref in dict.fromkeys(CITE_RE.findall(h.statement)):
+                relied_on = cites.get(ref)
+                if relied_on is not None and relied_on.chunk_id in gone:
+                    canceller, cancelled_at = gone[relied_on.chunk_id]
+                    V.append(Violation("CANCELLED_NOTICE_AS_ACTIVE", "critical",
+                                       f"possible_explanations[{i}]: rests on {relied_on.chunk_id} [{ref}], but "
+                                       f"{canceller} cancelled it at {iso_utc(cancelled_at)}, before the price extreme; "
+                                       "say it was cancelled, or drop it"))
 
     # -- notice timing in market-event reviews. Every sentence (headline, summary, hypotheses, uncertainties; not a
     #    quote, a hypothesis's test or a "whether"/"if" clause) that sets a retrieved notice's time before, between or

@@ -697,6 +697,7 @@ def retrieve_public_evidence(ctx: ToolContext, a: A.RetrieveArgs) -> ToolOutput:
         if h["doc_type"] == "market_notice":
             item["clock_times"] = notice_clock_times(h["text"], h["event_date"], h["event_region"] or a.region)
         out.append(item)
+    _mark_cancellations(ctx, a, out)
     scope = notice_search_scope(ctx, a, out)
     view: dict[str, Any] = {
         "query": a.query, "filters": {"region": a.region, "event_window": [a.event_start_utc, a.event_end_utc],
@@ -713,6 +714,32 @@ def retrieve_public_evidence(ctx: ToolContext, a: A.RetrieveArgs) -> ToolOutput:
         missing.append(f"{scope['selected_not_held']} market notice(s) selected for {a.region} in this window are not in "
                        "the local corpus (rolled off the publisher); anything they said is unavailable.")
     return ToolOutput("ok", view, missing=missing, source_row_ids=[h["chunk_id"] for h in out])
+
+
+def _mark_cancellations(ctx: ToolContext, a: A.RetrieveArgs, out: list[dict[str, Any]]) -> None:
+    """Mark each returned market notice that a later eligible notice cancels, and add that notice when the query did not
+    return it, so a cancelled forecast is never read as active (held-out v4 W19: three SA reserve forecasts for 29/07
+    were cancelled on 27 and 28/07; the query returned one of the cancellations)."""
+    from ..evidence import ChunkItem
+    from ..retrieval.corpus import NOTICE_NUMBER_RE
+    from ..retrieval.search import cancellations
+
+    returned = {m.group(1): item for item in out if (m := NOTICE_NUMBER_RE.match(item["chunk_id"]))}
+    if not returned:
+        return
+    held = {item["chunk_id"] for item in out}
+    for n, c in cancellations(set(returned), region=a.region, event_start=a.ts("event_start_utc"),
+                              event_end=a.ts("event_end_utc"), as_of=a.ts("as_of_utc")).items():
+        returned[n]["cancelled_by"] = {"chunk_id": c["chunk_id"], "published_utc": c["publication_date"]}
+        if c["chunk_id"] in held:
+            continue
+        ctx.registry.add_chunk(ChunkItem(tool_call_id=ctx.call_id, **c))
+        item = {k: c[k] for k in ("chunk_id", "doc_id", "title", "url", "section", "page", "publication_date",
+                                  "doc_type", "event_region", "event_date", "eligibility_reason", "score", "text",
+                                  "instruction_like")}
+        item["clock_times"] = notice_clock_times(c["text"], c["event_date"], c["event_region"] or a.region)
+        out.append(item)
+        held.add(c["chunk_id"])
 
 
 def notice_search_scope(ctx: ToolContext, a: A.RetrieveArgs, out: list[dict[str, Any]]) -> dict[str, Any] | None:

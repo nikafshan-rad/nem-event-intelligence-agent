@@ -276,6 +276,23 @@ def parse_notice(text: str) -> dict[str, Any]:
             "event_date": ev_date, "reason": reason}
 
 
+# A notice that cancels an earlier one names it: "The Forecast LOR2 condition … advised in AEMO Electricity Market
+# Notice No. 144624 is cancelled at 0920 hrs 27/07/2026", "Refer to Market Notice 144636 Direction is cancelled from
+# …", "CANCELLATION - … Refer to market notice: 144637 AEMO has ceased …" (held-out v4 W19 relied on three reserve
+# forecasts that later notices had cancelled).
+_CANCEL_TITLE_RE = re.compile(r"\bcancel", re.I)
+_CANCELLED_TEXT_RE = re.compile(r"\b(?:is|are|been) cancelled\b|\bcancelled (?:at|from)\b|\bceased\b", re.I)
+_NOTICE_REF_RE = re.compile(r"(?:Notice No\.?|Market Notice:?)\s*(\d{5,7})\b", re.I)
+NOTICE_NUMBER_RE = re.compile(r"^market_notice_(\d+)#")
+
+
+def cancelled_notices(title: str, text: str) -> list[str]:
+    """The numbers of the earlier market notices this notice cancels; none unless it says it cancels something."""
+    if not (_CANCEL_TITLE_RE.search(title or "") or _CANCELLED_TEXT_RE.search(text or "")):
+        return []
+    return list(dict.fromkeys(_NOTICE_REF_RE.findall(text or "")))
+
+
 def notice_chunk(src: SourceEntry, path: Path) -> Chunk | None:
     raw = path.read_text(encoding="utf-8", errors="replace")
     n = parse_notice(raw)
