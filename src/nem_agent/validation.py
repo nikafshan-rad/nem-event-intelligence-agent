@@ -12,6 +12,8 @@ Nothing here trusts the controller or the model. Checks (all deterministic):
   retrospective context is used;
 * metric compatibility — forecast errors derive only from operational-demand forecast/actual rows;
 * language — no causal assertions outside hedged hypotheses; no echo of instruction-like retrieved text;
+* action claims — an answer may say a case note or an action was approved, written or completed only with an
+  approval record, which an investigation never has (it is read-only);
 * status honesty — an "answered" report must carry evidence, and required tools must have run.
 * decisive timing — when a question asks whether something a market notice reports explains the event, the
   answer must set the notice's time against the event's intervals.
@@ -26,6 +28,7 @@ import contextlib
 import functools
 import re
 import unicodedata
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -150,6 +153,43 @@ def _narratives(r: InvestigationReport) -> list[tuple[str, str]]:
     out += [(f"published_findings[{i}]", f.statement) for i, f in enumerate(r.published_findings)]
     if r.forecast_comparison:
         out.append(("forecast_comparison.note", r.forecast_comparison.note))
+    return out
+
+
+# An investigation is read-only: no tool approves, writes or publishes anything, and case notes are approved and
+# written only through the approval endpoints (approvals.py), after an answer exists. An answer saying that a case
+# note or an action was approved, written or completed therefore needs an approval record (W20 injection audit: "The
+# case note is approved." was shown although nothing had been approved or written). Negated, modal and conditional
+# statements ("approval is required", "no approval was granted", "published only after approval") are not claims.
+_ACT_OBJ = (r"(?:case[- ]?notes?|research notes?|(?:the|this|that|your|my|our) notes?|approvals?|publication|publishing|"
+            r"(?:the|this|that|your) (?:requested|pending|write|publish(?:ing)?) (?:action|request|write)s?|"
+            r"(?:your|this) (?:action|request)s?)")
+_ACT_DONE = (r"(?:approved|published|written|saved|filed|submitted|completed|complete|done|finali[sz]ed|signed[- ]off|"
+             r"granted|given|obtained|accepted|executed|performed|carried out|processed|recorded|sent)")
+ACTION_CLAIM_RE = re.compile(
+    rf"\b(?:{_ACT_OBJ}(?:\s+(?:for|on|about|of|in|from)\s+(?:[\w'-]+\s+){{0,4}}?[\w'-]+)?"  # "… for the SA1 event"
+    r"(?:\s*(?:is|are|was|were|has|have|had|been|being|now|just|already|successfully|also|then|got|status|state|:|=))*"
+    rf"\s+{_ACT_DONE}"
+    r"|(?:I|we|the (?:agent|assistant|system)|(?:a|the) reviewer)(?:['’]ve)?"
+    r"(?:\s+(?:have|has|had|just|already|now|successfully))*\s+"
+    r"(?:approved|published|wrote|written|saved|filed|submitted|completed|finali[sz]ed|signed off|granted|executed|"
+    r"performed|carried out|processed|recorded|sent))\b", re.I)
+_NOT_DONE_RE = re.compile(r"\b(?:not|no|never|nothing|none|neither|nor|without|cannot|can|could|would|should|will|"
+                          r"shall|may|might|must|unless|until|if|whether|once|pending|awaiting|yet|before|after|when|"
+                          r"to)\b|n't\b", re.I)
+_CONDITION_AFTER_RE = re.compile(r"^\W*(?:\w+\W+){0,2}?(?:only|once|if|after|before|when|until|unless|upon)\b", re.I)
+
+
+def action_claims(text: str) -> list[str]:
+    """Statements outside quotations that a case note or an action was approved, written or completed. A negation,
+    modal or condition in the statement or the four words before it, or a condition right after it, makes it not a
+    claim."""
+    out = []
+    for sentence in SENTENCE_RE.split(QUOTED_RE.sub(" ", text)):
+        for m in ACTION_CLAIM_RE.finditer(sentence):
+            before = " ".join(sentence[:m.start()].split()[-4:])
+            if not _NOT_DONE_RE.search(f"{before} {m.group(0)}") and not _CONDITION_AFTER_RE.search(sentence[m.end():]):
+                out.append(m.group(0))
     return out
 
 
@@ -510,7 +550,10 @@ def support(sentence: str, passage: str) -> float:
 
 def validate(report: InvestigationReport, registry: EvidenceRegistry, *, as_of: datetime | None = None,
              window: tuple[datetime, datetime] | None = None, records: list[Any] | None = None,
-             required_tools: tuple[str, ...] = (), event_kind: str | None = None) -> ValidationResult:
+             required_tools: tuple[str, ...] = (), event_kind: str | None = None,
+             approval_records: Sequence[Any] = ()) -> ValidationResult:
+    """``approval_records``: approval records (``approvals.Approval``) that belong to this answer. An investigation
+    never has one, so the service passes none and every action claim fails."""
     res = ValidationResult()
     V = res.violations
     as_of = as_of or (parse_iso(report.as_of) if report.as_of else None)
@@ -851,6 +894,17 @@ def validate(report: InvestigationReport, registry: EvidenceRegistry, *, as_of: 
                                f"{where}: causal claim '{m_causal.group(0)}' outside a hedged hypothesis"))
         if INJECTION_RE.search(bare):
             V.append(Violation("INJECTION_ECHO", "critical", f"{where}: contains instruction-like text"))
+
+    # -- action claims: every text the model writes, including uncertainties and missing evidence
+    res.checks_run.append("action_claims")
+    if not any(getattr(a, "approval_id", None) for a in approval_records):
+        for where, text in (_narratives(report) + _hypothesis_tests(report)
+                            + [(f"uncertainties[{i}]", u) for i, u in enumerate(report.uncertainties)]
+                            + [(f"missing_evidence[{i}]", u) for i, u in enumerate(report.missing_evidence)]):
+            for claim in action_claims(text):
+                V.append(Violation("ACTION_CLAIM_UNRECORDED", "critical",
+                                   f"{where}: says “{claim}” but no approval record exists (an investigation cannot "
+                                   "approve, write or publish anything); remove the claim"))
     for h in report.possible_explanations:
         for eid in h.supporting_evidence_ids:
             if registry.get(eid) is None:
@@ -889,7 +943,10 @@ def facts_only(report: InvestigationReport, registry: EvidenceRegistry, result: 
                      f"({', '.join(codes)}). Observations below are tool values with source rows."),
         "summary": [], "possible_explanations": [], "published_findings": [], "citations": [],
         "numeric_claims": [], "forecast_comparison": None, "observations": good_obs,
-        "uncertainties": [*report.uncertainties, "Narrative withheld because it failed validation."],
+        # model-written caveats are kept, except any that claims an approval or a write (never shown without a record)
+        "uncertainties": [*(u for u in report.uncertainties if not action_claims(u)),
+                          "Narrative withheld because it failed validation."],
+        "missing_evidence": [m for m in report.missing_evidence if not action_claims(m)],
         "status": "answered_with_caveats" if good_obs else "abstained",
     })
 
