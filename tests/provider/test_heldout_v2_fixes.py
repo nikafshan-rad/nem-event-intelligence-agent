@@ -282,13 +282,16 @@ def test_the_controller_sets_notice_times_against_the_event(selection):
 
 def test_omitting_the_decisive_notice_time_is_rejected_and_repaired(selection):
     """H13 mechanism: the notice was cited and quoted (with its bare '1100 hrs'), but its time was never set against
-    the event. The draft is rejected, and the one repair (a full one: the violation names no item) adds the sentence."""
+    the event. The draft is rejected, and the one repair (a full one: the violation names no item) adds the sentence.
+    The question names no incident, so the controller writes no timing answer of its own (docs/issue-tracker.md I-1a;
+    a question naming Hazelwood gets one, tests/provider/test_causal_question_answer.py)."""
     drafts: list[int] = []
 
     def summary(tl, timing):
         drafts.append(1)
         return [] if len(drafts) == 1 else [_timing_sentence(tl, timing)]
-    res, _ = _vic_notice_investigation(selection, summary, repair=True)
+    res, _ = _vic_notice_investigation(selection, summary, repair=True, question="Did the transmission outage in "
+                                       "AEMO's notice cause the VIC1 price spike on 2026-08-20?")
     v = res.report.validation
     assert v["pre_repair_codes"] == ["NOTICE_TIMING_OMITTED"] and v["repair_mode"] == "full"
     assert v["initial"]["passed"] and not v["fallback_applied"]
