@@ -44,6 +44,13 @@ TOOLS: dict[str, ToolSpec] = {s.name: s for s in [
              "region/date/publication eligibility before ranking. Returns quotable chunks with citation metadata."),
 ]}
 
+# Called by the controller alone (a playbook's `controller_only`), never offered to or callable by the model, so the
+# model's tool surface stays TOOLS.
+CONTROLLER_TOOLS: dict[str, ToolSpec] = {s.name: s for s in [
+    ToolSpec("get_regional_prices", A.RegionalPricesArgs, impl.get_regional_prices,
+             "Every region's 5-minute dispatch RRP for one interval. Optional as_of_utc hides rows not yet public."),
+]}
+
 TOOL_NAMES = tuple(TOOLS)
 
 

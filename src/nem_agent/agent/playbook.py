@@ -15,6 +15,8 @@ class Playbook:
     required: tuple[str, ...]
     optional: tuple[str, ...]
     max_calls_per_required_tool: int = 3
+    # tools the controller alone may call, once per investigation; never offered to the model
+    controller_only: tuple[str, ...] = ()
 
 
 PLAYBOOKS: dict[str, Playbook] = {
@@ -22,6 +24,7 @@ PLAYBOOKS: dict[str, Playbook] = {
         "market_event_review",
         required=("find_market_events", "get_price_timeline", "get_actual_demand", "retrieve_public_evidence"),
         optional=("get_generation_change", "get_weather_context", "get_forecast_runs", "compare_forecast_actual"),
+        controller_only=("get_regional_prices",),  # other regions at the price extreme, when the question is about them
     ),
     "forecast_review": Playbook(
         "forecast_review",

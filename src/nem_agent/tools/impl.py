@@ -166,6 +166,25 @@ def find_market_events(ctx: ToolContext, a: A.FindMarketEventsArgs) -> ToolOutpu
     return ToolOutput("ok", view, missing=missing, source_row_ids=[e["peak_rrp"]["evidence_id"] for e in out])
 
 
+def get_regional_prices(ctx: ToolContext, a: A.RegionalPricesArgs) -> ToolOutput:
+    """Every region's dispatch RRP for one 5-minute interval, under the same as-of rule as get_price_timeline. Called by
+    the controller only, when a question about an event is also about other regions (live check 2026-09-29, F04)."""
+    t = parse_iso(a.interval_end_utc)
+    rows = ctx.store.query("SELECT region, row_id, rrp, source_url, published_at_utc, available_at_utc FROM price_5min "
+                           "WHERE interval_end_utc = ? ORDER BY region", [t])
+    rows, excluded = _as_of_filter(rows, a.ts("as_of_utc"))
+    prices = []
+    for r in rows:
+        ev = ctx.registry.add(
+            evidence_class="observed", metric="dispatch_rrp", value=r["rrp"], unit="$/MWh", region=r["region"],
+            valid_at_utc=_ts(t), interval_minutes=5, source_row_ids=[r["row_id"]], source_urls=[r["source_url"]],
+            tool_call_id=ctx.call_id, published_at_utc=_ts(r["published_at_utc"]),
+            available_at_utc=_ts(r["available_at_utc"]), label=f"5-minute dispatch RRP, {r['region']}")
+        prices.append({"region": r["region"], "rrp": r["rrp"], "rrp_evidence_id": ev.evidence_id, "row_id": r["row_id"]})
+    view = {"interval_end_utc": _ts(t), "prices": prices, "n_published_after_as_of": excluded}
+    return ToolOutput("ok", view, source_row_ids=[p["row_id"] for p in prices])
+
+
 def get_price_timeline(ctx: ToolContext, a: A.PriceTimelineArgs) -> ToolOutput:
     start, end = parse_iso(a.start_utc), parse_iso(a.end_utc)
     as_of = a.ts("as_of_utc")

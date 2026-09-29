@@ -19,7 +19,7 @@ from ..evidence import EvidenceRegistry
 from ..selection import Selection
 from ..store import Store
 from ..timeutil import iso_utc, parse_iso
-from ..tools import TOOLS
+from ..tools import CONTROLLER_TOOLS, TOOLS
 from ..tools.impl import ToolContext
 from ..trace import Trace
 from .playbook import PLAYBOOKS
@@ -92,12 +92,17 @@ class Dispatcher:
 
     def _validate_and_run(self, rec: ToolCallRecord) -> None:
         spec = TOOLS.get(rec.name)
+        if spec is None and rec.origin == "controller" and rec.name in self.playbook.controller_only:
+            spec = CONTROLLER_TOOLS.get(rec.name)
         if spec is None:
             return self._block(rec, f"unknown tool '{rec.name}' (allowed: {', '.join(TOOLS)})")
         pb = self.playbook
         if rec.name in pb.required:
             if self.calls_of(rec.name) >= pb.max_calls_per_required_tool:
                 return self._block(rec, f"'{rec.name}' already called {pb.max_calls_per_required_tool} times")
+        elif rec.name in pb.controller_only:  # only a controller call reaches here (see above)
+            if self.calls_of(rec.name) >= 1:
+                return self._block(rec, f"'{rec.name}' already called once")
         elif rec.name in pb.optional:
             rec.optional = True
             if self.optional_used >= config.MAX_OPTIONAL_DIAGNOSTICS:
