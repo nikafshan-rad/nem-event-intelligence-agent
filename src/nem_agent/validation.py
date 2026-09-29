@@ -101,9 +101,16 @@ def metric_compatible(ev: Any) -> bool:
     return True
 
 
+# PDF text extraction ends a line inside a hyphenated word ("non-\nscheduled") and the corpus joins lines with a space,
+# so passages hold "non- scheduled" (held-out v4 W20: a faithful quote of "non-scheduled" failed). For comparison only,
+# on both sides, the space after a hyphen between a letter or digit and a letter is dropped. No letter, digit or hyphen
+# changes, so that space is the only new difference a quote may have from its passage; stored passages are unchanged.
+_HYPHEN_BREAK_RE = re.compile(r"(?<=[A-Za-z0-9])- (?=[A-Za-z])")
+
+
 def _norm(s: str) -> str:
     s = unicodedata.normalize("NFKC", s).replace("’", "'").replace("‘", "'")
-    return re.sub(r"\s+", " ", s).strip()
+    return _HYPHEN_BREAK_RE.sub("-", re.sub(r"\s+", " ", s).strip())
 
 
 def _unit(u: str) -> str:

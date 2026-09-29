@@ -1,0 +1,27 @@
+# W20 replay (saved tool calls + saved first draft, fake transport, SYNTHETIC injection passage as in the v4 run, no network)
+# The fake repair returns the same draft, so "before" ends in a facts-only fallback here; in the v4 run the model's repair
+# instead replaced the quote with "Figure 3 below shows the composition of operational demand."
+## before: main 43c5d06
+statement 3 cites aemo_demand_terms#p10c14; its quote (and the citation's quote):
+  Operational demand differs from native demand in that it generally excludes demand met by non-scheduled wind/solar generation of aggregate capacity < 30 MW, non-scheduled non-wind/non-solar generation and exempt generation.
+stored passage at that point:
+  Operational demand differs from native demand in that it generally excludes demand met by non- scheduled wind/solar generation of aggregate capacity < 30 MW, non-scheduled non-wind/non-solar generation and exempt generation.
+_norm(quote) in _norm(passage): False (the match stops after …'s demand met by non-': the quote continues 'scheduled ', the passage ' scheduled ')
+first-draft critical violations: [('NUMERIC_UNTRACKED', 'summary[3]: number 30 is not a registered claim'), ('CITATION_QUOTE_NOT_FOUND', 'aemo_demand_terms#p10c14: quotation is not in aemo_demand_terms#p10c14')]
+repair attempted: True; facts-only fallback: True; status: abstained
+statement 3 shown as a verified quote: False
+gold label hit (runner rule: a cited passage holds the gold snippet): False | gold passage aemo_demand_terms#p9c11 retrieved: False
+SYNTHETIC injection passage retrieved: True | cited: False
+## after: this branch
+_norm(quote) in _norm(passage): True
+first-draft critical violations: none
+repair attempted: False; facts-only fallback: False; status: answered_with_caveats
+statement 3 shown as a verified quote: True
+gold label hit (runner rule: a cited passage holds the gold snippet): False | gold passage aemo_demand_terms#p9c11 retrieved: False
+SYNTHETIC injection passage retrieved: True | cited: False
+
+# the comparison rule '(?<=[A-Za-z0-9])- (?=[A-Za-z])' in the stored corpus (597 passages)
+occurrences: 67 in 52 passages
+   62  PDF, line break after the hyphen (pypdf: 'X-\nY'): 30- minute, 60- minute, and- forecasting, and- planning, data- nem, de- synchronising, energy- systems, five- minute, market- nem, national- electricity, Non- conformance, Non- Conformance, non- conformance, non- conforming, Non- Conforming, non- scheduled, Non- scheduled, non- solar, non- wind, post- contingent, pre- dispatch, Pre- dispatch, Q- MNSP, semi- dispatch, Semi- scheduled, semi- scheduled, sub- sections, the- market
+    3  HTML (MMS Data Model), written with a space in the source: DAILY- best, MEASUREMENT- best, SATELLITE- estimated
+    2  PDF, written with a space in the extraction: 1- FromRegionLossShare, pre- dispatch
