@@ -12,7 +12,7 @@ One list of known defects, so that each fix is weighed against the whole. Eviden
 | ID | Area | Concrete example | Priority | Status |
 | --- | --- | --- | --- | --- |
 | I-1 | **Direct, complete answers** | **(a)** F04 (live check 2026-09-29) asked "Was Directlink being out of service what drove the NSW1 price spike…?": the answer lists correct observations and hedged possibilities but never says what the evidence supports. **(b)** W19 (held-out v4) does not say the reserve (LOR) forecasts were cancelled before the day, and its hypotheses lean on them | P1 | **(a): fixed offline** in PR `#16` (below), **Live unverified**. **(b): fixed offline** in PR `#17` (below), **Live unverified** |
-| I-2 | **Evidence selection and calculations** | **(a)** F04 never fetched the other regions' prices, so it misses that VIC1, SA1 and TAS1 were also above 470 $/MWh while QLD1 was about 65. **(b)** W04 gives both total-demand values (10046.72 and 11432.7 MW) but not the rise between them: a derived number has no evidence ID | P1 | **(a): in progress** in `fix/regional-comparison` (below). **(b): open, next** |
+| I-2 | **Evidence selection and calculations** | **(a)** F04 never fetched the other regions' prices, so it misses that VIC1, SA1 and TAS1 were also above 470 $/MWh while QLD1 was about 65. **(b)** W04 gives both total-demand values (10046.72 and 11432.7 MW) but not the rise between them: a derived number has no evidence ID | P1 | **(a): fixed offline** in PR `#18` (below), **Live unverified**. **(b): open, next** |
 | I-3 | **Clear presentation** | F01 shows "New South Wales 150" without "MW". F03 shows "1630 hrs" without its zone (NEM time, 06:30 UTC). Headlines are vague or off the question: F03's after repair, F04's (the peak price) | P2 | open |
 | I-4 | **Internal details in user-facing text** | Tool names (W20: "API functions named get_actual_demand / get_forecast_runs"), controller notes ("Market notices were not searched…" on document questions, F01), and evidence IDs (F04: "ev0878 … is not a time-stamped observation") | P2 | open |
 | I-5 | **Known safety-language limitations** | See the list below. Each is recorded with its risk. None is being worked on, to avoid an open-ended wording cycle | P3 | recorded; revisit only with a new concrete failure |
@@ -210,6 +210,37 @@ Every region's price series covers 27/07–20/08.
 4. **I-1a and I-1b still hold:** the F04 and W18 timing answers, and W19's cancellation sentence and rejections.
 5. **Unchanged:** the Replay evaluation and the safety suite, or any change is explained.
 
+**Result** (PR `#18`, offline; evidence in `artifacts/logs/regional_comparison_*`). The checks are met, with one change
+to check 1 (below).
+1. **Relevance and bounds:** F04 ("Directlink") and W18 ("Hazelwood"), both named in inter-regional-transfer notices,
+   get exactly one controller call.
+   - The tool is in a separate controller registry. The model's tool surface stays the 8 read-only tools (the security
+     tests are unchanged), and a model call to it is an unknown tool.
+   - W01, W02, W03 and W19, and an F04 question that names nothing, get no call.
+   - **Change to check 1:** the "names another region" criterion was dropped. Such a question is already asked to
+     choose one region before any evidence is gathered, so it could never apply. Inter-regional wording ("… also seen
+     in the other regions?") still makes a question relevant.
+2. **F04:** after the I-1a timing answer, the summary says "At the price extreme's 5-minute interval (interval ending
+   2026-07-30T21:30:00Z = 2026-07-31 07:30 AEST), SA1, TAS1 and VIC1 were also at or above the analysis threshold, and
+   QLD1 was below it."
+   - The observations show QLD1 64.95, SA1 534.17438, TAS1 478.08045 and VIC1 529.63 $/MWh, each with its evidence
+     ID and source row (`…_202607310730_…:L6`–`L9`).
+   - No causal wording, no fallback.
+   - A model claim on another region's price still gets `CLAIM_REGION_MISMATCH`.
+3. **As-of and unavailable data:** as of 22:00Z (the rows became available 22:18:09Z), no price is returned, so there
+   is no sentence and no observation. An interval with no data returns nothing.
+4. **I-1a and I-1b still hold:** F04's and W18's timing answers, and W19's cancellation sentence and rejections, are
+   unchanged. Their tests pass.
+5. **Unchanged:** the Replay evaluation (identical to `main`) and the safety suite.
+
+**Still open for I-2a:**
+- only the price extreme's interval is compared, not the whole episode;
+- interconnector flows are not fetched;
+- relevance depends on a retrieved inter-regional-transfer notice or explicit wording, so an interconnector named only
+  in the question, with no such notice public (for example in an as-of view), is not recognised;
+- the model does not see the comparison;
+- **Live is unverified.**
+
 ### I-5: safety-language limitations (recorded, not being fixed)
 
 | Example | Where | Risk |
@@ -223,9 +254,8 @@ Every region's price series covers 27/07–20/08.
 
 ## Next
 
-**I-2 (evidence selection and calculations).** P1. **I-2a:** F04 never fetched the other regions' prices. **I-2b:** W04
-leaves the rise between two demand values implicit. I-1 (direct answers) is fixed offline for its two recorded
-examples; both fixes await the next paid Live check.
+**I-2b (W04: the rise between two demand values is left implicit).** P1, the last open item in I-2. I-1 and I-2a are
+fixed offline and await the next paid Live check.
 
 ## Completed
 
@@ -241,3 +271,4 @@ examples; both fixes await the next paid Live check.
 | Live check 2026-09-29: W20 plus 4 fresh cases, recorded | #15 | Live, USD 0.106 |
 | I-1a: a causal question about a notice-reported incident gets the answer its timing supports | #16 | offline; **Live unverified** |
 | I-1b: a cited notice's cancellation is stated, and a cancelled forecast is never relied on as active | #17 | offline; **Live unverified** |
+| I-2a: an event question about other regions gets their prices at the price extreme, traced to source rows | #18 | offline; **Live unverified** |
