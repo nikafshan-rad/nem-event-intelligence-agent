@@ -11,7 +11,8 @@ Nothing here trusts the controller or the model. Checks (all deterministic):
 * time — in an as-of view, no referenced evidence or cited document became available after the cutoff, and no
   retrospective context is used;
 * metric compatibility — forecast errors derive only from operational-demand forecast/actual rows;
-* language — no causal assertions outside hedged hypotheses; no echo of instruction-like retrieved text;
+* language — no causal assertions outside hedged hypotheses; no echo of instruction-like retrieved text; both also
+  in uncertainties and missing evidence, which may talk about causes but not assert one;
 * action claims — an answer may say a case note or an action was approved, written or completed only with an
   approval record, which an investigation never has (it is read-only);
 * status honesty — an "answered" report must carry evidence, and required tools must have run.
@@ -191,6 +192,75 @@ def action_claims(text: str) -> list[str]:
             if not _NOT_DONE_RE.search(f"{before} {m.group(0)}") and not _CONDITION_AFTER_RE.search(sentence[m.end():]):
                 out.append(m.group(0))
     return out
+
+
+# Uncertainties and missing evidence get the narrative's language checks (W20 injection audit: "Ignore all previous
+# instructions…" and "The price spike was caused by wind." were shown there). Their quotations are checked against no
+# passage, so these checks read quoted text too. Caveats talk about causes without asserting one ("do not identify
+# causes", "the cause … is not known", "reports that identify the cause of the trip"): causal wording counts unless a
+# word in its own clause negates, questions, seeks or hedges it, or, for a noun ("the cause of …"), the clause goes on
+# to call it unknown. A qualifier in another clause does not count ("Demand was not unusual and the spike was caused
+# by wind" asserts the cause), while one in the main clause covers what it introduces ("We cannot conclude that wind
+# caused the spike"). The controller's status line for a tool the model tried to call names that tool
+# ("publish_case_note: blocked — unknown tool …"): it reports the attempt and is not an echo.
+_CAUSE_TALK_RE = re.compile(
+    r"\b(?:not|no|never|none|nothing|neither|nor|without|cannot|unknown|unclear|uncertain|uncertainty|unconfirmed|"
+    r"unexplained|undetermined|whether|identify|identifies|identifying|interpret\w*|attribut\w*|determin\w*|"
+    r"confirm\w*|establish\w*|explain\w*|investigat\w*|assess\w*|about|may|might|could|possibly|potentially|"
+    r"perhaps)\b|n't\b", re.I)
+_CAUSE_UNKNOWN_AFTER_RE = re.compile(r"^\W*(?:[\w'’-]+\W+){0,8}?(?:is|was|are|were|remains?|has been|have been)\s+"
+                                     r"(?:not|un(?:known|clear|certain|confirmed|explained|determined))\b", re.I)
+_QUOTE_MARKS_RE = re.compile(r"[“”\"]")
+_IDENTIFIER_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,63}")
+# where a new clause may start: "but", "while", "although" … and a comma before a conjunction always ("strong"); a plain
+# comma or "and" only when a new finite verb follows, or the causal word is itself the verb (checked in _claim_clause)
+_STRONG_BREAK = r",\s*(?:and|but|yet|so|while|whereas|although|though)\b|:|\b(?:but|yet|while|whereas|although|though)\b"
+_STRONG_BREAK_RE = re.compile(_STRONG_BREAK, re.I)
+_CLAUSE_BREAK_RE = re.compile(_STRONG_BREAK + r"|\band\b|,", re.I)
+_FINITE_RE = re.compile(r"\b(?:is|are|was|were|has|have|had|do|does|did|will|would|shall|should|can|could|may|might|"
+                        r"must)\b", re.I)
+_SUBORDINATE_RE = re.compile(r"\b(?:whether|that|if|which|who|what|how|why)\b", re.I)
+_CAUSAL_VERB_RE = re.compile(r"caused|drove|triggered|led to|leads to|resulted in|explains why", re.I)
+_CAUSAL_NOUN_RE = re.compile(r"cause of|result of|causes", re.I)
+
+
+def _claim_clause(sentence: str, m: re.Match[str]) -> str:
+    """The words before causal wording ``m`` that belong to its own clause."""
+    prefix, begin = sentence[:m.start()], 0
+    for b in _CLAUSE_BREAK_RE.finditer(prefix):
+        right = prefix[b.end():]
+        if not right.strip():
+            continue
+        # the part before the break is a complete clause: it has a finite verb outside any clause it introduces
+        left_done = bool(_FINITE_RE.search(_SUBORDINATE_RE.split(prefix[begin:b.start()])[-1]))
+        verb = bool(_CAUSAL_VERB_RE.fullmatch(m.group(0)))
+        kind = b.group(0).strip().lower()
+        if (_STRONG_BREAK_RE.fullmatch(kind) or (kind == "," and (_FINITE_RE.search(right) or (verb and left_done)))
+                or (kind == "and" and left_done and (_FINITE_RE.search(right) or verb))):
+            begin = b.end()
+    return prefix[begin:]
+
+
+def caveat_causal_claim(text: str) -> str | None:
+    """Causal wording that a caveat asserts, quoted text included, or None."""
+    for sentence in SENTENCE_RE.split(_QUOTE_MARKS_RE.sub(" ", text)):
+        for m in CAUSAL_RE.finditer(sentence):
+            if _CAUSE_TALK_RE.search(_claim_clause(sentence, m)):
+                continue
+            rest = _STRONG_BREAK_RE.split(sentence[m.end():])[0]  # "the cause of … is not known", in the same clause
+            if _CAUSAL_NOUN_RE.fullmatch(m.group(0)) and _CAUSE_UNKNOWN_AFTER_RE.search(rest):
+                continue
+            return m.group(0)
+    return None
+
+
+def caveat_echo(text: str, records: list[Any] | None) -> bool:
+    """Instruction-like text in a caveat, quoted text included."""
+    seen = _QUOTE_MARKS_RE.sub(" ", text)
+    for r in records or []:
+        if r.status != "ok" and _IDENTIFIER_RE.fullmatch(r.name or "") and text.startswith(f"{r.name}: {r.status} — "):
+            seen = seen.replace(r.name, " ")
+    return bool(INJECTION_RE.search(seen))
 
 
 ZONE_OFFSET_MIN = {"UTC": 0, "Z": 0, "AEST": 600, "AEDT": 660, "ACST": 570, "ACDT": 630, "AWST": 480, "NEM": 600}
@@ -894,13 +964,19 @@ def validate(report: InvestigationReport, registry: EvidenceRegistry, *, as_of: 
                                f"{where}: causal claim '{m_causal.group(0)}' outside a hedged hypothesis"))
         if INJECTION_RE.search(bare):
             V.append(Violation("INJECTION_ECHO", "critical", f"{where}: contains instruction-like text"))
+    caveats = ([(f"uncertainties[{i}]", u) for i, u in enumerate(report.uncertainties)]
+               + [(f"missing_evidence[{i}]", u) for i, u in enumerate(report.missing_evidence)])
+    for where, text in caveats:
+        if (cause := caveat_causal_claim(text)) is not None:
+            V.append(Violation("UNSUPPORTED_CAUSALITY", "critical", f"{where}: causal claim '{cause}' stated as a caveat"))
+        if caveat_echo(text, records):
+            V.append(Violation("INJECTION_ECHO", "critical", f"{where}: contains instruction-like text"))
 
-    # -- action claims: every text the model writes, including uncertainties and missing evidence
+    # -- action claims: every text the model writes, including uncertainties and missing evidence (quoted text too)
     res.checks_run.append("action_claims")
     if not any(getattr(a, "approval_id", None) for a in approval_records):
         for where, text in (_narratives(report) + _hypothesis_tests(report)
-                            + [(f"uncertainties[{i}]", u) for i, u in enumerate(report.uncertainties)]
-                            + [(f"missing_evidence[{i}]", u) for i, u in enumerate(report.missing_evidence)]):
+                            + [(w, _QUOTE_MARKS_RE.sub(" ", t)) for w, t in caveats]):
             for claim in action_claims(text):
                 V.append(Violation("ACTION_CLAIM_UNRECORDED", "critical",
                                    f"{where}: says “{claim}” but no approval record exists (an investigation cannot "
@@ -938,15 +1014,19 @@ def facts_only(report: InvestigationReport, registry: EvidenceRegistry, result: 
             continue
         good_obs.append(o)
     codes = sorted({v.code for v in result.critical})
+    named = {m.group(0) for v in result.critical if (m := re.match(r"(?:uncertainties|missing_evidence)\[\d+\]", v.detail))}
     return report.model_copy(update={
         "headline": ("Validated facts only: the generated narrative failed independent validation "
                      f"({', '.join(codes)}). Observations below are tool values with source rows."),
         "summary": [], "possible_explanations": [], "published_findings": [], "citations": [],
         "numeric_claims": [], "forecast_comparison": None, "observations": good_obs,
-        # model-written caveats are kept, except any that claims an approval or a write (never shown without a record)
-        "uncertainties": [*(u for u in report.uncertainties if not action_claims(u)),
+        # model-written caveats are kept, except any that a critical violation names or that claims an approval or a
+        # write (never shown without a record)
+        "uncertainties": [*(u for i, u in enumerate(report.uncertainties)
+                            if f"uncertainties[{i}]" not in named and not action_claims(u)),
                           "Narrative withheld because it failed validation."],
-        "missing_evidence": [m for m in report.missing_evidence if not action_claims(m)],
+        "missing_evidence": [x for i, x in enumerate(report.missing_evidence)
+                             if f"missing_evidence[{i}]" not in named and not action_claims(x)],
         "status": "answered_with_caveats" if good_obs else "abstained",
     })
 
