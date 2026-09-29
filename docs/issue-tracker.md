@@ -12,7 +12,7 @@ One list of known defects, so that each fix is weighed against the whole. Eviden
 | ID | Area | Concrete example | Priority | Status |
 | --- | --- | --- | --- | --- |
 | I-1 | **Direct, complete answers** | **(a)** F04 (live check 2026-09-29) asked "Was Directlink being out of service what drove the NSW1 price spike…?": the answer lists correct observations and hedged possibilities but never says what the evidence supports. **(b)** W19 (held-out v4) does not say the reserve (LOR) forecasts were cancelled before the day, and its hypotheses lean on them | P1 | **(a): fixed offline** in PR `#16` (below), **Live unverified**. **(b): fixed offline** in PR `#17` (below), **Live unverified** |
-| I-2 | **Evidence selection and calculations** | **(a)** F04 never fetched the other regions' prices, so it misses that VIC1, SA1 and TAS1 were also above 470 $/MWh while QLD1 was about 65. **(b)** W04 gives both total-demand values (10046.72 and 11432.7 MW) but not the rise between them: a derived number has no evidence ID | P1 | **(a): fixed offline** in PR `#18` (below), **Live unverified**. **(b): in progress** in `fix/derived-demand-change` (below) |
+| I-2 | **Evidence selection and calculations** | **(a)** F04 never fetched the other regions' prices, so it misses that VIC1, SA1 and TAS1 were also above 470 $/MWh while QLD1 was about 65. **(b)** W04 gives both total-demand values (10046.72 and 11432.7 MW) but not the rise between them: a derived number has no evidence ID | P1 | **(a): fixed offline** in PR `#18` (below), **Live unverified**. **(b): fixed offline** in PR `#19` (below), **Live unverified** |
 | I-3 | **Clear presentation** | F01 shows "New South Wales 150" without "MW". F03 shows "1630 hrs" without its zone (NEM time, 06:30 UTC). Headlines are vague or off the question: F03's after repair, F04's (the peak price) | P2 | open |
 | I-4 | **Internal details in user-facing text** | Tool names (W20: "API functions named get_actual_demand / get_forecast_runs"), controller notes ("Market notices were not searched…" on document questions, F01), and evidence IDs (F04: "ev0878 … is not a time-stamped observation") | P2 | open |
 | I-5 | **Known safety-language limitations** | See the list below. Each is recorded with its risk. None is being worked on, to avoid an open-ended wording cycle | P3 | recorded; revisit only with a new concrete failure |
@@ -282,6 +282,57 @@ same region (NSW1), at the ends of two 5-minute intervals. The rise is 11432.7 �
 5. **Unchanged:** the I-2a (F04) comparison, the I-1b (W19) cancellation and the I-1a timing answers; the Replay
    evaluation; the safety suite.
 
+**Result** (PR `#19`, offline; evidence in `artifacts/logs/derived_change_*`). The checks are met, with one
+clarification to check 4 (below).
+1. **When:** the question needs change wording ("by how much", "how much did … rise/fall/change", "the change in …
+   from"), exactly one demand measure, and exactly two named times. Times are ISO timestamps, or clock times on the
+   question's date in the zone they state (AEST, "market time", UTC …), else the region's local time. As-of cutoffs
+   and issue times are not counted. Each time must be the interval end of exactly one registered value of that
+   measure, in that region. The code subtracts the earlier value from the later; the model does no arithmetic.
+2. **The derived value:** it is registered as derived evidence (`<metric>_change`), linked to both source rows, and
+   its derivation names both evidence IDs. Its availability is the later of the two.
+   - **Source availability:** `get_price_timeline` now registers each TOTALDEMAND value with its own row's publication
+     and availability times. Before, it registered none, so no as-of check could see them.
+   - **As-of guard:** a value not public by the cutoff is never used. The dispatcher already applies the cutoff to
+     every call, and the controller checks again.
+3. **W04:** the summary opens with "Dispatch total demand (TOTALDEMAND) rose by 1385.98 MW, from 10046.72 MW in the
+   5-minute interval ending 2026-07-30T20:30:00Z = 2026-07-31 06:30 AEST to 11432.7 MW in the 5-minute interval ending
+   2026-07-30T21:30:00Z = 2026-07-31 07:30 AEST."
+   - The rise is traced to the derived value (rows `…_202607310630_…:L20` and `…_202607310730_…:L11`), each value to
+     its own evidence.
+   - No causal wording, no repair, no fallback.
+   - The model is shown the computed change and its evidence ID before it writes, as with notice timing, and is told
+     not to compute any difference itself.
+4. **Controls:** no sentence and no derived value when:
+   - a named time has no value of that measure: 08:00 AEST is outside the price timeline fetched, and the operational
+     demand value that exists then is not used instead;
+   - a time is not an interval end (06:32 for total demand, 06:45 for operational demand);
+   - the question names both measures, or neither ("demand");
+   - the question names one time, or asks for the values but no change;
+   - it is as of 22:00Z, before the 07:30 AEST value was public;
+   - (added) the question is about a forecast.
+   - **A fall** is stated as a fall: "fell by 75.03 MW" from 07:30 to 07:35 AEST.
+   - **Clarification of check 4:** a question naming operational demand gets the change in operational demand (1426 MW
+     for 06:30–07:30 AEST), from operational-demand rows only. The check listed it among the no-sentence controls, but
+     what it guards against is mixing the two measures, and no mixed pair is produced.
+5. **Unchanged:**
+   - **Replays:** 22 saved records (W01–W20 and F01–F04; W16 and W17 have no draft) were replayed on `main` and on
+     this branch. All but W04 are identical, including F04's comparison and timing answer and W19's cancellation
+     sentence.
+   - **Replay evaluation:** PASS. The agent's rows, gates and failures are identical to `main`'s. One baseline number
+     changes: the chart-and-table baseline's as-of leak count rises from 1245 to 2130. It fetches with no cutoff, and
+     its early TOTALDEMAND values are now counted.
+   - **Safety suite:** PASS.
+
+**Still open for I-2b:**
+- only changes between two named times, of total or operational demand; not prices or other measures, and not
+  "demand" left unqualified;
+- clock times need hours and minutes ("7:30 am", not "7 am");
+- net interchange values still carry no publication time, the gap total demand had; the dispatcher's cutoff still
+  applies to the calls that fetch them;
+- the model's own text may still restate or contradict the change;
+- **Live is unverified.**
+
 ### I-5: safety-language limitations (recorded, not being fixed)
 
 | Example | Where | Risk |
@@ -295,8 +346,9 @@ same region (NSW1), at the ends of two 5-minute intervals. The rise is 11432.7 �
 
 ## Next
 
-**I-2b (W04: the rise between two demand values is left implicit).** P1, the last open item in I-2. I-1 and I-2a are
-fixed offline and await the next paid Live check.
+**A paid Live check of the P1 fixes.** Every P1 item (I-1a, I-1b, I-2a, I-2b) is fixed offline only. The fixes'
+development cases (F04, W19, W18, W04) and fresh frozen questions would show whether they hold in Live. The run needs
+approval and a spending cap (USD 0.60 is left under the USD 5.00 task cap). After that comes I-3 (P2).
 
 ## Completed
 
@@ -313,3 +365,4 @@ fixed offline and await the next paid Live check.
 | I-1a: a causal question about a notice-reported incident gets the answer its timing supports | #16 | offline; **Live unverified** |
 | I-1b: a cited notice's cancellation is stated, and a cancelled forecast is never relied on as active | #17 | offline; **Live unverified** |
 | I-2a: an event question about other regions gets their prices at the price extreme, traced to source rows | #18 | offline; **Live unverified** |
+| I-2b: a question asking by how much a demand measure changed gets the change, computed by code and traced to both source rows | #19 | offline; **Live unverified** |

@@ -1,0 +1,26 @@
+# Replay evaluation (make eval: nem_agent.cli eval --mode replay), main 936be1e vs this branch.
+# Compared after dropping latency, trace_id and generated_at. Both runs: EVAL: PASS.
+# versions: data 8c14c217f5570d32, corpus 221b6ea0f21e006d (identical on both)
+
+mode             identical
+versions         identical
+split_counts     identical
+category_counts  identical
+summary          DIFFERS
+baselines_note   identical
+gate_checks      identical
+rows             DIFFERS
+failures         identical
+
+system rows (the agent): identical
+baseline_retrieval_only rows: identical
+system_test / system_dev as_of_leaks: 0 0 -> 0 0
+
+Only differences: the baseline_table comparison baseline's as-of leak count (it fetches with no cutoff and counts
+every fetched item not yet public by the case's cutoff). Its dispatch TOTALDEMAND items now carry their row's own
+publication time, so those it fetched too early are counted:
+  FC02   as_of_leaks 304 -> 487
+  FC08   as_of_leaks 367 -> 593
+  AMB06  as_of_leaks 335 -> 621
+  ADV03  as_of_leaks 239 -> 429
+  total (baseline_table_test) 1245 -> 2130
