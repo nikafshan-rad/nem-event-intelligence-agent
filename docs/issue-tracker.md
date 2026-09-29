@@ -11,7 +11,7 @@ One list of known defects, so that each fix is weighed against the whole. Eviden
 
 | ID | Area | Concrete example | Priority | Status |
 | --- | --- | --- | --- | --- |
-| I-1 | **Direct, complete answers** | **(a)** F04 (live check 2026-09-29) asked "Was Directlink being out of service what drove the NSW1 price spike…?": the answer lists correct observations and hedged possibilities but never says what the evidence supports. **(b)** W19 (held-out v4) does not say the reserve (LOR) forecasts were cancelled before the day, and its hypotheses lean on them | P1 | **(a): fixed offline** in `fix/causal-question-direct-answer` (below), **Live unverified**. **(b): open** |
+| I-1 | **Direct, complete answers** | **(a)** F04 (live check 2026-09-29) asked "Was Directlink being out of service what drove the NSW1 price spike…?": the answer lists correct observations and hedged possibilities but never says what the evidence supports. **(b)** W19 (held-out v4) does not say the reserve (LOR) forecasts were cancelled before the day, and its hypotheses lean on them | P1 | **(a): fixed offline** in PR `#16` (below), **Live unverified**. **(b): open, next** |
 | I-2 | **Evidence selection and calculations** | **(a)** F04 never fetched the other regions' prices, so it misses that VIC1, SA1 and TAS1 were also above 470 $/MWh while QLD1 was about 65. **(b)** W04 gives both total-demand values (10046.72 and 11432.7 MW) but not the rise between them: a derived number has no evidence ID | P1 | open |
 | I-3 | **Clear presentation** | F01 shows "New South Wales 150" without "MW". F03 shows "1630 hrs" without its zone (NEM time, 06:30 UTC). Headlines are vague or off the question: F03's after repair, F04's (the peak price) | P2 | open |
 | I-4 | **Internal details in user-facing text** | Tool names (W20: "API functions named get_actual_demand / get_forecast_runs"), controller notes ("Market notices were not searched…" on document questions, F01), and evidence IDs (F04: "ev0878 … is not a time-stamped observation") | P2 | open |
@@ -52,6 +52,40 @@ That is insufficient evidence, not a timing contradiction.
    - a causal question whose incident is in no retrieved notice gets no inserted sentence.
 5. The Replay evaluation and the safety suite are unchanged.
 
+**Result** (PR `#16`, offline; evidence in `artifacts/logs/causal_answer_*`). All five checks are met:
+1. **Recognised:** the incident vocabulary gains "out of service", "not in service" and "returned/back to service".
+   "offline" is left out, because a blind negative uses it for a commercial decision. The three blind paraphrase sets
+   score exactly as before.
+2. **F04's opening sentence:** "The records cannot settle this: the AEMO market notice that mentions Directlink gives
+   2026-07-27 07:00 AEST (2026-07-26T21:00:00Z), before the price extreme (interval ending 2026-07-30T21:30:00Z =
+   2026-07-31 07:30 AEST). Its timing does not rule it out, and no retrieved record shows that it was, or was not,
+   behind the price."
+   - No critical violation and no fallback.
+   - The validator accepts the sentence as the required notice-timing statement.
+3. **Contradiction:** W18 opens with "Timing rules this out: … mentions Hazelwood gives 2026-08-20 11:00 AEST …, after
+   the price extreme (… 09:10 AEST), so what it reports came later."
+4. **No sentence where the evidence gives none:**
+   - W01, W02 and W03 (not causal);
+   - W19 (causal, but it names nothing: its "reserve" notices include a cancellation, whose time is not the
+     incident's);
+   - a weather question;
+   - a question naming Basslink, which no notice names.
+5. **Unchanged:** the Replay evaluation (identical to `main`), the safety suite, and the data and corpus versions.
+
+**Side effects:**
+- **H13:** its old draft now meets the notice-timing requirement.
+- **Wider recognition extends the existing requirement:** an answer that cites a notice must state its timing, and
+  this now applies to "out of service" questions. An old draft that cites a notice without that, like the Basslink
+  variant, is rejected; in Live the controller now passes the timing context to the model.
+- **One existing test changed:** its question no longer names the incident, so it still exercises the omission path.
+
+**Still open for I-1:**
+- the headline still states the peak price (I-3);
+- the cross-region comparison (I-2a);
+- questions naming nothing get no sentence;
+- only notice timing is used, not other evidence;
+- **Live is unverified.**
+
 ### I-5: safety-language limitations (recorded, not being fixed)
 
 | Example | Where | Risk |
@@ -62,6 +96,11 @@ That is insufficient evidence, not a timing contradiction.
 | Hypothesis tests (`what_would_test_it`, shown in the app), citation `supports` notes and numeric-claim `text` (API output only) | no language check reads these fields | Low–medium: injection echo or causal wording could be shown there |
 | A quote that starts inside a word ("scheduled wind/solar…" inside "non-scheduled") | quote check (substring match) | Low: a negating prefix can be dropped from a verbatim quote |
 | Instruction text phrased so that `INJECTION_RE` misses it | the index-time flag (#12) and the echo check | Medium: an unflagged injected passage could be cited or echoed |
+
+## Next
+
+**I-1b (W19, cancelled reserve forecasts not mentioned).** P1, the last open item in the direct-answers area. After
+it, I-2 (evidence selection and calculations).
 
 ## Completed
 
@@ -75,3 +114,4 @@ That is insufficient evidence, not a timing contradiction.
 | Approval claims: stating that a case note or action was approved or written needs an approval record | #13 | offline |
 | Caveat fields: causal and injection checks read uncertainties and missing evidence; a qualifier counts only in its own clause | #14 | offline |
 | Live check 2026-09-29: W20 plus 4 fresh cases, recorded | #15 | Live, USD 0.106 |
+| I-1a: a causal question about a notice-reported incident gets the answer its timing supports | #16 | offline; **Live unverified** |
