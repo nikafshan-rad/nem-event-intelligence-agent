@@ -12,6 +12,12 @@ therefore restore approved bytes from this store instead of downloading them aga
   (``LocalDirBackend``, used by tests and as a local mirror). Objects are only ever added: never replaced or deleted.
 * ``restore`` writes into ``data/raw`` only bytes that hash to their key **and** match a *current* pin. Superseded
   objects stay in the store for audit and comparison but are never restored into a build. Nothing is substituted.
+* **Bundles.** For a private repository, every release asset is one authenticated REST call, so restoring 307 assets
+  one by one spent ~311 calls of the workflow token's hourly quota, and four CI jobs per push exhausted it ("API rate
+  limit exceeded for installation", on the v4 freeze commit). The index may therefore list ``bundles``: one release
+  asset holding many objects, with its own SHA-256. Restore downloads a bundle once (two calls), refuses it unless it
+  hashes to the recorded value, extracts only members named by a SHA-256 key the bundle lists, and still verifies
+  every object against its key and its current pin. Objects outside any bundle use their own release as before.
 
 The publisher-refresh check stays separate and never changes the index or the pins.
 """
@@ -23,6 +29,7 @@ import json
 import re
 import shutil
 import subprocess
+import tarfile
 import tempfile
 import time
 from collections.abc import Callable
@@ -37,6 +44,7 @@ from .timeutil import iso_utc
 INDEX_VERSION = 1
 REQUIRED_FIELDS = ("sha256", "size", "source_id", "dataset", "url", "retrieved_at", "pin", "status", "publisher",
                    "attribution", "terms", "approval", "release")
+BUNDLE_FIELDS = ("release", "asset", "sha256", "size", "objects", "created_at", "note")
 
 
 def index_path() -> Path:
@@ -119,6 +127,28 @@ Runner = Callable[[list[str]], subprocess.CompletedProcess[str]]
 TRANSIENT_DOWNLOAD_RE = re.compile(r"HTTP (5\d\d|429)\b|connection reset|unexpected EOF|timed? ?out|TLS handshake|"
                                    r"temporarily unavailable", re.IGNORECASE)
 DOWNLOAD_RETRY_DELAYS_S = (10.0, 30.0)  # so at most 3 attempts
+HEX64_RE = re.compile(r"[0-9a-f]{64}")
+# release tags and asset names read from the index go to `gh` (as arguments and a --pattern glob) and into paths:
+# only plain names are accepted (no '/', no leading '.', no glob or shell characters)
+SAFE_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,199}")
+
+
+def safe_name(name: Any) -> bool:
+    return isinstance(name, str) and SAFE_NAME_RE.fullmatch(name) is not None
+
+
+def classify_download_error(err: str) -> str:
+    """Name the cause, so a quota problem is not mistaken for a permission problem or a missing asset."""
+    e = err.lower()
+    if "rate limit" in e:
+        return "rate limited: the token's API quota is used up (not a permission problem or a missing asset)"
+    if "resource not accessible" in e or "http 401" in e or "bad credentials" in e or "http 403" in e:
+        return "permission denied"
+    if "http 404" in e or "not found" in e or "no assets match" in e:
+        return "not found"
+    if TRANSIENT_DOWNLOAD_RE.search(err):
+        return "transient"
+    return "error"
 
 
 def _run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
@@ -134,39 +164,81 @@ class GitHubReleaseBackend:
     """
 
     def __init__(self, repository: str, run: Runner = _run, sleep: Callable[[float], None] = time.sleep,
-                 log: Callable[..., None] = print) -> None:
+                 log: Callable[..., None] = print, bundles: list[dict[str, Any]] | None = None) -> None:
         self.repository = repository
         self.run = run
         self.sleep = sleep
         self.log = log
         self._downloaded: dict[str, Path] = {}
+        self._bundle_dirs: dict[str, Path] = {}
+        self._bundle_of = {sha: b for b in (bundles or []) for sha in b["objects"]}
 
-    def _download(self, tag: str) -> Path:
-        """Download every asset of a release into a fresh directory. Transient errors are retried a bounded number
-        of times, each attempt in a new directory so a partial download is never reused. What is downloaded is still
-        checked against its SHA-256 by the caller before use."""
-        if tag in self._downloaded:
-            return self._downloaded[tag]
+    def _fetch(self, args: list[str], what: str) -> Path:
+        """Run one `gh release download` into a fresh directory. Transient errors are retried a bounded number of
+        times, each attempt in a new directory so a partial download is never reused; anything else fails at once,
+        with its cause named."""
         attempts = len(DOWNLOAD_RETRY_DELAYS_S) + 1
         for attempt in range(1, attempts + 1):
             d = Path(tempfile.mkdtemp(prefix="pinstore-"))
-            r = self.run(["gh", "release", "download", tag, "--repo", self.repository, "--dir", str(d)])
+            r = self.run(["gh", "release", "download", *args, "--repo", self.repository, "--dir", str(d)])
             if r.returncode == 0:
-                self._downloaded[tag] = d
                 return d
             shutil.rmtree(d, ignore_errors=True)
             err = r.stderr.strip()[:300]
             if attempt == attempts or not TRANSIENT_DOWNLOAD_RE.search(err):
-                raise RuntimeError(f"cannot download release {tag} from {self.repository} "
-                                   f"(attempt {attempt} of {attempts}): {err}")
+                raise RuntimeError(f"cannot download {what} from {self.repository} (attempt {attempt} of {attempts}; "
+                                   f"{classify_download_error(err)}): {err}")
             delay = DOWNLOAD_RETRY_DELAYS_S[attempt - 1]
-            self.log(f"[store] transient error downloading release {tag} (attempt {attempt} of {attempts}): "
+            self.log(f"[store] transient error downloading {what} (attempt {attempt} of {attempts}): "
                      f"{err[:160]}; retrying in {delay:.0f} s")
             self.sleep(delay)
         raise AssertionError("unreachable")
 
+    def _download(self, tag: str) -> Path:
+        """Download every asset of a release (one API call per asset). What is downloaded is still checked against
+        its SHA-256 by the caller before use."""
+        if not safe_name(tag):
+            raise RuntimeError(f"release name {str(tag)[:80]!r} in the index is not a plain name; nothing is restored")
+        if tag not in self._downloaded:
+            self._downloaded[tag] = self._fetch([tag], f"release {tag}")
+        return self._downloaded[tag]
+
+    def _bundle_dir(self, b: dict[str, Any]) -> Path:
+        """Download one bundle (two API calls), refuse it unless it hashes to the recorded SHA-256, and extract only
+        members named by a SHA-256 key the bundle lists. Each object is verified again by the caller."""
+        if b["sha256"] in self._bundle_dirs:
+            return self._bundle_dirs[b["sha256"]]
+        if not (safe_name(b.get("release")) and safe_name(b.get("asset"))):
+            raise RuntimeError(f"bundle release {str(b.get('release'))[:80]!r} or asset {str(b.get('asset'))[:80]!r} "
+                               "in the index is not a plain name; nothing is restored from it")
+        d = self._fetch([b["release"], "--pattern", b["asset"]], f"bundle {b['asset']} of release {b['release']}")
+        path = d / b["asset"]
+        h = hashlib.sha256()
+        with open(path, "rb") as fh:
+            for block in iter(lambda: fh.read(1 << 20), b""):
+                h.update(block)
+        if h.hexdigest() != b["sha256"] or path.stat().st_size != b["size"]:
+            shutil.rmtree(d, ignore_errors=True)
+            raise RuntimeError(f"bundle {b['asset']} does not match its recorded SHA-256 and size; nothing is restored "
+                               "from it")
+        out = Path(tempfile.mkdtemp(prefix="pinstore-bundle-"))
+        listed = set(b["objects"])
+        with tarfile.open(path) as tf:
+            for m in tf.getmembers():
+                if not (m.isreg() and HEX64_RE.fullmatch(m.name) and m.name in listed):
+                    shutil.rmtree(out, ignore_errors=True)
+                    raise RuntimeError(f"bundle {b['asset']} has an unexpected member {m.name[:80]!r}; nothing is "
+                                       "restored from it")
+                src = tf.extractfile(m)
+                assert src is not None
+                (out / m.name).write_bytes(src.read())
+        shutil.rmtree(d, ignore_errors=True)
+        self._bundle_dirs[b["sha256"]] = out
+        return out
+
     def get(self, obj: dict[str, Any]) -> bytes | None:
-        p = self._download(obj["release"]) / obj["sha256"]
+        b = self._bundle_of.get(obj["sha256"])
+        p = (self._bundle_dir(b) if b is not None else self._download(obj["release"])) / obj["sha256"]
         return p.read_bytes() if p.exists() else None
 
     def publish(self, tag: str, files: list[Path], title: str, notes: str, target: str) -> None:
@@ -190,7 +262,7 @@ def backend_for(index: dict[str, Any], local_root: Path | None = None) -> LocalD
     store = index.get("store", {})
     if local_root is not None or store.get("backend") != "github-release":
         return LocalDirBackend(local_root or paths.data_dir() / "pinned_store")
-    return GitHubReleaseBackend(store["repository"])
+    return GitHubReleaseBackend(store["repository"], bundles=index.get("bundles", []))
 
 
 # ------------------------------------------------------------------------------------------ restore / verify
@@ -250,6 +322,30 @@ def verify_index(sel: Selection | None = None, index: dict[str, Any] | None = No
         seen.add(o.get("sha256", ""))
         if not any(e.get("event") == "approved" for e in o.get("approval", [])):
             problems.append(f"{o.get('sha256', '?')[:12]} ({o.get('source_id')}): no approval event")
+    for o in index.get("objects", []):
+        if o.get("release") and not safe_name(o["release"]):
+            problems.append(f"{o.get('sha256', '?')[:12]}: release name {str(o['release'])[:60]!r} is not a plain name")
+    for b in index.get("bundles", []):
+        missing = [f for f in BUNDLE_FIELDS if not b.get(f)]
+        if missing:
+            problems.append(f"bundle {b.get('asset', '?')}: missing {missing}")
+        for field in ("release", "asset"):
+            if b.get(field) and not safe_name(b[field]):
+                problems.append(f"bundle {str(b.get('asset', '?'))[:60]!r}: {field} is not a plain name")
+        if not HEX64_RE.fullmatch(str(b.get("sha256", ""))):
+            problems.append(f"bundle {b.get('asset', '?')}: sha256 is not a SHA-256")
+        unknown = [x for x in b.get("objects", []) if x not in seen]
+        if unknown:
+            problems.append(f"bundle {b.get('asset', '?')}: {len(unknown)} object(s) not in the index")
+    if index.get("store", {}).get("backend") == "github-release":
+        # a fresh CI runner restores within the API quota only if every current pin is in a registered bundle; a new
+        # approved pin therefore needs a new verified bundle before CI can pass (docs/source-governance.md)
+        bundled = {x for b in index.get("bundles", []) for x in b.get("objects", [])}
+        for src in sel.sources:
+            obj = current_object(index, src)
+            if obj is not None and obj["sha256"] not in bundled:
+                problems.append(f"{src.source_id}: current store object {obj['sha256'][:12]} is in no bundle; publish and "
+                                "register a new verified bundle with scripts/publish_store_bundle.py")
     for src in sel.sources:
         n = sum(1 for o in index.get("objects", []) if o["source_id"] == src.source_id and o["status"] == "current"
                 and o["pin"] == pin_identity(src))

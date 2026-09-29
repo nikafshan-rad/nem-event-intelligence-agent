@@ -76,6 +76,11 @@ def check_store(base: dict[str, Any] | None, head: dict[str, Any] | None) -> lis
         if not same or n.get("approval", [])[: len(o.get("approval", []))] != o.get("approval", []):
             problems.append(f"store object {o['sha256'][:12]} ({o['source_id']}) was edited; only new approval events "
                             "may be appended")
+    # bundles (one asset holding many objects, to restore within the API quota) are add-only too
+    hb = {b["sha256"]: b for b in head.get("bundles", [])}
+    for b in base.get("bundles", []):
+        if hb.get(b["sha256"]) != b:
+            problems.append(f"store bundle {b['asset']} was removed or edited; bundles are add-only")
     return problems
 
 

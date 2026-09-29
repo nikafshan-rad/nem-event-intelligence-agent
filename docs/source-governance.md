@@ -82,11 +82,21 @@ No credentials are used. Reports record only public URLs and four response heade
 4. Add the newly approved bytes to the store: `python scripts/publish_pinned_store.py --release pinned-bytes-<date>
    --target <commit>`. This creates a new release; nothing existing is replaced. The old version stays in the store
    as a `superseded` object.
-5. Rebuild with `make restore-pinned` / `make data` / `make index` and refresh the committed results (`make eval`,
+5. Publish and register a new verified bundle: `python scripts/publish_store_bundle.py --release
+   pinned-bytes-bundle-<date>`.
+   - It takes every current pin's approved bytes from the store (never from a publisher) and checks each against its
+     key and its pin.
+   - It publishes one archive to a new release, downloads it back and checks it, and only then records it under
+     `bundles` in `data/pinned_store.json`.
+   - **This step is required.** `make store-verify`, and therefore CI, fails while any current pin is in no bundle.
+     CI restores only through bundles to stay within the API quota (`docs/pinned-store.md`, "Bundles").
+6. Rebuild with `make restore-pinned` / `make data` / `make index` and refresh the committed results (`make eval`,
    `make retrieval-eval`, `make demo`).
-6. Open a pull request with `data/source_selection.json`, `data/SOURCES.md` and `data/pinned_store.json`. CI checks
-   the history entry, checks that the store index was only added to, and runs everything against the new pins from
-   the store.
+7. Open a pull request with `data/source_selection.json`, `data/SOURCES.md` and `data/pinned_store.json`. CI:
+   - checks the history entry;
+   - checks that the store index and its bundles were only added to;
+   - checks that every current pin is in a bundle;
+   - runs everything against the new pins from the store.
 
 If you do not accept a change, do nothing. Pinned builds keep restoring the approved version from the store.
 
