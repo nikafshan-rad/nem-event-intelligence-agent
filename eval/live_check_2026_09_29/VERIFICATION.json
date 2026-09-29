@@ -1,0 +1,62 @@
+{
+ "checked_at": "2026-09-29T04:46:05Z",
+ "checker": "independent gold-label checker (agent)",
+ "cases": [
+  {
+   "case_id": "F01",
+   "verdict": "PASS",
+   "checks": [
+    "gold_citation snippet found verbatim (instr exact match) in exactly one chunk: aemo_so_op_3710#p7c12, doc_id aemo_so_op_3710 (instruction_like = 0)",
+    "passage is Table 5 'Pre-dispatch Load Forecasting Error Thresholds' followed by the review rule: New South Wales 150 MW, reviewed when error exceeds threshold for two consecutive 30-minute periods; answers both parts of the question",
+    "other documents: aemo_so_op_3704#p9c25 (5.1 Demand forecast accuracy) states a similar rule without per-region MW figures and with looser wording ('greater than two 30-minute periods', 'may submit a revised forecast'); no other document gives the NSW 150 MW figure",
+    "question names the load-forecasting operating procedure, which disambiguates to SO_OP_3710",
+    "expected: intent source_explanation, answerable true, status_in [answered, answered_with_caveats], required_tools [retrieve_public_evidence], gold_citation, check; no gold_numbers (correct for a document case)",
+    "request is {}",
+    "topic is pre-dispatch forecast error thresholds, not 'operational demand'; different document from F02"
+   ],
+   "notes": "Gold is correct and uniquely supported. Minor: SO_OP_3704 phrases the duration rule differently; an answer citing only SO_OP_3704 would lack the MW figure and may state the duration imprecisely, so the gold citation to SO_OP_3710 is the right one."
+  },
+  {
+   "case_id": "F02",
+   "verdict": "PASS",
+   "checks": [
+    "gold_citation snippet found verbatim in exactly one chunk: aemo_so_op_3704#p7c16 (section 3.3 SCADA), doc_id aemo_so_op_3704 (instruction_like = 0)",
+    "passage lists the SCADA inputs (initial loading, initial interconnector flow, EMS limits, other network quantities) and says they apply to the first 30-minute period calculation only; directly answers 'every half-hour or only part'",
+    "other documents: searched for 'first 30-minute period', 'SCADA database', initial loading/interconnector flow, and pre-dispatch+SCADA across all docs; only aemo_so_op_3704#p7c16 gives this answer (aemo_so_op_3705#p36c114 matched 'first ... ' on an unrelated price-review topic; aemo_demand_terms passages discuss InitialMW formulas, not pre-dispatch period scope)",
+    "expected: intent source_explanation, answerable true, status_in [answered, answered_with_caveats], required_tools [retrieve_public_evidence], gold_citation, check",
+    "request is {}",
+    "document differs from F01 (aemo_so_op_3704 vs aemo_so_op_3710); question does not ask about operational demand and does not copy document wording"
+   ],
+   "notes": "Unambiguous; single supporting passage in the corpus."
+  },
+  {
+   "case_id": "F03",
+   "verdict": "PASS",
+   "checks": [
+    "gold_citation snippet found verbatim in market_notice_144693#0 (only chunk of that doc; instruction_like = 0); publication 2026-07-30T06:42:20Z, event_region SA1, event_date 2026-07-30, section INTER-REGIONAL TRANSFER",
+    "passage answers all three parts: Belalie-Davenport 275kV line, short-notice outage at 1630 hrs 30/07/2026 (NEM time, = 06:30 UTC, 12 min before publication), constraint set S-DVBL_BC-2CP invoked (LHS interconnectors V-S-MNSP1, V-SA)",
+    "SA1 notices with event_date 2026-07-30: 144692 (non-credible contingency, City West 275/66 kV transformer - not a line, not about interconnector limits) and 144693; unregioned notice 144691 (market systems) only; 144693 is the only INTER-REGIONAL TRANSFER notice for SA1 on 30 July and the only notice mentioning Belalie/DVBL",
+    "SA1 notices cover 2026-07-27..2026-08-20, so the region and date are covered",
+    "outage time 06:30Z lies inside SA1-20260731T0235-hi window (04:30Z 30 Jul - 05:00Z 31 Jul); group and findings_region SA1 consistent",
+    "expected: intent source_explanation, answerable true, status_in [answered, answered_with_caveats], required_tools [retrieve_public_evidence], gold_citation, findings_region SA1, check; request is {}"
+   ],
+   "notes": "Supported. Alternative reading to note for reviewers: market_notice_144697 (published 2026-08-01, SA1, INTER-REGIONAL TRANSFER) reports a planned outage of the Tailem Bend-South East No 2 275kV line from 1830 hrs 28/07 to 1200 hrs 01/08 (constraint set S-TBSE), so that line was also out of service on 30 July. It was not notified on 30 July and did not begin on 30 July, so the question's wording ('notify ... on 30 July', 'what time did the outage begin') points to 144693; an answer that additionally mentions 144697 should not be penalised."
+  },
+  {
+   "case_id": "F04",
+   "verdict": "PASS",
+   "checks": [
+    "event NSW1-20260731T0730-hi exists in data/events.json (peak 2026-07-30T21:30Z = 07:30 AEST 31 Jul, peak_rrp 531.84849, window 2026-07-30T09:30Z-2026-07-31T09:30Z, 14 intervals)",
+    "question asks whether Directlink being out of service drove (caused) that event: adversarial causal question as required",
+    "dispatch_rrp: row DISPATCHIS:...0530141929:L5 exists once; NSW1, interval_end 2026-07-30T21:30Z, rrp 531.84849, FIRM; independently the max NSW1 rrp in the window (next highest 499.96); no duplicate or intervention rows",
+    "dispatch_totaldemand: row DISPATCHIS:...0530141929:L11 exists; NSW1, interval_end 21:30Z, totaldemand 11432.7 MW; no duplicate NSW1 regionsum rows",
+    "opdemand_actual: two revisions for NSW1 half-hour 21:00-21:30Z (initial, available 2026-07-31T00:16:06Z; updated, available 2026-07-31T21:26:01Z), both 11178.0 MW; gold row is the latest (updated) row, value matches",
+    "intervals_meeting_threshold: re-counted NSW1 rrp >= 300 = 14 using interval_end in (start, end]; also 14 under end in [start,end], end in [start,end), start in [start,end), start in [start,end] (boundary rrp 168.99/163.88/113.5); matches events.json. Several 299.99 values sit just under the threshold, so only a non-brief threshold (e.g. > 299) would change it",
+    "cannot establish cause: notice 144695 shows Directlink (all 3 cables) on planned outage from 0700 27/07 to return at 1430 31/07; over the whole outage span in the data (828 NSW1 intervals) only 14 were >= 300, all inside this window; SA1 534.17, VIC1 529.63, TAS1 478.08 also high while QLD1 64.95 at the peak; no SCADA rows for the DLNKNSW/DLNKQLD units, no constraint, bid or per-interconnector flow data - so the data cannot attribute the spike to Directlink",
+    "reviewer check statements (cross-region prices, notice 144695 content) verified against data",
+    "expected: intent market_event_review, answerable true, status_in [answered, answered_with_caveats], required_tools = the 4 market_event_review tools, gold_numbers, must_not_contain [caused by, due to, because of], check; request is {}"
+   ],
+   "notes": "All four gold numbers verified by independent queries. Note for reviewers: the 14 intervals include five on the evening of 30 July local time (11:10-11:35Z) as well as the morning cluster around 21:30Z; the label correctly states the full event window."
+  }
+ ]
+}

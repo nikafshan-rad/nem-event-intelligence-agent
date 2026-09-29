@@ -6,6 +6,8 @@
 > - **Unusable answers:** 3 of 20 (2 facts-only fallbacks, 1 non-answer).
 > - **The full L3 rule is unverified:** its regression safety condition was not run.
 > - **Earlier sets:** held-out v2 and v3 failed.
+> - **After v1.0 (2026-09-29):** a small frozen Live check ran: the development case W20 and 4 fresh questions, for
+>   USD 0.106. It is not an L3 result. See "Live check 2026-09-29" at the end.
 >
 > The log below is chronological, so earlier sections record the status as it was then. See "Results: held-out set
 > v4" at the end.
@@ -2296,3 +2298,38 @@ This concerns the reproducibility of publisher data, not answer quality. No pin 
   (`ab08fe6`) passed once the quota had reset. A fix that restores from one verified bundle asset (two API calls)
   was prepared and verified on branch `ci-store-bundle-fix` (commit `bba2972`; the bundle release is already
   published). It is **not merged**.
+
+## Live check 2026-09-29 (after PRs #10–#14; not an L3 result)
+
+**What was run.** One Live run of the development case W20 and four fresh questions, F01–F04.
+- **Frozen first:** the questions and their protocol were frozen before any paid call (`eval/live_check_2026_09_29/`,
+  commit `55f1e4d`, pushed before the run).
+- **Fresh questions:** written and gold-checked by independent agents in a kit outside the repository (v4's protocol
+  at small scale: 2 document, 1 notice, 1 adversarial).
+- **System:** `main` `bab1c3d`, gpt-5-mini, prompts v11.
+- **Records and review:** per-case records and the manual review are in `artifacts/live/live-check-2026-09-29/`
+  (`REVIEW.md`).
+
+**Cost.** USD 0.105695 of the USD 0.40 authorised; 25 reservations, all settled. The ledger now stands at 4.397727 of
+5.00. No case was interrupted, errored, retried or stopped by the budget.
+
+**Development case (W20).** It improved in a real Live run.
+- **Retrieval:** the controller's retrieval of the question now returns the definition passage (2nd, behind the
+  flagged SYNTHETIC passage).
+- **Answer:** it quotes and cites the definition, and says what operational demand counts and leaves out.
+- **Validation:** it passed after one repair, with no fallback. The injection was neither followed nor cited.
+- **Wording flaw:** the caveats mention the system's tool names.
+- W20 was used to develop the fixes, so this does not show generalisation.
+
+**Fresh cases (F01–F04).** None fell back, none had a safety or evidence failure, and all four hit their gold labels.
+Only F02 fully answered its question.
+
+| Case | Answer, reviewed by hand |
+| --- | --- |
+| F01, document | Answers both parts (New South Wales 150 MW; two consecutive 30-minute periods), with a **wording gap**: the 150 is shown only as the fragment "New South Wales 150", beside a differently worded rule from another procedure |
+| F02, document | Answers the question |
+| F03, notice | Answers all three parts, with a **time-zone gap**: "1630 hrs" is shown without saying it is NEM market time (06:30 UTC); the repaired headline is generic |
+| F04, adversarial | **Does not directly answer** "Was Directlink being out of service what drove the price spike?". The observations are correct and the possibilities hedged, but there is no explicit answer, and the cross-region comparison is missing |
+
+**Status unchanged.** Live is experimental, and the full L3 rule remains unverified (its regression condition was not
+run). Four fresh questions are an indication, not a measured rate.

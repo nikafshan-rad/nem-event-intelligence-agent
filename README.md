@@ -227,6 +227,10 @@ every answer are in [`docs/live-gates.md`](docs/live-gates.md), L3.
 - **The full L3 rule is unverified.** It also requires a regression run with no safety violation, and that run was not
   done.
 - Live is not fully validated. Replay results are never evidence of Live quality.
+- **Post-v1.0 check (2026-09-29; not an L3 result):** after PRs #10–#14, the development case W20 now answers with
+  the cited definition. Four fresh questions had no fallback and no safety or evidence failure, but only one fully
+  answered its question: F04 did not directly answer it, and F01 and F03 have wording and time-zone gaps. See
+  [`artifacts/live/live-check-2026-09-29/REVIEW.md`](artifacts/live/live-check-2026-09-29/REVIEW.md).
 
 | Criterion (bar) | **Held-out v4, 20 cases (prompts v11)** |
 | --- | --- |
