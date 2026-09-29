@@ -1,0 +1,55 @@
+# PR #19 review of its two recorded deviations. Offline only: the committed code, the local store, saved records and
+# the SYNTHETIC fake transport. No network, no paid call.
+
+## 1. Chart-and-table baseline as-of leak count, 1245 -> 2130 (departure from check 5 as written)
+# The baseline (evaluation/runner.py run_baseline_table) calls get_price_timeline and get_actual_demand with no cutoff
+# and counts every registered item whose available_at_utc is after the case's cutoff. Items without a publication time
+# cannot be counted. Re-run of that function, unchanged, on main 936be1e and on this branch; items after the cutoff by
+# metric. 'no pub time' = items with no publication time whose interval ends after the cutoff (never countable).
+FC02 (test), cutoff 2026-07-30T14:35:00+00:00: 304 -> 487 (+183)
+   main   counted: {'dispatch_rrp': 183, 'opdemand_actual': 73, 'opdemand_forecast_poe50': 16, 'opdemand_forecast_poe10': 16, 'opdemand_forecast_poe90': 16}
+          no pub time: {'dispatch_totaldemand': 173, 'dispatch_netinterchange': 173, 'mean_dispatch_rrp': 1, 'intervals_meeting_threshold': 2, 'forecast_error_mw': 17, 'forecast_error_pct': 17, 'mae_mw': 1, 'mean_error_mw': 1, 'n_aligned_half_hours': 1}
+   branch counted: {'dispatch_rrp': 183, 'dispatch_totaldemand': 183, 'opdemand_actual': 73, 'opdemand_forecast_poe50': 16, 'opdemand_forecast_poe10': 16, 'opdemand_forecast_poe90': 16}
+          no pub time: {'dispatch_netinterchange': 173, 'mean_dispatch_rrp': 1, 'intervals_meeting_threshold': 2, 'forecast_error_mw': 17, 'forecast_error_pct': 17, 'mae_mw': 1, 'mean_error_mw': 1, 'n_aligned_half_hours': 1}
+   TOTALDEMAND intervals now counted = intervals whose price it already leaked: True (183 of 183)
+FC08 (test), cutoff 2026-08-05T21:00:00+00:00: 367 -> 593 (+226)
+   main   counted: {'dispatch_rrp': 226, 'opdemand_actual': 72, 'opdemand_forecast_poe50': 23, 'opdemand_forecast_poe10': 23, 'opdemand_forecast_poe90': 23}
+          no pub time: {'dispatch_totaldemand': 216, 'dispatch_netinterchange': 216, 'mean_dispatch_rrp': 1, 'intervals_meeting_threshold': 2, 'forecast_error_mw': 24, 'forecast_error_pct': 24, 'mae_mw': 1, 'mean_error_mw': 1, 'n_aligned_half_hours': 1}
+   branch counted: {'dispatch_rrp': 226, 'dispatch_totaldemand': 226, 'opdemand_actual': 72, 'opdemand_forecast_poe50': 23, 'opdemand_forecast_poe10': 23, 'opdemand_forecast_poe90': 23}
+          no pub time: {'dispatch_netinterchange': 216, 'mean_dispatch_rrp': 1, 'intervals_meeting_threshold': 2, 'forecast_error_mw': 24, 'forecast_error_pct': 24, 'mae_mw': 1, 'mean_error_mw': 1, 'n_aligned_half_hours': 1}
+   TOTALDEMAND intervals now counted = intervals whose price it already leaked: True (226 of 226)
+AMB06 (test), cutoff 2026-07-30T06:00:00+00:00: 335 -> 621 (+286)
+   main   counted: {'dispatch_rrp': 286, 'opdemand_actual': 49}
+          no pub time: {'dispatch_totaldemand': 276, 'dispatch_netinterchange': 276, 'mean_dispatch_rrp': 1, 'intervals_meeting_threshold': 2}
+   branch counted: {'dispatch_rrp': 286, 'dispatch_totaldemand': 286, 'opdemand_actual': 49}
+          no pub time: {'dispatch_netinterchange': 276, 'mean_dispatch_rrp': 1, 'intervals_meeting_threshold': 2}
+   TOTALDEMAND intervals now counted = intervals whose price it already leaked: True (286 of 286)
+ADV03 (test), cutoff 2026-07-30T14:00:00+00:00: 239 -> 429 (+190)
+   main   counted: {'dispatch_rrp': 190, 'opdemand_actual': 49}
+          no pub time: {'dispatch_totaldemand': 180, 'dispatch_netinterchange': 180, 'mean_dispatch_rrp': 1, 'intervals_meeting_threshold': 2}
+   branch counted: {'dispatch_rrp': 190, 'dispatch_totaldemand': 190, 'opdemand_actual': 49}
+          no pub time: {'dispatch_netinterchange': 180, 'mean_dispatch_rrp': 1, 'intervals_meeting_threshold': 2}
+   TOTALDEMAND intervals now counted = intervals whose price it already leaked: True (190 of 190)
+total: 1245 -> 2130 (+885); every other metric is unchanged; net interchange is still uncounted
+
+## 2. Can the agent now expose a TOTALDEMAND value before its publication time?
+# Ingest gives the price row and the TOTALDEMAND row of an interval the same publication and availability times (both
+# from the same dispatch file: ingest._prov). get_price_timeline filters on the price row's availability, and is the
+# only tool that reads the TOTALDEMAND table; compare_forecast_actual refuses DISPATCH_TOTALDEMAND.
+# (the controller's own as-of guard for the derived change is tested in tests/provider/test_derived_change.py)
+1. get_price_timeline: 11310 calls; 616700 TOTALDEMAND values returned; after the cutoff: 0; without a publication time: 0; availability differing from the same interval's price row: 0
+   later cutoff than the request's: blocked (as_of_utc 2026-07-30T23:00:00Z is later than the request cutoff 2026-07-30T22:00:00Z)
+2. Replay agent, 4 evaluation cases with a cutoff: 0 TOTALDEMAND values registered; any item available after the cutoff: 0
+3. W04 Live replay as of 2026-07-30T21:18:05Z: 0 TOTALDEMAND values, 0 after the cutoff, shown after the cutoff: []; change: 0 dispatch_totaldemand values for the interval ending 2026-07-30T20:30:00Z; fallback True
+3. W04 Live replay as of 2026-07-30T21:18:06Z: 1 TOTALDEMAND values, 0 after the cutoff, shown after the cutoff: []; change: 0 dispatch_totaldemand values for the interval ending 2026-07-30T21:30:00Z; fallback True
+3. W04 Live replay as of 2026-07-30T22:18:08Z: 12 TOTALDEMAND values, 0 after the cutoff, shown after the cutoff: []; change: 0 dispatch_totaldemand values for the interval ending 2026-07-30T21:30:00Z; fallback True
+3. W04 Live replay as of 2026-07-30T22:18:09Z: 13 TOTALDEMAND values, 0 after the cutoff, shown after the cutoff: []; change: 1385.98; fallback True
+3. W04 Live replay as of None: 14 TOTALDEMAND values, 0 after the cutoff, shown after the cutoff: []; change: 1385.98; fallback False
+4. ASOF_LEAK evidence as of 22:00Z: ['ev0037 (dispatch_rrp)', 'ev0038 (dispatch_totaldemand)', 'ev0048 (opdemand_actual)', 'ev0050 (opdemand_actual)', 'ev0051 (opdemand_actual)', 'ev0062 (dispatch_totaldemand_change)']
+2b. Replay agent, 8 selected events x 3 cutoffs (24 runs): 3444 TOTALDEMAND values registered; registered or shown after the cutoff: 0
+4. [main] ASOF_LEAK evidence as of 22:00Z: ['ev0037 (dispatch_rrp)', 'ev0048 (opdemand_actual)', 'ev0050 (opdemand_actual)', 'ev0051 (opdemand_actual)']
+4. [branch] ASOF_LEAK evidence as of 22:00Z: ['ev0037 (dispatch_rrp)', 'ev0038 (dispatch_totaldemand)', 'ev0048 (opdemand_actual)', 'ev0050 (opdemand_actual)', 'ev0051 (opdemand_actual)', 'ev0062 (dispatch_totaldemand_change)']
+# 3: W04's saved draft was written without a cutoff; under one, the tools return fewer rows, so its evidence IDs point
+# at other items (CLAIM_VALUE/UNIT_MISMATCH) and the answer falls back to facts only. The change is computed only once
+# both values are public (at 22:18:09Z exactly), and its availability is 22:18:09Z.
+# 4: on main the validator could not flag a TOTALDEMAND claim published after the cutoff (ev0038 missing); now it can.
