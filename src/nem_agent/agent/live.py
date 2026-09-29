@@ -46,7 +46,12 @@ from ..tools.args import strict_json_schema
 from .dispatcher import Dispatcher
 from .playbook import PLAYBOOKS
 from .replay import forecast_focus
-from .request import Resolution, asks_if_notice_event_caused, forecast_issue_time, requested_measures
+from .request import (
+    Resolution,
+    asks_if_notice_event_caused,
+    forecast_issue_time,
+    requested_measures,
+)
 
 CONTROLLER = "live-responses-controller/1"
 # Retrieved text is capped at config.MAX_RETRIEVED_CHARS (12k) plus ~0.6k metadata per result; 20k keeps a full
@@ -55,6 +60,16 @@ MAX_TOOL_OUTPUT_CHARS = 20_000
 # Model calls kept back from the tool loop so a report can always be written and repaired once (a live run spent
 # six calls on one-tool-per-turn loops and left no call for the repair turn).
 RESERVED_CALLS = 2
+# capitalised words that locate or phrase a question rather than name an incident (for _timing_answer)
+_NOT_NAMES = {
+    "was", "were", "is", "are", "did", "does", "do", "could", "would", "can", "has", "had", "how", "what", "why", "when",
+    "which", "who", "the", "a", "an", "in", "on", "at", "for", "if", "that", "this", "and", "or", "i", "so",
+    "aemo", "nem", "nemweb", "aest", "aedt", "acst", "acdt", "awst", "utc", "mw", "mwh", "rrp", "kv",
+    "nsw", "nsw1", "qld", "qld1", "sa", "sa1", "tas", "tas1", "vic", "vic1", "victoria", "victorian", "queensland",
+    "tasmania", "tasmanian", "south", "australia", "australian", "new", "wales", "january", "february", "march",
+    "april", "may", "june", "july", "august", "september", "october", "november", "december", "jan", "feb", "mar",
+    "apr", "jun", "jul", "aug", "sep", "sept", "oct", "nov", "dec", "monday", "tuesday", "wednesday", "thursday",
+    "friday", "saturday", "sunday"}
 
 
 def model_id_from_env() -> str:
@@ -229,7 +244,7 @@ def repair_targets(result: Any, m: ModelReport, origin: list[tuple[str, int]]) -
             ms = re.fullmatch(r"summary\[(\d+)\]", t)
             if ms:
                 i = int(ms.group(1))
-                if i >= len(origin):
+                if i >= len(origin) or origin[i][0] == "controller":  # a controller-written line is no draft item
                     unmapped.append(v.code)
                     continue
                 t = f"{origin[i][0]}[{origin[i][1]}]"
@@ -886,6 +901,48 @@ class LiveController:
                          + ("" if out else f" No retrieved market notice for {region} states a clock time.")),
                 "notices": out}
 
+    def _timing_answer(self, res: Resolution) -> str | None:
+        """The direct answer that notice timing supports, for a question asking whether an incident a market notice
+        reports explains the event, or None. Only the region's retrieved notices that name what the question names
+        ("Directlink", "Hazelwood") count; a question naming nothing gets no sentence (W19's "reserve" notices include
+        a cancellation, whose time is not the incident's). If their earliest stated time is after the price extreme,
+        timing rules the incident out. Otherwise it does not, and no record shows whether it was behind the price.
+        Live check 2026-09-29, F04: the answer listed the observations but never answered the question; H13 and W18
+        stated the notice timing and stopped there."""
+        if self.d is None or res.intent != "market_event_review" or res.event is None or not res.region or \
+                not asks_if_notice_event_caused(res.request.question):
+            return None
+        q, region = res.request.question, res.region
+        terms = [t for t in dict.fromkeys(re.findall(r"\b[A-Z][A-Za-z0-9]+(?:-[A-Z][A-Za-z0-9]+)*\b", q))
+                 if t.lower() not in _NOT_NAMES]
+        hits: dict[str, tuple[str, dict[str, Any]]] = {}
+        for r in self.d.records:
+            if r.name != "retrieve_public_evidence" or r.status != "ok":
+                continue
+            for h in r.view.get("results", []):
+                if h.get("doc_type") != "market_notice" or h.get("event_region") != region or not h.get("clock_times"):
+                    continue
+                said = f"{h.get('title') or ''} {h.get('text') or ''}"
+                term = next((t for t in terms if re.search(rf"\b{re.escape(t)}\b", said, re.I)), None)
+                if term:
+                    hits.setdefault(h["chunk_id"], (term, h))
+        if not hits:
+            return None  # nothing the question names is in a notice with a time: no sentence at all
+        term, first = min(((t, c) for t, h in hits.values() for c in h["clock_times"]), key=lambda x: x[1]["utc"])
+        t0, peak = parse_iso(first["utc"]), parse_iso(res.event.peak_interval_end_utc)
+        def zoned(local: str) -> str:  # "2026-07-27 07:00 AEST (UTC+1000)" -> "2026-07-27 07:00 AEST"
+            return re.sub(r" [(]UTC[^)]*[)]", "", local)
+
+        when = f"{zoned(first.get('local') or '')} ({first['utc']})".strip()
+        extreme = f"the price extreme (interval ending {iso_utc(peak)} = {zoned(local_str(peak, region))})"
+        notice = f"the AEMO market notice that mentions {term}"
+        if t0 > peak:
+            return f"Timing rules this out: {notice} gives {when}, after {extreme}, so what it reports came later."
+        where = "before" if t0 <= peak - timedelta(minutes=5) else "within the 5-minute interval of"
+        # two sentences: the timing statement is checked by the validator, which skips any sentence with "whether"
+        return (f"The records cannot settle this: {notice} gives {when}, {where} {extreme}. Its timing does not rule "
+                "it out, and no retrieved record shows that it was, or was not, behind the price.")
+
     def _question_retrieval(self, res: Resolution, trace: Any) -> str:
         """For a document question, one retrieval with the question itself, issued by the controller, so the
         passage that answers it is available even when the model's own queries miss it (held-out H07, H14)."""
@@ -976,6 +1033,12 @@ class LiveController:
             for j, line in enumerate(m.summary):
                 summary.append(line)
                 self._summary_origin.append(("summary", j))
+            answer = self._timing_answer(res)
+            if answer is not None:  # written by the controller from the notice's time; first, as the direct answer
+                summary.insert(0, answer)
+                self._summary_origin.insert(0, ("controller", 0))
+                if self.d is not None:
+                    self.d.trace.add("model", "timing_answer", text=answer)
         if not_verbatim and self.d is not None:
             self.d.trace.add("model", "statement_not_verbatim", citation_ids=not_verbatim)
         if resolved and self.d is not None:

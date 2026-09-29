@@ -157,7 +157,10 @@ INCIDENT_Q_RE = re.compile(
     r"\b(notices?|outages?|trip(?:s|ped|ping)?|faults?|failures?|lines?|transformers?|constraints?|contingenc\w*|"
     r"bus[- ]?ties?|bus ?bars?|interconnectors?|transfers?|transmission|breakers?|circuits?|substations?|feeders?|reclassif\w*|"
     r"lack of reserve|LOR ?\d?|reserves?|direct(?:ions?|ed|ing)|interventions?|limits?|islanding|separation|"
-    r"switching|maintenance|de-?rat\w*|load[- ]?shed\w*|suspen\w*|administered|RERT|system strength)\b", re.I)
+    r"switching|maintenance|de-?rat\w*|load[- ]?shed\w*|suspen\w*|administered|RERT|system strength|"
+    # "Was Directlink being out of service what drove …?" (live check 2026-09-29, F04); not "offline", which a unit
+    # kept off for commercial reasons also is (a blind negative)
+    r"out of service|not in service|(?:returned|back) (?:to|in) service)\b", re.I)
 
 
 def asks_if_notice_event_caused(question: str) -> bool:

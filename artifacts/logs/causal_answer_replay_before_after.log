@@ -1,0 +1,28 @@
+# Live controller replays of saved records (tool calls + final model draft), SYNTHETIC fake transport, no network.
+# 'main' = cd733f7; 'branch' = this fix. F04-weather and F04-Basslink put a different question on F04's record.
+
+main  : F04: status answered_with_caveats | first-draft critical [] | fallback False | final_passed True
+branch: F04: status answered_with_caveats | first-draft critical [] | fallback False | final_passed True
+main  : W18: status answered | first-draft critical [] | fallback False | final_passed True
+branch: W18: status answered | first-draft critical [] | fallback False | final_passed True
+main  : H13: status answered_with_caveats | first-draft critical ['CLAIM_UNIT_MISMATCH', 'CLAIM_VALUE_MISMATCH', 'NOTICE_TIMING_OMITTED', 'TIME_NOT_IN_EVIDENCE'] | fallback True | final_passed True
+branch: H13: status answered_with_caveats | first-draft critical ['CLAIM_UNIT_MISMATCH', 'CLAIM_VALUE_MISMATCH', 'TIME_NOT_IN_EVIDENCE'] | fallback True | final_passed True
+main  : W19: status answered_with_caveats | first-draft critical [] | fallback False | final_passed True
+branch: W19: status answered_with_caveats | first-draft critical [] | fallback False | final_passed True
+main  : W01: status answered_with_caveats | first-draft critical [] | fallback False | final_passed True
+branch: W01: status answered_with_caveats | first-draft critical [] | fallback False | final_passed True
+main  : W02: status answered | first-draft critical [] | fallback False | final_passed True
+branch: W02: status answered | first-draft critical [] | fallback False | final_passed True
+main  : W03: status answered | first-draft critical [] | fallback False | final_passed True
+branch: W03: status answered | first-draft critical [] | fallback False | final_passed True
+main  : W16: no model draft saved (skipped)
+branch: W16: no model draft saved (skipped)
+main  : F04-weather: status answered_with_caveats | first-draft critical [] | fallback False | final_passed True
+branch: F04-weather: status answered_with_caveats | first-draft critical [] | fallback False | final_passed True
+main  : F04-Basslink: status answered_with_caveats | first-draft critical [] | fallback False | final_passed True
+branch: F04-Basslink: status answered_with_caveats | first-draft critical ['NOTICE_TIMING_OMITTED'] | fallback True | final_passed True
+
+# the opening sentence written on the branch (no other case gets one)
+F04 -> The records cannot settle this: the AEMO market notice that mentions Directlink gives 2026-07-27 07:00 AEST (2026-07-26T21:00:00Z), before the price extreme (interval ending 2026-07-30T21:30:00Z = 2026-07-31 07:30 AEST). Its timing does not rule it out, and no retrieved record shows that it was, or was not, behind the price.
+W18 -> Timing rules this out: the AEMO market notice that mentions Hazelwood gives 2026-08-20 11:00 AEST (2026-08-20T01:00:00Z), after the price extreme (interval ending 2026-08-19T23:10:00Z = 2026-08-20 09:10 AEST), so what it reports came later.
+H13 -> Timing rules this out: the AEMO market notice that mentions Hazelwood gives 2026-08-20 11:00 AEST (2026-08-20T01:00:00Z), after the price extreme (interval ending 2026-08-19T23:10:00Z = 2026-08-20 09:10 AEST), so what it reports came later.
