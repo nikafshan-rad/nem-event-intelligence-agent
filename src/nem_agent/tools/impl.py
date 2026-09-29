@@ -190,7 +190,8 @@ def get_price_timeline(ctx: ToolContext, a: A.PriceTimelineArgs) -> ToolOutput:
     as_of = a.ts("as_of_utc")
     rows = ctx.store.query(
         "SELECT p.row_id, p.interval_end_utc, p.rrp, p.price_status, p.intervention_record_published, p.source_url, "
-        "p.published_at_utc, p.available_at_utc, r.row_id AS rs_row_id, r.totaldemand_mw, r.availablegeneration_mw, "
+        "p.published_at_utc, p.available_at_utc, r.row_id AS rs_row_id, r.published_at_utc AS rs_published_at_utc, "
+        "r.available_at_utc AS rs_available_at_utc, r.totaldemand_mw, r.availablegeneration_mw, "
         "r.netinterchange_mw FROM price_5min p LEFT JOIN regionsum_5min r USING (region, interval_end_utc) "
         "WHERE p.region=? AND p.interval_end_utc > ? AND p.interval_end_utc <= ? ORDER BY p.interval_end_utc",
         [a.region, start, end])
@@ -212,6 +213,7 @@ def get_price_timeline(ctx: ToolContext, a: A.PriceTimelineArgs) -> ToolOutput:
                 evidence_class="observed", metric="dispatch_totaldemand", value=r["totaldemand_mw"], unit="MW",
                 region=a.region, valid_at_utc=_ts(r["interval_end_utc"]), interval_minutes=5,
                 source_row_ids=[r["rs_row_id"]], source_urls=[r["source_url"]], tool_call_id=ctx.call_id,
+                published_at_utc=_ts(r["rs_published_at_utc"]), available_at_utc=_ts(r["rs_available_at_utc"]),
                 label="DISPATCHREGIONSUM.TOTALDEMAND ('Demand (less loads)'); not operational demand")
         ni = None
         if r["netinterchange_mw"] is not None:
