@@ -30,19 +30,34 @@ from .embed import Embedder, load_model2vec
 EVENT_SPECIFIC = {"market_notice", "event_report"}
 DEFN_WORDS = {"definition", "define", "defined", "meaning", "explain", "explained", "term", "terms", "data", "s", "nem",
               "used", "use", "context", "field", "value"}
+# An unquoted term named after a definition cue runs to the next joining word or punctuation: "how AEMO defines
+# operational demand for a region, meaning what gets counted…" names "operational demand" (held-out v4 W20).
+_DEFN_CUE_RE = re.compile(r"\b(?:define|defines|defining|definitions? of|meaning of)\s+(?P<term>[^,.;:?!()]+?)"
+                          r"(?=\s+(?:for|in|within|across|under|on|at|by|when|where|which|that|and|or|but|so|meaning|"
+                          r"including|excluding)\b|\s*[,.;:?!()]|\s*$)", re.I)
+
+
 def defn_phrase(query: str) -> str:
-    """The term a definition query asks about: a quoted phrase if there is one, else the remaining words, each once.
+    """The term a definition query asks about: a quoted phrase if there is one, else the words a definition cue names,
+    else the remaining words, each once.
 
     A live model wrote `operational demand definition "operational demand" AEMO definition`; without de-duplication
-    the phrase became "operational demand operational demand" and the definitional rerank missed the definition."""
+    the phrase became "operational demand operational demand" and the definitional rerank missed the definition.
+    Without the cue, a long natural question made every remaining word part of the term, so the rerank never matched
+    the definition (held-out v4 W20)."""
     quoted = (re.findall(r"[\"\u201c]([^\"\u201d]{2,80})[\"\u201d]", query)
               # 'single-quoted' or ‘curly’ terms too, but not apostrophes inside words (AEMO's)
               or re.findall(r"(?:^|(?<=[\s(]))['\u2018]([^'\u2019]{2,80})['\u2019](?=[\s?.,;:)]|$)", query))
-    words: list[str] = []
-    for t in re.findall(r"[a-z0-9_]+", (quoted[0] if quoted else query).lower()):
-        if t not in STOP | DEFN_WORDS and t not in words:
-            words.append(t)
-    return " ".join(words)
+    cue = None if quoted else _DEFN_CUE_RE.search(query)
+
+    def words_of(text: str) -> list[str]:
+        words: list[str] = []
+        for t in re.findall(r"[a-z0-9_]+", text.lower()):
+            if t not in STOP | DEFN_WORDS and t not in words:
+                words.append(t)
+        return words
+
+    return " ".join((words_of(cue.group("term")) if cue else []) or words_of(quoted[0] if quoted else query))
 
 
 DEFN_QUERY_RE = re.compile(r"\b(definition|define[sd]?|meaning|what (is|are|does)|mean(s)? by|explain|"

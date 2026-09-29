@@ -1,0 +1,113 @@
+# W20 retrieval: the saved v4 calls re-ranked step by step (retrieval.search.search, with the runner's SYNTHETIC
+# injection passage in the index as in the v4 run; no network, no model). bm25#/dense# are ranks among eligible
+# passages (each list is cut at 30), fused is reciprocal-rank fusion, cov is query-term coverage, defn is the
+# definitional-sentence match; final = fused + 0.01*cov + 0.03*defn.
+
+## before: main 29c3ddf
+query: 'Could you explain how AEMO defines operational demand for a region, meaning what gets counted and what is left out?'
+  doc_types=None top_k=8 (cap 8) | eligible passages: 400
+  FTS query: "could" OR "you" OR "explain" OR "defines" OR "operational" OR "demand" OR "region" OR "meaning" OR "gets" OR "counted" OR "left" OR "out"
+  definition-style query: True | extracted term (defn_phrase): 'could you defines operational demand region gets counted left out' | definitional bonus can apply: True
+  dense query text: 'Could you explain how AEMO defines operational demand for a region, meaning what gets counted and what is left out?. could you defines operational demand region gets counted left out is defined as'
+  rank chunk                        bm25# dense#   fused   cov  defn   final
+     1 aemo_demand_terms#p8c7           1      5 0.03178 0.33 False 0.03511   <- returned
+     2 aemo_demand_terms#p5c2           9      8 0.02920 0.33 False 0.03253   <- returned
+     3 synthetic_injection#0           17      1 0.02938 0.25 False 0.03188   <- returned
+     4 aemo_so_op_3704#p6c13            7     15 0.02826 0.17 False 0.02993   <- returned
+     5 aemo_demand_terms#p5c3          25     13 0.02546 0.33 False 0.02880   <- returned
+     6 aemo_demand_terms#p7c5          14     20 0.02601 0.25 False 0.02851   <- returned
+     7 aemo_so_op_3705#p22c58          12     23 0.02594 0.17 False 0.02760   <- returned
+     8 aemo_demand_terms#p5c1          11     30 0.02520 0.17 False 0.02686   <- returned
+     9 aemo_demand_terms#p7c6          30     28 0.02247 0.17 False 0.02414
+    10 aemo_demand_terms#p11c17        98      2 0.01613 0.33 False 0.01946
+  aemo_demand_terms#p9c11: BM25 rank 48 (cut 30) | dense rank 24 (cut 30) | fused 0.01190 | cov 0.33 | definitional False | final 0.01524 | position 30 | returned: False
+  aemo_demand_terms#p9c10: BM25 rank 57 (cut 30) | dense rank 31 (cut 30) | fused nan | cov nan | definitional - | final nan | position not a candidate | returned: False
+
+query: 'operational demand composition native operational scheduled "Demand Terms in EMMS Data Model" table 1 operational demand definition'
+  doc_types=['definition'] top_k=6 (cap 8) | eligible passages: 145
+  FTS query: "operational" OR "demand" OR "composition" OR "native" OR "operational" OR "scheduled" OR "demand" OR "terms" OR "emms" OR "data" OR "model" OR "table" OR "operational" OR "demand" OR "definition"
+  definition-style query: True | extracted term (defn_phrase): 'demand emms model' | definitional bonus can apply: True
+  dense query text: 'operational demand composition native operational scheduled "Demand Terms in EMMS Data Model" table 1 operational demand definition. demand emms model is defined as'
+  rank chunk                        bm25# dense#   fused   cov  defn   final
+     1 aemo_demand_terms#p8c7           2      8 0.03083 0.91 False 0.03993   <- returned
+     2 aemo_demand_terms#p5c2           3      4 0.03150 0.82 False 0.03968   <- returned
+     3 aemo_demand_terms#p10c14         8      9 0.02920 0.82 False 0.03738   <- returned
+     4 aemo_demand_terms#p19c35         5      6 0.03054 0.64 False 0.03690   <- returned
+     5 aemo_demand_terms#p10c15        17      3 0.02886 0.73 False 0.03613   <- returned
+     6 aemo_demand_terms#p9c10          1     26 0.02802 0.73 False 0.03529   <- returned
+     7 aemo_demand_terms#p15c25        10     14 0.02780 0.73 False 0.03507
+     8 aemo_demand_terms#p26c58        23      1 0.02844 0.64 False 0.03481
+     9 aemo_demand_terms#p13c22        12      5 0.02927 0.55 False 0.03473
+    10 aemo_demand_terms#p5c1           6     27 0.02665 0.64 False 0.03301
+  aemo_demand_terms#p9c11: BM25 rank 49 (cut 30) | dense rank 48 (cut 30) | fused nan | cov nan | definitional - | final nan | position not a candidate | returned: False
+  aemo_demand_terms#p9c10: BM25 rank 1 (cut 30) | dense rank 26 (cut 30) | fused 0.02802 | cov 0.73 | definitional False | final 0.03529 | position 6 | returned: True
+
+## after: this branch
+query: 'Could you explain how AEMO defines operational demand for a region, meaning what gets counted and what is left out?'
+  doc_types=None top_k=8 (cap 8) | eligible passages: 400
+  FTS query: "could" OR "you" OR "explain" OR "defines" OR "operational" OR "demand" OR "region" OR "meaning" OR "gets" OR "counted" OR "left" OR "out"
+  definition-style query: True | extracted term (defn_phrase): 'operational demand' | definitional bonus can apply: True
+  dense query text: 'Could you explain how AEMO defines operational demand for a region, meaning what gets counted and what is left out?. operational demand is defined as'
+  rank chunk                        bm25# dense#   fused   cov  defn   final
+     1 synthetic_injection#0           17      2 0.02912 0.25  True 0.06162   <- returned
+     2 aemo_demand_terms#p9c11         48     28 0.01136 0.33  True 0.04470   <- returned
+     3 aemo_demand_terms#p8c7           1      6 0.03154 0.33 False 0.03488   <- returned
+     4 aemo_demand_terms#p5c2           9      8 0.02920 0.33 False 0.03253   <- returned
+     5 aemo_so_op_3705#p22c58          12     17 0.02688 0.17 False 0.02854   <- returned
+     6 aemo_demand_terms#p7c5          14     20 0.02601 0.25 False 0.02851   <- returned
+     7 aemo_demand_terms#p5c3          25     15 0.02510 0.33 False 0.02843   <- returned
+     8 aemo_demand_terms#p5c1          11     24 0.02599 0.17 False 0.02766   <- returned
+     9 aemo_demand_terms#p7c6          30     22 0.02331 0.17 False 0.02497
+    10 aemo_demand_terms#p11c17        98      1 0.01639 0.33 False 0.01973
+  aemo_demand_terms#p9c11: BM25 rank 48 (cut 30) | dense rank 28 (cut 30) | fused 0.01136 | cov 0.33 | definitional True | final 0.04470 | position 2 | returned: True
+  aemo_demand_terms#p9c10: BM25 rank 57 (cut 30) | dense rank 27 (cut 30) | fused 0.01149 | cov 0.17 | definitional False | final 0.01316 | position 47 | returned: False
+
+query: 'operational demand composition native operational scheduled "Demand Terms in EMMS Data Model" table 1 operational demand definition'
+  doc_types=['definition'] top_k=6 (cap 8) | eligible passages: 145
+  FTS query: "operational" OR "demand" OR "composition" OR "native" OR "operational" OR "scheduled" OR "demand" OR "terms" OR "emms" OR "data" OR "model" OR "table" OR "operational" OR "demand" OR "definition"
+  definition-style query: True | extracted term (defn_phrase): 'demand emms model' | definitional bonus can apply: True
+  dense query text: 'operational demand composition native operational scheduled "Demand Terms in EMMS Data Model" table 1 operational demand definition. demand emms model is defined as'
+  rank chunk                        bm25# dense#   fused   cov  defn   final
+     1 aemo_demand_terms#p8c7           2      8 0.03083 0.91 False 0.03993   <- returned
+     2 aemo_demand_terms#p5c2           3      4 0.03150 0.82 False 0.03968   <- returned
+     3 aemo_demand_terms#p10c14         8      9 0.02920 0.82 False 0.03738   <- returned
+     4 aemo_demand_terms#p19c35         5      6 0.03054 0.64 False 0.03690   <- returned
+     5 aemo_demand_terms#p10c15        17      3 0.02886 0.73 False 0.03613   <- returned
+     6 aemo_demand_terms#p9c10          1     26 0.02802 0.73 False 0.03529   <- returned
+     7 aemo_demand_terms#p15c25        10     14 0.02780 0.73 False 0.03507
+     8 aemo_demand_terms#p26c58        23      1 0.02844 0.64 False 0.03481
+     9 aemo_demand_terms#p13c22        12      5 0.02927 0.55 False 0.03473
+    10 aemo_demand_terms#p5c1           6     27 0.02665 0.64 False 0.03301
+  aemo_demand_terms#p9c11: BM25 rank 49 (cut 30) | dense rank 48 (cut 30) | fused nan | cov nan | definitional - | final nan | position not a candidate | returned: False
+  aemo_demand_terms#p9c10: BM25 rank 1 (cut 30) | dense rank 26 (cut 30) | fused 0.02802 | cov 0.73 | definitional False | final 0.03529 | position 6 | returned: True
+
+# regression set: every distinct saved retrieve_public_evidence call in artifacts/live (real index, own filters)
+calls: 170; returned passages changed: 1; filter exclusion counts identical: True
+  changed: 'Could you explain how AEMO defines operational demand for a region, meaning what gets counted and what is left out?' (no filters)
+    before ['aemo_demand_terms#p8c7', 'aemo_demand_terms#p5c2', 'aemo_so_op_3704#p6c13', 'aemo_demand_terms#p5c3', 'aemo_demand_terms#p7c5', 'aemo_so_op_3705#p22c58', 'aemo_demand_terms#p5c1', 'aemo_demand_terms#p7c6']
+    after  ['aemo_demand_terms#p9c11', 'aemo_demand_terms#p8c7', 'aemo_demand_terms#p5c2', 'aemo_demand_terms#p5c3', 'aemo_so_op_3705#p22c58', 'aemo_demand_terms#p7c5', 'aemo_demand_terms#p5c1', 'aemo_demand_terms#p7c6']
+distinct queries: 150; extracted term changed: 1 ('could you defines operational demand region gets counted left out' -> 'operational demand')
+
+# retrieval gold (eval/retrieval_gold.json, k = 5)
+  recall_at_k: 16/21 = 0.7619 -> 16/21 = 0.7619
+  hit_at_k: 15/15 = 1.0 -> 15/15 = 1.0
+  mrr_at_k: 12.45/15 = 0.83 -> 12.45/15 = 0.83
+  per-query ranks and top ids identical: True; corpus_version 221b6ea0f21e006d
+
+# natural definition questions (real index, no filters, top 8): rank of the passage that opens with the definition
+  'How does AEMO define native demand for a region, and what does it leave out?'
+    term 'native demand region leave out' -> 'native demand'; aemo_demand_terms#p9c10 rank 2 -> 1
+  'Can you tell me how AEMO defines scheduled demand in its data model, including what is excluded?'
+    term 'can you tell me defines scheduled demand its model including excluded' -> 'scheduled demand'; aemo_demand_terms#p12c20 rank 2 -> 1
+  'What is the definition of operational demand in a region according to AEMO?'
+    term 'operational demand region according' -> 'operational demand'; aemo_demand_terms#p9c11 rank not in top 8 -> 1
+  "I'd like the meaning of native demand when AEMO reports it by region."
+    term 'i d like native demand when reports region' -> 'native demand'; aemo_demand_terms#p9c10 rank 2 -> 1
+  'Could you explain how the pre-dispatch procedure defines registration data, and who submits it?'
+    term 'could you pre dispatch procedure defines registration who submits' -> 'registration'; aemo_so_op_3704#p5c9 rank 7 -> 1
+  'Could you explain how AEMO defines operational demand for a region, meaning what gets counted and what is left out?'
+    term 'could you defines operational demand region gets counted left out' -> 'operational demand'; aemo_demand_terms#p9c11 rank not in top 8 -> 1
+  'What does operational demand mean?'
+    term 'operational demand' -> 'operational demand'; aemo_demand_terms#p9c11 rank 1 -> 1
+  "In plain terms, what counts towards 'operational demand' in a region, and are scheduled loads part of it?"
+    term 'operational demand' -> 'operational demand'; aemo_demand_terms#p9c11 rank 1 -> 1
