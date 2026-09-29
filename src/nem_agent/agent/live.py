@@ -60,6 +60,12 @@ MAX_TOOL_OUTPUT_CHARS = 20_000
 # Model calls kept back from the tool loop so a report can always be written and repaired once (a live run spent
 # six calls on one-tool-per-turn loops and left no call for the repair turn).
 RESERVED_CALLS = 2
+# inter-regional wording in a question about one region's event
+_INTER_REGIONAL_RE = re.compile(r"\b(interconnectors?|inter-?regional|imports?|exports?|flows? (?:from|to|into|between)|"
+                                r"other regions?|rest of the NEM|NEM-wide|across the NEM|neighbouring regions?|"
+                                r"elsewhere in the NEM)\b", re.I)
+
+
 def _zoned(local: str) -> str:
     """"2026-07-27 07:00 AEST (UTC+1000)" -> "2026-07-27 07:00 AEST"."""
     return re.sub(r" [(]UTC[^)]*[)]", "", local)
@@ -778,6 +784,7 @@ class LiveController:
                     items.append({"role": "user", "content": f"Required tools not yet called: {missing}. Call them now."})
                     continue
                 break
+            self._regional_prices(res, trace)
             timing = self._notice_timing(res)
             if timing is not None:
                 trace.add("model", "notice_timing", required=timing["required_in_summary"],
@@ -952,6 +959,77 @@ class LiveController:
         return (f"The records cannot settle this: {notice} gives {when}, {where} {extreme}. Its timing does not rule "
                 "it out, and no retrieved record shows that it was, or was not, behind the price.")
 
+    def _asks_about_other_regions(self, res: Resolution) -> bool:
+        """An event question that is also about other regions: it uses inter-regional wording, or names something a
+        retrieved inter-regional-transfer notice names ("Directlink": live check 2026-09-29, F04). A question naming a
+        second region is asked to choose one before this point."""
+        if self.d is None or res.intent != "market_event_review" or res.event is None or not res.region:
+            return False
+        q = res.request.question
+        if _INTER_REGIONAL_RE.search(q):
+            return True
+        terms = [t for t in dict.fromkeys(re.findall(r"\b[A-Z][A-Za-z0-9]+(?:-[A-Z][A-Za-z0-9]+)*\b", q))
+                 if t.lower() not in _NOT_NAMES]
+        return any((h.get("section") or "").upper() == "INTER-REGIONAL TRANSFER" and
+                   any(re.search(rf"\b{re.escape(t)}\b", f"{h.get('title') or ''} {h.get('text') or ''}", re.I)
+                       for t in terms)
+                   for r in self.d.records if r.name == "retrieve_public_evidence" and r.status == "ok"
+                   for h in r.view.get("results", []))
+
+    def _regional_prices(self, res: Resolution, trace: Any) -> None:
+        """When the question is about other regions, one controller call for every region's price at the price
+        extreme's interval, under the request's as-of cutoff (the dispatcher allows it once, to the controller)."""
+        if self.d is None or not self._asks_about_other_regions(res):
+            return
+        assert res.event is not None
+        rec = self.d.call("get_regional_prices", {"interval_end_utc": res.event.peak_interval_end_utc,
+                                                  "as_of_utc": iso_utc(res.as_of) if res.as_of else None},
+                          call_id="controller_regional_prices", origin="controller")
+        trace.add("model", "regional_prices", status=rec.status,
+                  regions=[p["region"] for p in rec.view.get("prices", [])])
+
+    def _regional_answer(self, res: Resolution) -> tuple[str | None, list[Observation]]:
+        """The other regions' prices at the price extreme's interval: one sentence with no numbers (above or below the
+        analysis threshold) and one observation per region, each with its evidence ID and source row. Nothing if no
+        other region's price was public by the cutoff."""
+        rec = next((r for r in (self.d.records if self.d else []) if r.name == "get_regional_prices"
+                    and r.status == "ok"), None)
+        if rec is None or res.event is None or not res.region or self.d is None:
+            return None, []
+        others = [p for p in rec.view.get("prices", []) if p["region"] != res.region]
+        obs = []
+        for p in others:
+            ev = self.reg.get(p["rrp_evidence_id"])
+            if ev is not None and ev.value is not None and ev.valid_at_utc:
+                obs.append(Observation(metric=ev.metric, value=float(ev.value), unit=ev.unit,
+                                       valid_at_utc=ev.valid_at_utc,
+                                       valid_at_local=local_str(parse_iso(ev.valid_at_utc), res.region),
+                                       interval_minutes=ev.interval_minutes, evidence_id=ev.evidence_id,
+                                       source_row_ids=ev.source_row_ids[:12], evidence_class=ev.evidence_class,
+                                       label=(ev.label or ev.metric)[:300]))
+        if not obs:
+            return None, []
+        thr = self.d.selection.analysis_threshold
+        high = res.event.kind == "high_price"
+        meets = [p["region"] for p in others if (p["rrp"] >= float(thr["high_price_rrp_at_or_above"]) if high
+                                                  else p["rrp"] < float(thr["low_price_rrp_below"]))]
+        rest = [p["region"] for p in others if p["region"] not in meets]
+        level = "at or above the analysis threshold" if high else "below the low-price threshold"
+
+        def names(rs: list[str]) -> str:
+            return rs[0] if len(rs) == 1 else f"{', '.join(rs[:-1])} and {rs[-1]}"
+        peak = parse_iso(res.event.peak_interval_end_utc)
+        at = f"At the price extreme's 5-minute interval (interval ending {iso_utc(peak)} = " \
+             f"{_zoned(local_str(peak, res.region))}), "
+        if meets and rest:
+            line = f"{at}{names(meets)} {'was' if len(meets) == 1 else 'were'} also {level}, and {names(rest)} " \
+                   f"{'was' if len(rest) == 1 else 'were'} {'below' if high else 'at or above'} it."
+        elif meets:
+            line = f"{at}every other region ({names(meets)}) was also {level}."
+        else:
+            line = f"{at}no other region ({names(rest)}) was {level}."
+        return line, obs
+
     def _cancellation_answer(self, res: Resolution, cited: list[str]) -> str | None:
         """For an event review citing market notices that a later retrieved notice cancelled before the price extreme,
         one sentence saying so, with when each was issued and when it was cancelled; otherwise None. Held-out v4 W19
@@ -1069,6 +1147,13 @@ class LiveController:
             for j, line in enumerate(m.summary):
                 summary.append(line)
                 self._summary_origin.append(("summary", j))
+            regional, regional_obs = self._regional_answer(res)
+            if regional is not None:  # written by the controller from every region's price at the price extreme
+                summary.insert(0, regional)
+                self._summary_origin.insert(0, ("controller", 0))
+                obs += [o for o in regional_obs if o.evidence_id not in {x.evidence_id for x in obs}]
+                if self.d is not None:
+                    self.d.trace.add("model", "regional_answer", text=regional)
             status = self._cancellation_answer(res, [c.chunk_id for c in cites])
             if status is not None:  # written by the controller from the notices; the status of what is cited
                 summary.insert(0, status)

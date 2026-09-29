@@ -64,6 +64,11 @@ class PriceTimelineArgs(StrictArgs):
         return self
 
 
+class RegionalPricesArgs(StrictArgs):
+    interval_end_utc: IsoTs
+    as_of_utc: IsoTs | None = None
+
+
 class ForecastRunsArgs(StrictArgs):
     region: Region
     target_start_utc: IsoTs
