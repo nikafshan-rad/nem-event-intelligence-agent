@@ -60,6 +60,11 @@ MAX_TOOL_OUTPUT_CHARS = 20_000
 # Model calls kept back from the tool loop so a report can always be written and repaired once (a live run spent
 # six calls on one-tool-per-turn loops and left no call for the repair turn).
 RESERVED_CALLS = 2
+def _zoned(local: str) -> str:
+    """"2026-07-27 07:00 AEST (UTC+1000)" -> "2026-07-27 07:00 AEST"."""
+    return re.sub(r" [(]UTC[^)]*[)]", "", local)
+
+
 # capitalised words that locate or phrase a question rather than name an incident (for _timing_answer)
 _NOT_NAMES = {
     "was", "were", "is", "are", "did", "does", "do", "could", "would", "can", "has", "had", "how", "what", "why", "when",
@@ -915,13 +920,20 @@ class LiveController:
         q, region = res.request.question, res.region
         terms = [t for t in dict.fromkeys(re.findall(r"\b[A-Z][A-Za-z0-9]+(?:-[A-Z][A-Za-z0-9]+)*\b", q))
                  if t.lower() not in _NOT_NAMES]
+        from ..retrieval.corpus import cancelled_notices
+
         hits: dict[str, tuple[str, dict[str, Any]]] = {}
+        peak = parse_iso(res.event.peak_interval_end_utc)
         for r in self.d.records:
             if r.name != "retrieve_public_evidence" or r.status != "ok":
                 continue
             for h in r.view.get("results", []):
                 if h.get("doc_type") != "market_notice" or h.get("event_region") != region or not h.get("clock_times"):
                     continue
+                gone = h.get("cancelled_by")
+                if cancelled_notices(h.get("title") or "", h.get("text") or "") or \
+                        (gone and parse_iso(gone["published_utc"]) <= peak):
+                    continue  # a cancellation, or a notice cancelled before the extreme, is not the incident (I-1b)
                 said = f"{h.get('title') or ''} {h.get('text') or ''}"
                 term = next((t for t in terms if re.search(rf"\b{re.escape(t)}\b", said, re.I)), None)
                 if term:
@@ -929,12 +941,9 @@ class LiveController:
         if not hits:
             return None  # nothing the question names is in a notice with a time: no sentence at all
         term, first = min(((t, c) for t, h in hits.values() for c in h["clock_times"]), key=lambda x: x[1]["utc"])
-        t0, peak = parse_iso(first["utc"]), parse_iso(res.event.peak_interval_end_utc)
-        def zoned(local: str) -> str:  # "2026-07-27 07:00 AEST (UTC+1000)" -> "2026-07-27 07:00 AEST"
-            return re.sub(r" [(]UTC[^)]*[)]", "", local)
-
-        when = f"{zoned(first.get('local') or '')} ({first['utc']})".strip()
-        extreme = f"the price extreme (interval ending {iso_utc(peak)} = {zoned(local_str(peak, region))})"
+        t0 = parse_iso(first["utc"])
+        when = f"{_zoned(first.get('local') or '')} ({first['utc']})".strip()
+        extreme = f"the price extreme (interval ending {iso_utc(peak)} = {_zoned(local_str(peak, region))})"
         notice = f"the AEMO market notice that mentions {term}"
         if t0 > peak:
             return f"Timing rules this out: {notice} gives {when}, after {extreme}, so what it reports came later."
@@ -942,6 +951,33 @@ class LiveController:
         # two sentences: the timing statement is checked by the validator, which skips any sentence with "whether"
         return (f"The records cannot settle this: {notice} gives {when}, {where} {extreme}. Its timing does not rule "
                 "it out, and no retrieved record shows that it was, or was not, behind the price.")
+
+    def _cancellation_answer(self, res: Resolution, cited: list[str]) -> str | None:
+        """For an event review citing market notices that a later retrieved notice cancelled before the price extreme,
+        one sentence saying so, with when each was issued and when it was cancelled; otherwise None. Held-out v4 W19
+        cited three SA reserve forecasts for 29/07, cancelled on 27 and 28/07, and relied on them as active."""
+        if res.intent != "market_event_review" or res.event is None or not res.region or not cited:
+            return None
+        from ..validation import cancelled_notice_chunks
+
+        peak, region = parse_iso(res.event.peak_interval_end_utc), res.region
+        gone = cancelled_notice_chunks(self.reg)
+
+        def at(t: datetime) -> str:
+            return f"{_zoned(local_str(t, region))} ({t:%Y-%m-%dT%H:%M}Z)"
+        parts = []
+        for cid in dict.fromkeys(cited):
+            ch = self.reg.chunks.get(cid)
+            if ch is None or cid not in gone or gone[cid][1] > peak or not ch.publication_date:
+                continue
+            kind = (ch.section or "market").lower()
+            kind = kind if kind.endswith("notice") else f"{kind} notice"
+            parts.append(f"the {kind} issued {at(parse_iso(ch.publication_date))} was cancelled by one issued "
+                         f"{at(gone[cid][1])}")
+        if not parts:
+            return None
+        return (f"AEMO later cancelled what these cited notices announced, each before the price extreme (interval "
+                f"ending {iso_utc(peak)} = {_zoned(local_str(peak, region))}): " + "; ".join(parts) + ".")
 
     def _question_retrieval(self, res: Resolution, trace: Any) -> str:
         """For a document question, one retrieval with the question itself, issued by the controller, so the
@@ -1033,6 +1069,12 @@ class LiveController:
             for j, line in enumerate(m.summary):
                 summary.append(line)
                 self._summary_origin.append(("summary", j))
+            status = self._cancellation_answer(res, [c.chunk_id for c in cites])
+            if status is not None:  # written by the controller from the notices; the status of what is cited
+                summary.insert(0, status)
+                self._summary_origin.insert(0, ("controller", 0))
+                if self.d is not None:
+                    self.d.trace.add("model", "cancellation_answer", text=status)
             answer = self._timing_answer(res)
             if answer is not None:  # written by the controller from the notice's time; first, as the direct answer
                 summary.insert(0, answer)

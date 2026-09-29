@@ -123,6 +123,30 @@ def event_documents_in_scope(region: str | None, event_start: datetime | None, e
     return out
 
 
+def cancellations(numbers: set[str], *, region: str | None, event_start: datetime | None, event_end: datetime | None,
+                  as_of: datetime | None, index_dir: Path | None = None) -> dict[str, dict[str, Any]]:
+    """For each market-notice number, the earliest eligible later notice that cancels it, as a search hit. The same
+    eligibility rules as ``search`` apply, so a cancellation published after ``as_of`` is never returned."""
+    from .corpus import cancelled_notices
+
+    rows, _vecs, _emb, _m = load_index(index_dir)
+    out: dict[str, dict[str, Any]] = {}
+    for r in sorted(rows, key=lambda r: r["publication_date"] or ""):
+        if r["doc_type"] != "market_notice":
+            continue
+        for n in cancelled_notices(r["title"], r["text"]):
+            if n not in numbers or n in out:
+                continue
+            ok, why = eligibility(r, region=region, event_start=event_start, event_end=event_end, as_of=as_of,
+                                  doc_types=None)
+            if ok:
+                out[n] = {k: r[k] for k in ("chunk_id", "doc_id", "title", "url", "text", "section", "page",
+                                            "publication_date", "doc_type", "event_region", "event_date")} | {
+                    "eligible": True, "eligibility_reason": f"cancels market notice {n}; {why}", "score": None,
+                    "instruction_like": bool(r["instruction_like"])}
+    return out
+
+
 def indexed_doc_ids(index_dir: Path | None = None) -> set[str]:
     rows, _vecs, _emb, _m = load_index(index_dir)
     return {r["doc_id"] for r in rows}
