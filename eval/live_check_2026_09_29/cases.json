@@ -1,0 +1,181 @@
+{
+ "version": "fresh-2026-09-29",
+ "authored_by": "independent writer (agent)",
+ "generated_at": "2026-09-29T04:41:58Z",
+ "cases": [
+  {
+   "case_id": "F01",
+   "category": "document",
+   "split": "fresh_2026_09_29",
+   "group": "documents",
+   "question": "Under AEMO's load-forecasting operating procedure, by how many megawatts can the New South Wales pre-dispatch demand forecast miss before AEMO steps in to review it, and for how long does the miss have to persist?",
+   "request": {},
+   "expected": {
+    "intent": "source_explanation",
+    "answerable": true,
+    "status_in": [
+     "answered",
+     "answered_with_caveats"
+    ],
+    "required_tools": [
+     "retrieve_public_evidence"
+    ],
+    "gold_citation": {
+     "doc_id": "aemo_so_op_3710",
+     "snippet": "New South Wales 150 Victoria 100 South Australia 50 Tasmania 50 The load forecast for a region will be reviewed, whenever the forecast error is greater than the forecast error threshold in a region for two consecutive 30-minute periods."
+    },
+    "check": "A correct answer cites SO_OP_3710 (Load Forecasting) and says the New South Wales threshold is 150 MW and that the regional forecast is reviewed when the error exceeds it for two consecutive 30-minute periods."
+   },
+   "provenance": {
+    "gold_method": "Read every aemo_so_op_3710 passage in corpus.sqlite; Table 5 in chunk aemo_so_op_3710#p7c12 lists the New South Wales pre-dispatch threshold (150 MW) followed by the two-consecutive-30-minute-period review rule; confirmed that 'New South Wales 150' and 'two consecutive' occur only in that chunk; snippet copied verbatim from chunks.text.",
+    "queries": [
+     "SELECT chunk_id, doc_id, section, text FROM chunks WHERE doc_id = 'aemo_so_op_3710' ORDER BY rowid",
+     "SELECT chunk_id FROM chunks WHERE text LIKE '%New South Wales 150%'",
+     "SELECT chunk_id FROM chunks WHERE text LIKE '%two consecutive%'"
+    ]
+   }
+  },
+  {
+   "case_id": "F02",
+   "category": "document",
+   "split": "fresh_2026_09_29",
+   "group": "documents",
+   "question": "When AEMO runs pre-dispatch, is live telemetry such as generators' starting output and interconnector flows used across every half-hour of the schedule, or only for part of it?",
+   "request": {},
+   "expected": {
+    "intent": "source_explanation",
+    "answerable": true,
+    "status_in": [
+     "answered",
+     "answered_with_caveats"
+    ],
+    "required_tools": [
+     "retrieve_public_evidence"
+    ],
+    "gold_citation": {
+     "doc_id": "aemo_so_op_3704",
+     "snippet": "is captured by the NEMDE process from the NEM SCADA database and is applied to the first 30-minute period calculation only, of the current pre-dispatch schedule."
+    },
+    "check": "A correct answer cites SO_OP_3704 (Pre-dispatch procedure) and says the SCADA inputs (initial unit loading, initial interconnector flow, EMS limits, other network quantities) are applied only to the first 30-minute period of the current pre-dispatch schedule."
+   },
+   "provenance": {
+    "gold_method": "Read every aemo_so_op_3704 passage in corpus.sqlite; section 3.3 SCADA (chunk aemo_so_op_3704#p7c16) states the SCADA data is applied to the first 30-minute period only; confirmed 'first 30-minute period' and 'SCADA database' occur only in that chunk; snippet copied verbatim from chunks.text.",
+    "queries": [
+     "SELECT chunk_id, doc_id, section, text FROM chunks WHERE doc_id = 'aemo_so_op_3704' ORDER BY rowid",
+     "SELECT chunk_id FROM chunks WHERE text LIKE '%first 30-minute period%'",
+     "SELECT chunk_id FROM chunks WHERE text LIKE '%SCADA database%'"
+    ]
+   }
+  },
+  {
+   "case_id": "F03",
+   "category": "notice",
+   "split": "fresh_2026_09_29",
+   "group": "SA1-20260731T0235-hi",
+   "question": "Which South Australian transmission line did AEMO notify as out of service on 30 July 2026 in a notice about interconnector limits, what time did the outage begin, and which constraint set was invoked?",
+   "request": {},
+   "expected": {
+    "intent": "source_explanation",
+    "answerable": true,
+    "status_in": [
+     "answered",
+     "answered_with_caveats"
+    ],
+    "required_tools": [
+     "retrieve_public_evidence"
+    ],
+    "gold_citation": {
+     "doc_id": "market_notice_144693",
+     "snippet": "At 1630 hrs 30/07/2026 there was a short notice outage of Belalie-Davenport 275kV line."
+    },
+    "findings_region": "SA1",
+    "check": "A correct answer cites market notice 144693 and reports the short-notice outage of the Belalie-Davenport 275 kV line at 1630 hrs market time on 30/07/2026 (06:30 UTC) and the constraint set S-DVBL_BC-2CP invoked at that time (V-S-MNSP1 and V-SA on the left-hand side), without presenting it as the cause of any price outcome."
+   },
+   "provenance": {
+    "gold_method": "Listed all market notices with event_date 2026-07-30..2026-07-31; the only SA1 INTER-REGIONAL TRANSFER notice for 2026-07-30 is market_notice_144693 (published 2026-07-30T06:42:20Z), the only notice mentioning S-DVBL_BC-2CP; its 1630 hrs NEM-time outage (06:30 UTC) falls inside the SA1-20260731T0235-hi window 2026-07-30T04:30Z-2026-07-31T05:00Z from data/events.json; snippet copied verbatim from chunks.text.",
+    "queries": [
+     "SELECT chunk_id, doc_id, title, publication_date, event_region, event_date, section, text FROM chunks WHERE doc_type = 'market_notice' AND event_date BETWEEN '2026-07-30' AND '2026-07-31' ORDER BY publication_date",
+     "SELECT doc_id FROM chunks WHERE doc_type = 'market_notice' AND text LIKE '%S-DVBL_BC-2CP%'",
+     "SELECT doc_id FROM chunks WHERE doc_type = 'market_notice' AND event_region = 'SA1' AND event_date = '2026-07-30' AND section = 'INTER-REGIONAL TRANSFER'"
+    ]
+   }
+  },
+  {
+   "case_id": "F04",
+   "category": "adversarial",
+   "split": "fresh_2026_09_29",
+   "group": "NSW1-20260731T0730-hi",
+   "question": "Was Directlink being out of service what drove the NSW1 price spike near 7:30 am market time on 31 July 2026?",
+   "request": {},
+   "expected": {
+    "intent": "market_event_review",
+    "answerable": true,
+    "status_in": [
+     "answered",
+     "answered_with_caveats"
+    ],
+    "required_tools": [
+     "find_market_events",
+     "get_price_timeline",
+     "get_actual_demand",
+     "retrieve_public_evidence"
+    ],
+    "gold_numbers": [
+     {
+      "metric": "dispatch_rrp",
+      "value": 531.84849,
+      "unit": "$/MWh",
+      "valid_at_utc": "2026-07-30T21:30:00Z",
+      "source_row_id": "DISPATCHIS:PUBLIC_DISPATCHIS_202607310730_0000000530141929:L5",
+      "tolerance": 0.01,
+      "label": "NSW1 peak dispatch price in the event window (interval ending 07:30 market time, 31 July)"
+     },
+     {
+      "metric": "dispatch_totaldemand",
+      "value": 11432.7,
+      "unit": "MW",
+      "valid_at_utc": "2026-07-30T21:30:00Z",
+      "source_row_id": "DISPATCHIS:PUBLIC_DISPATCHIS_202607310730_0000000530141929:L11",
+      "tolerance": 0.5,
+      "label": "NSW1 TOTALDEMAND at the peak interval"
+     },
+     {
+      "metric": "opdemand_actual",
+      "value": 11178.0,
+      "unit": "MW",
+      "valid_at_utc": "2026-07-30T21:30:00Z",
+      "source_row_id": "OPDEM_ACTUAL_DAILY:PUBLIC_ACTUAL_OPERATIONAL_DEMAND_DAILY_20260731_20260801044001:L9",
+      "tolerance": 0.5,
+      "label": "NSW1 actual operational demand, half-hour ending at the peak interval (latest revision)"
+     },
+     {
+      "metric": "intervals_meeting_threshold",
+      "value": 14,
+      "unit": "intervals",
+      "valid_at_utc": "2026-07-31T09:30:00Z",
+      "source_row_id": null,
+      "tolerance": 0,
+      "label": "5-minute NSW1 intervals with RRP >= 300 $/MWh in the event window 2026-07-30T09:30Z to 2026-07-31T09:30Z"
+     }
+    ],
+    "must_not_contain": [
+     "caused by",
+     "due to",
+     "because of"
+    ],
+    "check": "A correct answer reports observations only (NSW1 RRP 531.85 $/MWh at the interval ending 2026-07-30T21:30Z, 14 intervals at or above 300 $/MWh in the window, notice 144695 saying all three Directlink cables were on a planned outage until their return at 1430 hrs 31/07, and VIC1, SA1 and TAS1 also above 470 $/MWh in the same interval while QLD1 was about 65 $/MWh) and treats the outage as at most a hedged possibility, never as the established cause."
+   },
+   "provenance": {
+    "gold_method": "Event taken from data/events.json (NSW1-20260731T0730-hi). Peak RRP and its row from price_5min (max rrp for NSW1 in the window, interval_end in (window_start, window_end]); count of intervals with rrp >= 300 in the same window (14, matching events.json); TOTALDEMAND from regionsum_5min at the peak interval; opdemand_actual row with the greatest available_at_utc (revision 'updated') for the half-hour ending at the peak interval; cross-region prices at the peak interval and the Directlink market notice text used only for the reviewer check.",
+    "queries": [
+     "SELECT row_id, interval_end_utc, rrp, unit FROM 'data/store/price_5min.parquet' WHERE region = 'NSW1' AND interval_end_utc > '2026-07-30 09:30:00+00' AND interval_end_utc <= '2026-07-31 09:30:00+00' ORDER BY rrp DESC LIMIT 1",
+     "SELECT count(*) FROM 'data/store/price_5min.parquet' WHERE region = 'NSW1' AND interval_end_utc > '2026-07-30 09:30:00+00' AND interval_end_utc <= '2026-07-31 09:30:00+00' AND rrp >= 300",
+     "SELECT row_id, interval_end_utc, totaldemand_mw, netinterchange_mw FROM 'data/store/regionsum_5min.parquet' WHERE region = 'NSW1' AND interval_end_utc = '2026-07-30 21:30:00+00'",
+     "SELECT row_id, interval_start_utc, interval_end_utc, operational_demand_mw, revision, available_at_utc FROM 'data/store/opdemand_actual.parquet' WHERE region = 'NSW1' AND interval_end_utc = '2026-07-30 21:30:00+00' ORDER BY available_at_utc DESC LIMIT 1",
+     "SELECT region, row_id, rrp FROM 'data/store/price_5min.parquet' WHERE interval_end_utc = '2026-07-30 21:30:00+00' ORDER BY region",
+     "SELECT doc_id, publication_date, event_region, event_date, text FROM chunks WHERE doc_type = 'market_notice' AND text LIKE '%Directlink%'"
+    ]
+   }
+  }
+ ]
+}
