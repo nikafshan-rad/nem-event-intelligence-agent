@@ -581,6 +581,12 @@ def validate(report: InvestigationReport, registry: EvidenceRegistry, *, as_of: 
                                f"{cit.citation_id}: {cit.doc_id} published {ch.publication_date} after as_of {as_of.isoformat()}"))
         if INJECTION_RE.search(cit.quote):
             V.append(Violation("INJECTION_QUOTED_AS_EVIDENCE", "critical", f"{cit.citation_id}: quotes instruction-like text"))
+        elif ch.instruction_like:
+            # a flagged passage is untrusted as a whole: citing any sentence of it, even a harmless-looking one,
+            # presents injected text as a source (W20 audit: "Operational demand is what this glossary defines.")
+            V.append(Violation("INJECTION_QUOTED_AS_EVIDENCE", "critical",
+                               f"{cit.citation_id}: cites {cit.chunk_id}, a passage flagged as instruction-like; "
+                               "remove this citation and anything taken from it"))
 
     # -- times written in the narrative: a time stated with a traced number must be that evidence's time, and every
     #    time must be an instant the tools or the request produced (times without a date are not checked)
