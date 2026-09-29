@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -177,6 +177,48 @@ def asks_forecast_as_of(question: str) -> bool:
     """An as-of question about forecasts asks what issued forecasts said at that time: a forecast review, even when it
     also names an event or a price spike (L3 live: AMB06 was routed as an event review; the replay router tied)."""
     return bool(AS_OF_Q_RE.search(question) and FORECAST_WORD_RE.search(question))
+
+
+# "By how much did total demand climb from 06:30 to 07:30?", "how much did it fall", "the change in demand from ...":
+# a question asking for the change between two values (held-out v4 W04 gave both values and no rise)
+CHANGE_Q_RE = re.compile(
+    r"\bby how much\b|\bhow (?:much|far) (?:did|does|has|had|was|were|is)\b[^?]*\b(?:rise|rose|risen|climb|increase|"
+    r"grow|grew|jump|fall|fell|drop|decrease|decline|change|move)\w*|\b(?:rise|climb|increase|fall|drop|decrease|decline|"
+    r"change|jump)\s+(?:in|of)\b[^?]*\bfrom\b|\bdifference between\b", re.I)
+# a clock time named in a question ("06:30 AEST", "7:30 am market time"); not inside an ISO timestamp
+QUESTION_CLOCK_RE = re.compile(r"(?<![\d:T])([01]?\d|2[0-3]):([0-5]\d)(?![\d:])\s*(am|pm|a\.m\.|p\.m\.)?(?![a-z])"
+                               r"\s*(AEST|AEDT|ACST|ACDT|UTC|NEM time|market time)?\b", re.I)
+QUESTION_ISO_RE = re.compile(r"\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?Z\b")
+_CLOCK_ZONE_MIN = {"aest": 600, "aedt": 660, "acst": 570, "acdt": 630, "utc": 0, "nem time": 600, "market time": 600}
+# a time that is an as-of cutoff or a forecast's issue time, not a time the question asks about
+_CUTOFF_BEFORE_RE = re.compile(r"\b(?:as of|known at|known by|available by|issued(?: at| on)?)\s+(?:(?:about|around|"
+                               r"approximately|roughly|circa|near|~)\s*)?(?:(?:on\s+)?\d{1,2}(?:st|nd|rd|th)?\s+"
+                               r"[A-Za-z]{3,9}\.?\s+20\d\d,?\s+(?:at\s+)?)?$", re.I)
+
+
+def asks_for_change(question: str) -> bool:
+    return bool(CHANGE_Q_RE.search(question))
+
+
+def named_instants(question: str, region: str, day: date) -> list[datetime]:
+    """The distinct instants (UTC) a question names, in order: ISO timestamps, and clock times on ``day`` in the zone
+    they state (AEST, "market time", UTC ...) or else the region's local time. As-of cutoffs and issue times are left
+    out."""
+    out: list[datetime] = []
+    for m in QUESTION_ISO_RE.finditer(question):
+        if not _CUTOFF_BEFORE_RE.search(question[:m.start()]):
+            out.append(parse_iso(m.group(0)))
+    for m in QUESTION_CLOCK_RE.finditer(question):
+        if _CUTOFF_BEFORE_RE.search(question[:m.start()]):
+            continue
+        hh, mm, half, zone = int(m.group(1)), int(m.group(2)), (m.group(3) or "").lower(), (m.group(4) or "").lower()
+        if half and not 1 <= hh <= 12:
+            continue  # "14:00 pm" names no time
+        if half:
+            hh = hh % 12 + (12 if half.startswith("p") else 0)
+        tz = timezone(timedelta(minutes=_CLOCK_ZONE_MIN[zone])) if zone else region_zone(region)
+        out.append(datetime.combine(day, time(hh, mm), tzinfo=tz).astimezone(UTC))
+    return list(dict.fromkeys(out))
 
 
 def route(question: str) -> tuple[Intent | None, dict[str, object]]:

@@ -27,7 +27,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, create_model
 
 from .. import budget, config
 from ..budget import BudgetExceeded
-from ..evidence import EvidenceRegistry
+from ..evidence import EvidenceItem, EvidenceRegistry
 from ..report import (
     Citation,
     EventWindow,
@@ -47,9 +47,12 @@ from .dispatcher import Dispatcher
 from .playbook import PLAYBOOKS
 from .replay import forecast_focus
 from .request import (
+    FORECAST_WORD_RE,
     Resolution,
+    asks_for_change,
     asks_if_notice_event_caused,
     forecast_issue_time,
+    named_instants,
     requested_measures,
 )
 
@@ -64,6 +67,10 @@ RESERVED_CALLS = 2
 _INTER_REGIONAL_RE = re.compile(r"\b(interconnectors?|inter-?regional|imports?|exports?|flows? (?:from|to|into|between)|"
                                 r"other regions?|rest of the NEM|NEM-wide|across the NEM|neighbouring regions?|"
                                 r"elsewhere in the NEM)\b", re.I)
+# the demand measure a question names (request.requested_measures) -> its registered metric and its name in an answer
+_CHANGE_METRICS = {"total demand": ("dispatch_totaldemand", "dispatch total demand (TOTALDEMAND)"),
+                   "operational demand": ("opdemand_actual", "actual operational demand")}
+_INTERVAL_NAMES = {5: "5-minute interval", 30: "half-hour"}
 
 
 def _zoned(local: str) -> str:
@@ -642,6 +649,7 @@ class LiveController:
         self.usage = Usage(model=self.model)
         self.transcript: list[dict[str, Any]] = []
         self._summary_origin: list[tuple[str, int]] = []  # rendered summary line -> its draft item
+        self._change: tuple[EvidenceItem, EvidenceItem, EvidenceItem] | None = None  # derived change, from, to
 
     # -- model call with bounds ------------------------------------------------------------------------------
     def _call(self, trace: Any, stage: str, **kwargs: Any) -> dict[str, Any]:
@@ -785,6 +793,10 @@ class LiveController:
                     continue
                 break
             self._regional_prices(res, trace)
+            change = self._demand_change(res, trace)
+            if change is not None:
+                items.append({"role": "user", "content": "Change computed by the controller (JSON):\n" +
+                              json.dumps(change, indent=1, ensure_ascii=False)})
             timing = self._notice_timing(res)
             if timing is not None:
                 trace.add("model", "notice_timing", required=timing["required_in_summary"],
@@ -1030,6 +1042,103 @@ class LiveController:
             line = f"{at}no other region ({names(rest)}) was {level}."
         return line, obs
 
+    def _demand_change(self, res: Resolution, trace: Any) -> dict[str, Any] | None:
+        """For a question asking by how much the one demand measure it names changed between two times it names: the
+        change, computed by code from the two registered values of that measure in the region at those interval ends,
+        and registered as derived evidence linked to both source rows. Nothing when a value is missing or ambiguous,
+        was not public by the as-of cutoff, or the two differ in interval length or unit; operational demand and
+        dispatch total demand are never paired. Held-out v4 W04 gave both values and no rise: the model may not do
+        arithmetic, and a number it computed would have no evidence."""
+        self._change = None
+        q = res.request.question
+        if self.d is None or res.intent not in ("market_event_review", "forecast_review") or not res.region or \
+                not asks_for_change(q):
+            return None
+        measures = list(requested_measures(q))
+        days = res.routing.get("dates_found")
+        days = days if isinstance(days, list) else []
+        times = sorted(named_instants(q, res.region, date.fromisoformat(days[0]))) if len(days) == 1 else []
+
+        def skip(reason: str) -> dict[str, Any] | None:
+            trace.add("model", "demand_change", skipped=reason)
+            return None
+        if FORECAST_WORD_RE.search(q):
+            return skip("the question is about forecasts; only observed values are paired")
+        if len(measures) != 1:
+            return skip(f"the question names {len(measures)} demand measures, not one")
+        if len(times) != 2:
+            return skip(f"the question names {len(times)} times, not two")
+        metric, _ = _CHANGE_METRICS[measures[0]]
+        ends: list[EvidenceItem] = []
+        for t in times:
+            found = [ev for ev in self.reg.items.values() if ev.evidence_class == "observed" and ev.metric == metric
+                     and ev.region == res.region and ev.value is not None and ev.valid_at_utc
+                     and parse_iso(ev.valid_at_utc) == t]
+            if len({(ev.value, tuple(ev.source_row_ids)) for ev in found}) != 1:
+                return skip(f"{len(found)} {metric} values for the interval ending {iso_utc(t)}")
+            if res.as_of and (not found[0].available_at_utc or parse_iso(found[0].available_at_utc) > res.as_of):
+                return skip(f"{found[0].evidence_id} was not public by the as-of cutoff")
+            ends.append(found[0])
+        a, b = ends
+        if a.interval_minutes != b.interval_minutes or a.unit != b.unit:
+            return skip("the two values differ in interval length or unit")
+
+        def later(x: str | None, y: str | None) -> str | None:
+            return max(x, y, key=parse_iso) if x and y else None
+        assert a.value is not None and b.value is not None
+        item = self.reg.add(
+            evidence_class="derived", metric=f"{metric}_change", value=round(b.value - a.value, 4), unit=a.unit,
+            region=res.region, valid_at_utc=b.valid_at_utc, interval_minutes=a.interval_minutes,
+            source_row_ids=[*a.source_row_ids, *b.source_row_ids], source_urls=sorted({*a.source_urls, *b.source_urls}),
+            tool_call_id="controller_demand_change", published_at_utc=later(a.published_at_utc, b.published_at_utc),
+            available_at_utc=later(a.available_at_utc, b.available_at_utc),
+            derivation=f"{b.evidence_id} minus {a.evidence_id}: {metric} in the interval ending {b.valid_at_utc} minus "
+                       f"that ending {a.valid_at_utc}; positive = rise",
+            label=f"change in {metric} from the interval ending {a.valid_at_utc} to that ending {b.valid_at_utc}")
+        self._change = (item, a, b)
+        trace.add("model", "demand_change", evidence_id=item.evidence_id, value=item.value, unit=item.unit,
+                  from_evidence_id=a.evidence_id, to_evidence_id=b.evidence_id)
+        return {"evidence_id": item.evidence_id, "metric": item.metric, "value": item.value, "unit": item.unit,
+                "from": {"evidence_id": a.evidence_id, "interval_end_utc": a.valid_at_utc, "value": a.value},
+                "to": {"evidence_id": b.evidence_id, "interval_end_utc": b.valid_at_utc, "value": b.value},
+                "note": "Computed by the controller: the 'to' value minus the 'from' value (positive = rise). The "
+                        "controller states it in the summary. Do not compute this or any other difference yourself; "
+                        "if you mention it, claim it with this evidence_id."}
+
+    def _change_answer(self, res: Resolution) -> tuple[str, list[NumericClaim], list[Observation]] | None:
+        """The computed change as one sentence (rise or fall, both values, both interval ends in UTC and local time),
+        with a claim and an observation for the change and for each value it is computed from."""
+        if self._change is None or not res.region:
+            return None
+        item, a, b = self._change
+        assert item.value is not None and a.value is not None and b.value is not None
+        name = next(n for m, n in _CHANGE_METRICS.values() if item.metric == f"{m}_change")
+        length = _INTERVAL_NAMES.get(a.interval_minutes or 0, "interval")
+
+        def num(x: float) -> str:
+            return f"{x:.4f}".rstrip("0").rstrip(".")
+
+        def at(ev: EvidenceItem) -> str:
+            assert ev.valid_at_utc is not None
+            return f"{ev.valid_at_utc} = {_zoned(local_str(parse_iso(ev.valid_at_utc), res.region or ''))}"
+        if item.value == 0:
+            line = (f"{name[0].upper()}{name[1:]} did not change: it was {num(a.value)} {a.unit} in the {length} ending "
+                    f"{at(a)} and in the {length} ending {at(b)}.")
+        else:
+            line = (f"{name[0].upper()}{name[1:]} {'rose' if item.value > 0 else 'fell'} by {num(abs(item.value))} "
+                    f"{item.unit}, from {num(a.value)} {a.unit} in the {length} ending {at(a)} to {num(b.value)} "
+                    f"{b.unit} in the {length} ending {at(b)}.")
+        claims = [NumericClaim(claim_id=f"controller_{role}", text=f"{name}, {role}", value=ev.value, unit=ev.unit,
+                               evidence_id=ev.evidence_id, rounding=0.005)
+                  for role, ev in (("change", item), ("from", a), ("to", b)) if ev.value is not None]
+        obs = [Observation(metric=ev.metric, value=float(ev.value), unit=ev.unit, valid_at_utc=ev.valid_at_utc,
+                           valid_at_local=local_str(parse_iso(ev.valid_at_utc), res.region),
+                           interval_minutes=ev.interval_minutes, evidence_id=ev.evidence_id,
+                           source_row_ids=ev.source_row_ids[:12], evidence_class=ev.evidence_class,
+                           label=(ev.label or ev.metric)[:300])
+               for ev in (item, a, b) if ev.value is not None and ev.valid_at_utc]
+        return line, claims, obs
+
     def _cancellation_answer(self, res: Resolution, cited: list[str]) -> str | None:
         """For an event review citing market notices that a later retrieved notice cancelled before the price extreme,
         one sentence saying so, with when each was issued and when it was cancelled; otherwise None. Held-out v4 W19
@@ -1118,6 +1227,7 @@ class LiveController:
         # Document sentences are written by the controller: a quote is shown in quotation marks only when it is
         # verbatim in the cited passage; anything else is shown as the model's own words, so every check applies.
         summary: list[str] = []
+        extra_claims: list[NumericClaim] = []
         self._summary_origin = []
         not_verbatim: list[str] = []
         resolved: list[dict[str, Any]] = []
@@ -1160,6 +1270,16 @@ class LiveController:
                 self._summary_origin.insert(0, ("controller", 0))
                 if self.d is not None:
                     self.d.trace.add("model", "cancellation_answer", text=status)
+            change = self._change_answer(res)
+            if change is not None:  # written by the controller from the change it computed; the direct answer
+                line, change_claims, change_obs = change
+                summary.insert(0, line)
+                self._summary_origin.insert(0, ("controller", 0))
+                claimed = {(c.evidence_id, c.value) for c in m.numeric_claims}
+                extra_claims += [c for c in change_claims if (c.evidence_id, c.value) not in claimed]
+                obs += [o for o in change_obs if o.evidence_id not in {x.evidence_id for x in obs}]
+                if self.d is not None:
+                    self.d.trace.add("model", "change_answer", text=line)
             answer = self._timing_answer(res)
             if answer is not None:  # written by the controller from the notice's time; first, as the direct answer
                 summary.insert(0, answer)
@@ -1204,7 +1324,7 @@ class LiveController:
             as_of=iso_utc(res.as_of) if res.as_of else None, event_window=ew,
             headline=m.headline if m else "Abstained: the live model did not produce a valid report.",
             summary=summary, observations=obs, search_scope=scope,
-            numeric_claims=[NumericClaim(**c.model_dump()) for c in m.numeric_claims] if m else [],
+            numeric_claims=[NumericClaim(**c.model_dump()) for c in m.numeric_claims] + extra_claims if m else [],
             possible_explanations=[Hypothesis(statement=h.statement, supporting_evidence_ids=h.supporting_evidence_ids,
                                               what_would_test_it=h.what_would_test_it) for h in m.possible_explanations] if m else [],
             published_findings=findings,
