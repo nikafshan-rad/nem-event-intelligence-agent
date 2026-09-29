@@ -12,7 +12,7 @@ One list of known defects, so that each fix is weighed against the whole. Eviden
 | ID | Area | Concrete example | Priority | Status |
 | --- | --- | --- | --- | --- |
 | I-1 | **Direct, complete answers** | **(a)** F04 (live check 2026-09-29) asked "Was Directlink being out of service what drove the NSW1 price spike…?": the answer lists correct observations and hedged possibilities but never says what the evidence supports. **(b)** W19 (held-out v4) does not say the reserve (LOR) forecasts were cancelled before the day, and its hypotheses lean on them | P1 | **(a): fixed offline** in PR `#16` (below), **Live unverified**. **(b): fixed offline** in PR `#17` (below), **Live unverified** |
-| I-2 | **Evidence selection and calculations** | **(a)** F04 never fetched the other regions' prices, so it misses that VIC1, SA1 and TAS1 were also above 470 $/MWh while QLD1 was about 65. **(b)** W04 gives both total-demand values (10046.72 and 11432.7 MW) but not the rise between them: a derived number has no evidence ID | P1 | **(a): fixed offline** in PR `#18` (below), **Live unverified**. **(b): open, next** |
+| I-2 | **Evidence selection and calculations** | **(a)** F04 never fetched the other regions' prices, so it misses that VIC1, SA1 and TAS1 were also above 470 $/MWh while QLD1 was about 65. **(b)** W04 gives both total-demand values (10046.72 and 11432.7 MW) but not the rise between them: a derived number has no evidence ID | P1 | **(a): fixed offline** in PR `#18` (below), **Live unverified**. **(b): in progress** in `fix/derived-demand-change` (below) |
 | I-3 | **Clear presentation** | F01 shows "New South Wales 150" without "MW". F03 shows "1630 hrs" without its zone (NEM time, 06:30 UTC). Headlines are vague or off the question: F03's after repair, F04's (the peak price) | P2 | open |
 | I-4 | **Internal details in user-facing text** | Tool names (W20: "API functions named get_actual_demand / get_forecast_runs"), controller notes ("Market notices were not searched…" on document questions, F01), and evidence IDs (F04: "ev0878 … is not a time-stamped observation") | P2 | open |
 | I-5 | **Known safety-language limitations** | See the list below. Each is recorded with its risk. None is being worked on, to avoid an open-ended wording cycle | P3 | recorded; revisit only with a new concrete failure |
@@ -240,6 +240,47 @@ to check 1 (below).
   in the question, with no such notice public (for example in an as-of view), is not recognised;
 - the model does not see the comparison;
 - **Live is unverified.**
+
+### I-2b: W04, the rise between two demand values left implicit
+
+**The question.** "NSW, 31 July 2026: by how much did regional total demand climb from the 06:30 AEST dispatch interval
+to the 07:30 AEST one, and what was the RRP at 07:30?" The frozen check expects about 10047 MW and about 11433 MW, "a
+rise of roughly 1386 MW", and the 531.85 $/MWh price.
+
+**The two values are comparable.** Both are the same measure (dispatch TOTALDEMAND, `dispatch_totaldemand`), for the
+same region (NSW1), at the ends of two 5-minute intervals. The rise is 11432.7 − 10046.72 = **1385.98 MW**.
+
+| Value | Interval ending | Evidence | Approved source row |
+| --- | --- | --- | --- |
+| 10046.72 MW | 2026-07-30T20:30:00Z = 06:30 AEST | `ev0002` | `DISPATCHIS:…_202607310630_…:L20` |
+| 11432.7 MW | 2026-07-30T21:30:00Z = 07:30 AEST | `ev0038` | `DISPATCHIS:…_202607310730_…:L11` |
+
+**Root cause.** From `artifacts/live/L3-holdout-v4/W04.json`:
+- **Evidence and tool selection: not the cause.** One price-timeline call returned both values. The answer cites them
+  as claims, and lists operational demand (a different, half-hour measure) separately without mixing the two.
+- **Synthesis: where the difference was lost, by design.** The system prompt says "Never do arithmetic yourself; use
+  values the tools computed". No tool or controller step computes the change between two registered values. So the
+  model gave both values and stopped.
+- **Validation:** a number the model computed itself would have no evidence ID, and `NUMERIC_UNTRACKED` rejects it.
+- **Repair:** none ran.
+
+**Acceptance check** (offline, written before the code change):
+1. **When the rise is computed:** a question asks by how much a measure changed, and between two times it names. The
+   code then computes the change from the two registered values of the one demand measure the question names, in that
+   region, at the two interval ends named, with the same interval length. The model does no arithmetic.
+2. **The derived value:** it is registered as derived evidence linked to both source rows, with the derivation stated.
+   Its as-of availability is the later of the two.
+3. **W04's displayed answer:** it opens with a controller sentence giving the rise in MW (1385.98), both values, and
+   both interval ends with zone and UTC. Each number is traced: the rise to the derived evidence, the two values to
+   their own. It uses no causal wording, and passes with no fallback.
+4. **Controls** (no sentence, no derived value, no new violation):
+   - one of the two values missing, or published after the as-of cutoff;
+   - the question naming operational demand, or both measures, where no pair is mixed;
+   - a named time with no value of that measure (not an interval end);
+   - a question asking no change;
+   - a fall, which is stated as a fall.
+5. **Unchanged:** the I-2a (F04) comparison, the I-1b (W19) cancellation and the I-1a timing answers; the Replay
+   evaluation; the safety suite.
 
 ### I-5: safety-language limitations (recorded, not being fixed)
 
