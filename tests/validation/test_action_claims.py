@@ -166,7 +166,9 @@ def test_live_scoped_repair_of_the_headline_is_shown():
     res = _live(REC["drafts"]["synthesis:draft"] | {"headline": CLAIM}, repair=patch)
     rep = res.report
     assert rep.validation["repair_mode"] == "scoped" and not rep.validation["fallback_applied"], rep.validation
-    assert rep.headline == fixed and rep.status == "answered_with_caveats"
+    assert rep.status == "answered_with_caveats" and not any(action_claims(t) for t in _shown(rep))
+    # since I-3c a document answer is headlined by the validated statement its (repaired) headline paraphrases
+    assert CLAIM not in rep.headline and rep.headline in rep.summary
 
 
 def test_live_claim_in_uncertainties_is_never_shown():

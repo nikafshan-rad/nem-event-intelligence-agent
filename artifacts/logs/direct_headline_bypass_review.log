@@ -1,0 +1,53 @@
+# PR #25 review: can replacing the model's headline hide a critical violation the validator would otherwise catch?
+# One adversarial model headline per critical check that reads a headline (validation.py: narrative_numbers,
+# narrative_times, narrative_clock_times, narrative_intervals, narrative_quotes, notice_timing, document_claims,
+# language, action_claims), in answers whose headline the controller replaces (F04 causal, F03 document), plus
+# another region's price claimed (numeric claims, whatever the headline). The scripted repair repeats the draft, so
+# a rejected answer falls back. 'text shown' reads the displayed fields and the serialised report (question removed).
+# Offline, SYNTHETIC fake transport.
+
+## main efd56de (the model's headline shown and checked)
+F04 narrative_numbers                      expects NUMERIC_UNTRACKED            caught=True  fallback=True  text shown=False | headline: Validated facts only: the generated narr
+F04 narrative_numbers (another region)     expects NUMERIC_UNTRACKED            caught=True  fallback=True  text shown=False | headline: Validated facts only: the generated narr
+F04 numeric claims (another region)        expects CLAIM_REGION_MISMATCH        caught=True (claims are validated whatever the headline)
+F04 narrative_times                        expects TIME_NOT_IN_EVIDENCE         caught=True  fallback=True  text shown=False | headline: Validated facts only: the generated narr
+F04 narrative_clock_times (zone)           expects TIME_ZONE_MISSING            caught=True  fallback=True  text shown=False | headline: Validated facts only: the generated narr
+F04 narrative_clock_times (time of day)    expects TIME_OF_DAY_UNVERIFIED       caught=True  fallback=True  text shown=False | headline: Validated facts only: the generated narr
+F04 narrative_intervals                    expects CLAIM_INTERVAL_MISMATCH      caught=True  fallback=True  text shown=False | headline: Validated facts only: the generated narr
+F04 narrative_quotes                       expects QUOTE_NOT_IN_SOURCE          caught=True  fallback=True  text shown=False | headline: Validated facts only: the generated narr
+F04 notice_timing (contradicted)           expects NOTICE_TIMING_CONTRADICTED   caught=True  fallback=True  text shown=False | headline: Validated facts only: the generated narr
+F04 language (causal)                      expects UNSUPPORTED_CAUSALITY        caught=True  fallback=True  text shown=True | headline: Validated facts only: the generated narr
+F04 language (injection)                   expects INJECTION_ECHO               caught=True  fallback=True  text shown=False | headline: Validated facts only: the generated narr
+F04 action_claims                          expects ACTION_CLAIM_UNRECORDED      caught=True  fallback=True  text shown=False | headline: Validated facts only: the generated narr
+F03 document_claims                        expects DOC_CLAIM_UNSUPPORTED        caught=True  fallback=True  text shown=False | headline: Validated facts only: the generated narr
+
+## PR #25 as first proposed, 8927aa6: the replaced headline was not checked (only causal wording,
+## instruction-like text and approval claims were, by keeping such a headline shown)
+F04 narrative_numbers                      expects NUMERIC_UNTRACKED            caught=False fallback=False text shown=False | headline: The records cannot settle this: the AEMO
+F04 narrative_numbers (another region)     expects NUMERIC_UNTRACKED            caught=False fallback=False text shown=False | headline: The records cannot settle this: the AEMO
+F04 numeric claims (another region)        expects CLAIM_REGION_MISMATCH        caught=True (claims are validated whatever the headline)
+F04 narrative_times                        expects TIME_NOT_IN_EVIDENCE         caught=False fallback=False text shown=False | headline: The records cannot settle this: the AEMO
+F04 narrative_clock_times (zone)           expects TIME_ZONE_MISSING            caught=False fallback=False text shown=False | headline: The records cannot settle this: the AEMO
+F04 narrative_clock_times (time of day)    expects TIME_OF_DAY_UNVERIFIED       caught=False fallback=False text shown=False | headline: The records cannot settle this: the AEMO
+F04 narrative_intervals                    expects CLAIM_INTERVAL_MISMATCH      caught=False fallback=False text shown=False | headline: The records cannot settle this: the AEMO
+F04 narrative_quotes                       expects QUOTE_NOT_IN_SOURCE          caught=False fallback=False text shown=False | headline: The records cannot settle this: the AEMO
+F04 notice_timing (contradicted)           expects NOTICE_TIMING_CONTRADICTED   caught=False fallback=False text shown=False | headline: The records cannot settle this: the AEMO
+F04 language (causal)                      expects UNSUPPORTED_CAUSALITY        caught=True  fallback=True  text shown=True | headline: Validated facts only: the generated narr
+F04 language (injection)                   expects INJECTION_ECHO               caught=True  fallback=True  text shown=False | headline: Validated facts only: the generated narr
+F04 action_claims                          expects ACTION_CLAIM_UNRECORDED      caught=True  fallback=True  text shown=False | headline: Validated facts only: the generated narr
+F03 document_claims                        expects DOC_CLAIM_UNSUPPORTED        caught=False fallback=False text shown=False | headline: “At 1630 hrs 30/07/2026 there was a shor
+
+## this fix: the replaced headline is kept on the report, unshown and never serialised, and checked
+F04 narrative_numbers                      expects NUMERIC_UNTRACKED            caught=True  fallback=True  text shown=False | headline: Validated facts only: the generated narr
+F04 narrative_numbers (another region)     expects NUMERIC_UNTRACKED            caught=True  fallback=True  text shown=False | headline: Validated facts only: the generated narr
+F04 numeric claims (another region)        expects CLAIM_REGION_MISMATCH        caught=True (claims are validated whatever the headline)
+F04 narrative_times                        expects TIME_NOT_IN_EVIDENCE         caught=True  fallback=True  text shown=False | headline: Validated facts only: the generated narr
+F04 narrative_clock_times (zone)           expects TIME_ZONE_MISSING            caught=True  fallback=True  text shown=False | headline: Validated facts only: the generated narr
+F04 narrative_clock_times (time of day)    expects TIME_OF_DAY_UNVERIFIED       caught=True  fallback=True  text shown=False | headline: Validated facts only: the generated narr
+F04 narrative_intervals                    expects CLAIM_INTERVAL_MISMATCH      caught=True  fallback=True  text shown=False | headline: Validated facts only: the generated narr
+F04 narrative_quotes                       expects QUOTE_NOT_IN_SOURCE          caught=True  fallback=True  text shown=False | headline: Validated facts only: the generated narr
+F04 notice_timing (contradicted)           expects NOTICE_TIMING_CONTRADICTED   caught=True  fallback=True  text shown=False | headline: Validated facts only: the generated narr
+F04 language (causal)                      expects UNSUPPORTED_CAUSALITY        caught=True  fallback=True  text shown=False | headline: Validated facts only: the generated narr
+F04 language (injection)                   expects INJECTION_ECHO               caught=True  fallback=True  text shown=False | headline: Validated facts only: the generated narr
+F04 action_claims                          expects ACTION_CLAIM_UNRECORDED      caught=True  fallback=True  text shown=False | headline: Validated facts only: the generated narr
+F03 document_claims                        expects DOC_CLAIM_UNSUPPORTED        caught=True  fallback=True  text shown=False | headline: Validated facts only: the generated narr

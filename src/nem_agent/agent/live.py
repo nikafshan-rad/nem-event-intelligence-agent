@@ -1312,6 +1312,7 @@ class LiveController:
         # Document sentences are written by the controller: a quote is shown in quotation marks only when it is
         # verbatim in the cited passage; anything else is shown as the model's own words, so every check applies.
         summary: list[str] = []
+        headline = m.headline if m else "Abstained: the live model did not produce a valid report."
         extra_claims: list[NumericClaim] = []
         self._summary_origin = []
         not_verbatim: list[str] = []
@@ -1372,6 +1373,23 @@ class LiveController:
                 self._summary_origin.insert(0, ("controller", 0))
                 if self.d is not None:
                     self.d.trace.add("model", "timing_answer", text=answer)
+            # The headline states the validated answer where the controller holds it (live check 2026-09-29: F04 was
+            # headlined with the peak price, and F03's uncited headline named neither the time nor the constraint set):
+            # - a causal question's timing answer: its first sentence keeps "Timing rules this out" apart from "The
+            #   records cannot settle this";
+            # - a document answer: the statement the model's own headline paraphrases (most of its content words;
+            #   the earlier on a tie), shown as rendered, with its citation and any zone or unit note.
+            # Every other answer keeps the model's headline. A replaced one is kept on the report, unshown, and
+            # validated like the shown one, so the answer is repaired or withheld exactly as before (a headline
+            # claiming an approval still fails closed; PR #13).
+            from ..validation import support
+
+            if answer is not None:
+                headline = re.split(r"(?<=\.)\s+(?=[A-Z])", answer, maxsplit=1)[0]
+            elif res.intent == "source_explanation" and summary:
+                headline = summary[max(range(len(summary)), key=lambda i: (support(m.headline, summary[i]), -i))]
+            if headline != m.headline and self.d is not None:
+                self.d.trace.add("model", "headline_from_answer", text=headline, model_headline=m.headline)
         if not_verbatim and self.d is not None:
             self.d.trace.add("model", "statement_not_verbatim", citation_ids=not_verbatim)
         if resolved and self.d is not None:
@@ -1405,10 +1423,10 @@ class LiveController:
                              start_local=local_str(res.window[0], res.region), end_local=local_str(res.window[1], res.region),
                              timezone=str(res.routing.get("region_tz") or ""))
         status = m.status if m else "abstained"
-        return InvestigationReport(
+        report = InvestigationReport(
             question=res.request.question, mode="live", intent=res.intent, region=res.region,
             as_of=iso_utc(res.as_of) if res.as_of else None, event_window=ew,
-            headline=m.headline if m else "Abstained: the live model did not produce a valid report.",
+            headline=headline,
             summary=summary, observations=obs, search_scope=scope,
             numeric_claims=[NumericClaim(**c.model_dump()) for c in m.numeric_claims] + extra_claims if m else [],
             possible_explanations=[Hypothesis(statement=h.statement, supporting_evidence_ids=h.supporting_evidence_ids,
@@ -1421,3 +1439,5 @@ class LiveController:
             status=status if status != "needs_clarification" else "needs_clarification",
             trace_id=self.d.trace.trace_id if self.d else "n/a", versions=self.versions,
             generator=f"live-model:{self.model}")
+        report._model_headline = m.headline if m is not None and m.headline != headline else None
+        return report

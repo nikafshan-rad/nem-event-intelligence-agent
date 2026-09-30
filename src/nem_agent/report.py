@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
 Status = Literal["answered", "answered_with_caveats", "needs_clarification", "abstained", "refused"]
 Mode = Literal["replay", "live"]
@@ -132,6 +132,9 @@ class InvestigationReport(_M):
     versions: Versions
     generator: str = Field(description="'scripted-replay-controller' or 'live-model:<model id>'")
     validation: dict[str, Any] = Field(default_factory=dict)
+    # The model's own headline when the controller shows another (Live, I-3c): validated like the shown headline, so
+    # replacing it hides nothing the validator would act on, and never serialised or shown.
+    _model_headline: str | None = PrivateAttr(default=None)
 
 
 def report_json_schema() -> dict[str, Any]:

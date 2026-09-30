@@ -1,0 +1,108 @@
+# Live controller replays of every saved held-out v4 (W01-W20), 2026-09-29 Live-check (F01-F04) and 2026-09-30
+# Live-check (F04, W19, W04, W18) record, SYNTHETIC fake transport, no network (as in the I-3a/I-3b logs); headlines
+# before and after. Scripted replays of saved drafts are not a measure of Live behaviour.
+
+## replayed 26; validation outcome and summary unchanged in 26
+
+== v4:W01 (market_event_review), fallback False
+   headline unchanged: TAS1 five-minute dispatch price peaked at $450.08/MWh at 2026-08-06 13:00 AEST (UTC+1000); the spike was confined to a single five-minute interval at or above $300/MWh.
+
+== v4:W02 (market_event_review), fallback False
+   headline unchanged: Minimum dispatch price in VIC1 was -504.6525 $/MWh at 2026-07-28 21:20 AEST (UTC+1000).
+
+== v4:W03 (market_event_review), fallback False
+   headline unchanged: Peak 5-minute RRP 4981.0 $/MWh at 2026-07-31 02:05 ACST (interval-ending 2026-07-30T16:35:00Z).
+
+== v4:W04 (market_event_review), fallback False
+   headline unchanged: Peak RRP 531.84849 $/MWh at 2026-07-31 07:30 AEST (UTC+1000); dispatch TOTALDEMAND was 10046.72 MW at 06:30 AEST and 11432.7 MW at 07:30 AEST.
+
+== v4:W05 (forecast_review), fallback False
+   headline unchanged: Newest available VIC1 operational-demand run (PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607302330_20260730230149, available_at_utc 2026-07-30T15:47:49Z) gave POE50 7942.0 MW for the half-hour ending 2026-07-30T21:30:00Z (2026-07-31 07:30 AEST (UTC+1000)).
+
+== v4:W06 (forecast_review), fallback False
+   headline unchanged: As of 2026-07-30T09:30:00Z the latest available forecast run showed POE50 = 1505.0 MW for the half‑hour ending 2026-07-31 02:30 ACST (UTC+0930); evidence for chilly conditions raising load at that time is missing.
+
+== v4:W07 (forecast_review), fallback False
+   headline unchanged: For TAS1 interval ending 2026-07-30T21:30:00Z (2026-07-31 07:30 AEST), the run issued 2026-07-30T20:56:59Z gave POE50 = 1382.0 MW; actual operational demand was 1402.0 MW (POE50 − actual = −20.0 MW, −1.43%).
+
+== v4:W08 (forecast_review), fallback False
+   headline unchanged: Actual operational demand was 6812.0 MW at 2026-08-20 09:30 AEST (UTC+1000); the run's POE50 was 6493.0 MW, POE10 6753.0 MW and POE90 6233.0 MW — actual was above POE10.
+
+== v4:W09 (source_explanation), fallback False
+   main:        AEMO computes POE10 and POE90 by applying scaling factors to the POE50 forecast.
+   this branch: “The 10% and 90% POE forecasts are derived from the 50% POE forecast.” [c1]
+
+== v4:W10 (source_explanation), fallback False
+   main:        When Wholesale Demand Response is dispatched, AEMO’s scheduled demand decreases by the amount of dispatched WDR.
+   this branch: “When Wholesale Demand Response is dispatched, scheduled demand will decrease by the amount of dispatched WDR.” [aemo_demand_terms#p12c20]
+
+== v4:W11 (source_explanation), fallback False
+   main:        An administered price period for a region is declared when the sum of uncapped spot or ancillary service prices over the relevant prior trading intervals exceeds the cumulative price threshold.
+   this branch: “Under clause 3.14.2(c) of the NER, an administered price period for a region is triggered if: (a) The sum of the uncapped spot prices or ancillary service prices for that region over the previous 2016 trading intervals (7 days) exceeds the cumulative price threshold; or (b) Refer to 15.2.” [aemo_so_op_3705#p34c103]
+
+== v4:W12 (source_explanation), fallback False
+   main:        PRICE_STATUS records whether regional prices for the dispatch interval are FIRM or NOT FIRM.
+   this branch: “PRICE_STATUS (VARCHAR2(20)): Status of regional prices for this dispatch interval "NOT FIRM" or "FIRM".” [mms_dm_elec21#DISPATCHPRICE#1]
+
+== v4:W13 (source_explanation), fallback False
+   main:        AEMO market notices report a City West transformer and an associated circuit breaker tripped; AEMO did not instruct load shedding and was not advised of any bulk load disconnection.
+   this branch: “At 1140 hrs, the City West 275/66 kV transformer T_1 and the 275 kV circuit breaker 6675 tripped during restoration of City West 275/66 kV transformer T_2.” [market_notice_144692#0] (Notice times are NEM market time, UTC+10.)
+
+== v4:W14 (source_explanation), fallback True
+   headline unchanged: Validated facts only: the generated narrative failed independent validation (DOC_CLAIM_UNCITED). Observations below are tool values with source rows.
+
+== v4:W15 (source_explanation), fallback False
+   main:        Directlink returned to service at 2026-07-31 14:30 AEST and constraint set N-X_MBTE_3 was revoked.
+   this branch: “The outage has been completed and Directlink all 3 cables returned to service at 1430 hrs 31/07/2026 Constraint set(s) revoked: N-X_MBTE_3 Manager NEM Real Time Operations” [market_notice_144695#0] (NEM market time, UTC+10: 2026-07-31T04:30:00Z = 2026-07-31 14:30 AEST.)
+
+== v4:W18 (market_event_review), fallback False
+   main:        Victoria RRP reached 406.00544 $/MWh at 2026-08-20 09:10 AEST; the Hazelwood bus-tie outage in the AEMO notice is timed at 2026-08-20 11:00 AEST, after the price extreme.
+   this branch: Timing rules this out: the AEMO market notice that mentions Hazelwood gives 2026-08-20 11:00 AEST (2026-08-20T01:00:00Z), after the price extreme (interval ending 2026-08-19T23:10:00Z = 2026-08-20 09:10 AEST), so what it reports came later.
+
+== v4:W19 (market_event_review), fallback False
+   headline unchanged: Five‑minute RRP in SA1 reached $845.00 at interval ending 2026-07-29 17:25 ACST (2026-07-29T07:55:00Z).
+
+== v4:W20 (source_explanation), fallback False
+   main:        AEMO defines operational demand as an EMMS 'as generated' regional demand term (used in central dispatch) defined by composition (what generation and responses are included or excluded).
+   this branch: The three key demand definitions are based on 'as generated' demand and are used operationally in AEMO’s central dispatch (EMMS) processes on a regional basis. [aemo_demand_terms#p5c2]
+
+== 0929:F01 (source_explanation), fallback False
+   main:        AEMO’s procedure says a regional pre-dispatch load forecast is reviewed when its forecast error exceeds the region’s threshold for two consecutive 30-minute periods.
+   this branch: “The load forecast for a region will be reviewed, whenever the forecast error is greater than the forecast error threshold in a region for two consecutive 30-minute periods.” [aemo_so_op_3710#p7c12]
+
+== 0929:F02 (source_explanation), fallback False
+   main:        AEMO applies live SCADA telemetry only to the initial pre-dispatch interval calculation.
+   this branch: “The following SCADA data is captured by the NEMDE process from the NEM SCADA database and is applied to the first 30-minute period calculation only, of the current pre-dispatch schedule.” [aemo_so_op_3704#p7c16]
+
+== 0929:F03 (source_explanation), fallback False
+   main:        AEMO notified a short‑notice outage of the Belalie‑Davenport line and invoked a named outage constraint set.
+   this branch: “At 1630 hrs 30/07/2026 there was a short notice outage of Belalie-Davenport 275kV line.” [c1] (NEM market time, UTC+10: 2026-07-30T06:30:00Z = 2026-07-30 16:00 ACST.)
+
+== 0929:F04 (market_event_review), fallback False
+   main:        Peak five-minute RRP in NSW1 was 531.84849 $/MWh at 2026-07-31 07:30 AEST (interval end 2026-07-30T21:30:00Z).
+   this branch: The records cannot settle this: the AEMO market notice that mentions Directlink gives 2026-07-27 07:00 AEST (2026-07-26T21:00:00Z), before the price extreme (interval ending 2026-07-30T21:30:00Z = 2026-07-31 07:30 AEST).
+
+== 0930:F04 (market_event_review), fallback False
+   main:        Peak NSW1 RRP 531.84849 $/MWh at 2026-07-31 07:30 AEST; Directlink was on a planned outage spanning 2026-07-27 07:00 AEST to 2026-07-31 17:00 AEST, but causation is not established.
+   this branch: The records cannot settle this: the AEMO market notice that mentions Directlink gives 2026-07-27 07:00 AEST (2026-07-26T21:00:00Z), before the price extreme (interval ending 2026-07-30T21:30:00Z = 2026-07-31 07:30 AEST).
+
+== 0930:W19 (market_event_review), fallback False
+   headline unchanged: SA1 five‑minute RRP peak $845.00/MWh at 2026-07-29 17:25 ACST (interval end 2026-07-29T07:55:00Z).
+
+== 0930:W04 (market_event_review), fallback False
+   headline unchanged: Dispatch TOTALDEMAND rose by 1385.98 MW between 2026-07-31 06:30 AEST (UTC+1000) and 2026-07-31 07:30 AEST (UTC+1000); RRP at 2026-07-31 07:30 AEST (UTC+1000) was $531.84849/MWh.
+
+== 0930:W18 (market_event_review), fallback True
+   headline unchanged: Validated facts only: the generated narrative failed independent validation (EXPLANATION_RULED_OUT_BY_TIMING). Observations below are tool values with source rows.
+
+== 0930:W18 with the scripted repair deleting its ruled-out hypothesis (its saved repair falls back since I-7)
+   main:        VIC RRP peaked at $406.00544 for interval ending 2026-08-19T23:10:00Z (2026-08-20 09:10 AEST). 
+   this branch: Timing rules this out: the AEMO market notice that mentions Hazelwood gives 2026-08-20 11:00 AEST (2026-08-20T01:00:00Z), after the price extreme (interval ending 2026-08-19T23:10:00Z = 2026-08-20 09:10 AEST), so what it reports came later.
+
+## F03's first draft, with its Live repair replayed as the scoped headline edit it was
+### main
+F03 first draft (its Live repair replayed if asked): repair True | pre-repair ['NUMERIC_UNTRACKED'] | fallback False | model calls 5
+   headline: AEMO notified a short‑notice outage of the Belalie‑Davenport line and invoked a named outage constraint set.
+### this branch (the replaced headline is still checked, so the repair still runs)
+F03 first draft (its Live repair replayed if asked): repair True | pre-repair ['NUMERIC_UNTRACKED'] | fallback False | model calls 5
+   headline: “At 1630 hrs 30/07/2026 there was a short notice outage of Belalie-Davenport 275kV line.” [c1] (NEM market time, UTC+10: 2026-07-30T06:30:00Z = 2026-0

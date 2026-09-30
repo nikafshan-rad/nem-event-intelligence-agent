@@ -37,7 +37,9 @@ def _critical(res, *lines: str, question: str | None = None) -> list[tuple[str, 
     ch = next(c for c in res.registry.chunks.values() if c.doc_id in ("market_notice_144893", "market_notice_144693"))
     cite = Citation(citation_id="c1", chunk_id=ch.chunk_id, doc_id=ch.doc_id, title=ch.title, url=ch.url,
                     doc_type=ch.doc_type, quote=ch.text.split(". ")[0], supports="the notice")
-    rep = res.report.model_copy(update={"summary": list(lines), "citations": [cite],
+    # a neutral headline: since I-3c the controller headlines a causal question with its timing answer, which would
+    # count as a timing statement here; these tests read only the given lines
+    rep = res.report.model_copy(update={"headline": "Notice timing test", "summary": list(lines), "citations": [cite],
                                         **({"question": question} if question else {})})
     v = validate(rep, res.registry, window=res.resolution.window, records=res.records, event_kind=res.resolution.kind)
     return [(x.code, x.detail) for x in v.critical]
