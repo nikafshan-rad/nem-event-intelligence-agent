@@ -13,7 +13,7 @@ One list of known defects, so that each fix is weighed against the whole. Eviden
 | --- | --- | --- | --- | --- |
 | I-1 | **Direct, complete answers** | **(a)** F04 (live check 2026-09-29) asked "Was Directlink being out of service what drove the NSW1 price spike…?": the answer lists correct observations and hedged possibilities but never says what the evidence supports. **(b)** W19 (held-out v4) does not say the reserve (LOR) forecasts were cancelled before the day, and its hypotheses lean on them | P1 | **(a): fixed offline** in PR `#16`. **Live (development cases only, 2026-09-30): held** on F04 and W18. **(b): fixed offline** in PR `#17`. **Live (development case): failed** on W19: it triggered internally and the sentence was correct, but the answer fell back, so it was not displayed (I-6). The outcome stays failed |
 | I-2 | **Evidence selection and calculations** | **(a)** F04 never fetched the other regions' prices, so it misses that VIC1, SA1 and TAS1 were also above 470 $/MWh while QLD1 was about 65. **(b)** W04 gives both total-demand values (10046.72 and 11432.7 MW) but not the rise between them: a derived number has no evidence ID | P1 | **(a): fixed offline** in PR `#18`. **Live (development cases only, 2026-09-30): held** on F04 and W18. **(b): fixed offline** in PR `#19`; departs from checks 4 and 5 as written (below). **Live (development case): held** on W04 |
-| I-3 | **Clear presentation** | F01 shows "New South Wales 150" without "MW". F03 shows "1630 hrs" without its zone (NEM time, 06:30 UTC). Headlines are vague or off the question: F03's after repair, F04's (the peak price). W04 and W18 (Live, 2026-09-30): the same value appears twice among the observations, and W04's headline has "(UTC+1000)". (W18's inconsistency is now I-7) | P2 | **(a) F03's notice time without a zone: fixed offline** in PR `#23` (below), **Live unverified**. **(b) F01's number without its unit: verified offline; Live unverified** (PR `#24`, below). **(c) headlines that do not answer the question: verified offline; Live unverified** (PR `#25`, below). Duplicated values: **open** |
+| I-3 | **Clear presentation** | F01 shows "New South Wales 150" without "MW". F03 shows "1630 hrs" without its zone (NEM time, 06:30 UTC). Headlines are vague or off the question: F03's after repair, F04's (the peak price). W04 and W18 (Live, 2026-09-30): the same value appears twice among the observations, and W04's headline has "(UTC+1000)". (W18's inconsistency is now I-7) | P2 | **(a) F03's notice time without a zone: fixed offline** in PR `#23` (below), **Live unverified**. **(b) F01's number without its unit: verified offline; Live unverified** (PR `#24`, below). **(c) headlines that do not answer the question: verified offline; Live unverified** (PR `#25`, below). **(d) duplicated values: in progress** in `fix/duplicate-values` (below) |
 | I-4 | **Internal details in user-facing text** | Tool names (W20: "API functions named get_actual_demand / get_forecast_runs"), controller notes ("Market notices were not searched…" on document questions, F01), and evidence IDs (F04: "ev0878 … is not a time-stamped observation"). W04 (Live, 2026-09-30): "Controller-computed dispatch TOTALDEMAND (5-minute) change … [ev0975]" | P2 | open |
 | I-6 | **A valid controller answer lost to a fallback** | W19 (Live, 2026-09-30): the controller's cancellation sentence was correct, but the model's own lines quoted notice titles in single quotes ('… Lack Of Reserve Level 2 (LOR2) …'). `NUMERIC_UNTRACKED` counted the "2", and one line failed `TIME_NOT_IN_EVIDENCE`. The scoped repair did not clear them, so the answer fell back and nothing was shown | P1 | **fixed offline** in PR `#21` (below), **Live unverified**. The frozen run's outcome for W19 stays failed |
 | I-7 | **An explanation kept open that the answer's own timing rules out** | W18 (Live, 2026-09-30): the opening says timing rules the Hazelwood bus-tie outage out. The notice gives 1100 hrs 20/08, after every high-price interval. A hedged hypothesis resting on that notice [c1] still offers it as a possible influence | P2 | **fixed offline** in PR `#22` (below), **Live unverified**. Offline, W18's actual saved repair now falls back, and only a scripted repair that deletes the hypothesis passes. W18's Live verdict (held) is unchanged |
@@ -822,6 +822,60 @@ are met. A review before merging corrected check 5's "scope" point (below).
   the line and time; the constraint set is in the next line).
 - **The Replay controller** is not changed.
 - **Live is unverified.**
+
+### I-3d: the same data point shown more than once
+
+**What happened** (saved Live records; reproduced offline on `main`):
+- **Shown twice, with identical metric, region, value, time, source row and publication time:**
+  - **W04 (2026-09-30):** each TOTALDEMAND endpoint (10046.72 and 11432.7 MW).
+  - **W18 (2026-09-30):** the VIC1 peak (406.00544 $/MWh).
+  - **W19 (2026-09-30, facts only):** the SA1 peak (845 $/MWh).
+  - **v4 W01:** the TAS1 peak (450.08 $/MWh).
+- **Only the evidence ID differs,** and sometimes the label ("episode peak 5-minute RRP" against "5-minute dispatch
+  RRP").
+
+**Root cause.**
+- **One evidence item per tool call.** The registry holds one item per tool call that returns a value. When two calls
+  return the same source row (`find_market_events` and `get_price_timeline`, or two price-timeline calls), it gets two
+  evidence IDs.
+- **Observations are listed by evidence ID.** The model's `observation_evidence_ids` and the controller's own
+  observations (I-2a, I-2b) can name both, and the answer lists each ID once.
+- **No step compares them.**
+
+**Not duplicates, and kept:**
+- **Equal values at different times, rows, regions or measures:** for example the four 301.55 $/MWh intervals in W18's
+  window.
+- **Derived values:** two counts from different computations that happen to agree, such as v4 W01's and W03's "count
+  of all intervals in the window" and "count of intervals meeting the threshold". Their derivations differ.
+- **Values that disagree for the same time.**
+- **Both endpoints of a comparison:** they are different times.
+
+**Also recorded, not changed here:**
+- **Findings repeating a summary quote** (W13, W15, F03, F04): findings are their own section, with
+  `applies_to_event`, and are scored.
+- **The I-3c headline repeating the lead sentence:** by design.
+- **A model line restating a controller sentence** (W18's `summary[8]`): not an exact repeat.
+
+**Acceptance check** (offline, written before the code change):
+1. **After the complete answer is validated** (the answer, or its facts-only fallback), observations for one row-backed
+   data point are shown once. That means the same evidence class (not derived), metric, region, value, unit, time,
+   interval, full source-row list and publication and availability times.
+   - **The first is kept.** The others' evidence IDs and labels are listed in `validation.observations_merged`, so every
+     evidence ID stays reachable.
+2. **Nothing else changes:**
+   - claims, citations, units, time zones, caveats, summary lines and findings;
+   - validation codes and outcomes, since the merge happens after validation.
+3. **The examples:** W04, W18, W19 and v4 W01 show each such data point once, and their outcomes are unchanged.
+4. **Controls, all kept:**
+   - equal values for different observations (other times, rows, regions);
+   - derived values that happen to agree;
+   - both endpoints of W04's change;
+   - observations whose values disagree.
+
+   **Also:**
+   - a claim with a wrong value on a duplicate is still rejected (the answer falls back);
+   - PR #25's hidden-headline checks and the earlier fixes are unchanged.
+5. **Unchanged:** the Replay evaluation (or any change is explained) and the safety suite.
 
 ### I-5: safety-language limitations (recorded, not being fixed)
 
