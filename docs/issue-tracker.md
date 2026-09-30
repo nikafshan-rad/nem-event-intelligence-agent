@@ -13,7 +13,7 @@ One list of known defects, so that each fix is weighed against the whole. Eviden
 | --- | --- | --- | --- | --- |
 | I-1 | **Direct, complete answers** | **(a)** F04 (live check 2026-09-29) asked "Was Directlink being out of service what drove the NSW1 price spike…?": the answer lists correct observations and hedged possibilities but never says what the evidence supports. **(b)** W19 (held-out v4) does not say the reserve (LOR) forecasts were cancelled before the day, and its hypotheses lean on them | P1 | **(a): fixed offline** in PR `#16`. **Live (development cases only, 2026-09-30): held** on F04 and W18. **(b): fixed offline** in PR `#17`. **Live (development case): failed** on W19: it triggered internally and the sentence was correct, but the answer fell back, so it was not displayed (I-6). The outcome stays failed |
 | I-2 | **Evidence selection and calculations** | **(a)** F04 never fetched the other regions' prices, so it misses that VIC1, SA1 and TAS1 were also above 470 $/MWh while QLD1 was about 65. **(b)** W04 gives both total-demand values (10046.72 and 11432.7 MW) but not the rise between them: a derived number has no evidence ID | P1 | **(a): fixed offline** in PR `#18`. **Live (development cases only, 2026-09-30): held** on F04 and W18. **(b): fixed offline** in PR `#19`; departs from checks 4 and 5 as written (below). **Live (development case): held** on W04 |
-| I-3 | **Clear presentation** | F01 shows "New South Wales 150" without "MW". F03 shows "1630 hrs" without its zone (NEM time, 06:30 UTC). Headlines are vague or off the question: F03's after repair, F04's (the peak price). W04 and W18 (Live, 2026-09-30): the same value appears twice among the observations, and W04's headline has "(UTC+1000)". (W18's inconsistency is now I-7) | P2 | **(a) F03's notice time without a zone: fixed offline** in PR `#23` (below), **Live unverified**. **(b) F01's number without its unit: verified offline; Live unverified** (PR `#24`, below). **(c) headlines that do not answer the question: in progress** in `fix/direct-headline` (below). Duplicated values: **open** |
+| I-3 | **Clear presentation** | F01 shows "New South Wales 150" without "MW". F03 shows "1630 hrs" without its zone (NEM time, 06:30 UTC). Headlines are vague or off the question: F03's after repair, F04's (the peak price). W04 and W18 (Live, 2026-09-30): the same value appears twice among the observations, and W04's headline has "(UTC+1000)". (W18's inconsistency is now I-7) | P2 | **(a) F03's notice time without a zone: fixed offline** in PR `#23` (below), **Live unverified**. **(b) F01's number without its unit: verified offline; Live unverified** (PR `#24`, below). **(c) headlines that do not answer the question: verified offline; Live unverified** (PR `#25`, below). Duplicated values: **open** |
 | I-4 | **Internal details in user-facing text** | Tool names (W20: "API functions named get_actual_demand / get_forecast_runs"), controller notes ("Market notices were not searched…" on document questions, F01), and evidence IDs (F04: "ev0878 … is not a time-stamped observation"). W04 (Live, 2026-09-30): "Controller-computed dispatch TOTALDEMAND (5-minute) change … [ev0975]" | P2 | open |
 | I-6 | **A valid controller answer lost to a fallback** | W19 (Live, 2026-09-30): the controller's cancellation sentence was correct, but the model's own lines quoted notice titles in single quotes ('… Lack Of Reserve Level 2 (LOR2) …'). `NUMERIC_UNTRACKED` counted the "2", and one line failed `TIME_NOT_IN_EVIDENCE`. The scoped repair did not clear them, so the answer fell back and nothing was shown | P1 | **fixed offline** in PR `#21` (below), **Live unverified**. The frozen run's outcome for W19 stays failed |
 | I-7 | **An explanation kept open that the answer's own timing rules out** | W18 (Live, 2026-09-30): the opening says timing rules the Hazelwood bus-tie outage out. The notice gives 1100 hrs 20/08, after every high-price interval. A hedged hypothesis resting on that notice [c1] still offers it as a possible influence | P2 | **fixed offline** in PR `#22` (below), **Live unverified**. Offline, W18's actual saved repair now falls back, and only a scripted repair that deletes the hypothesis passes. W18's Live verdict (held) is unchanged |
@@ -754,6 +754,51 @@ are met.
    - **Scope:** controller rendering only; no prompt or validator change. A replaced model headline is no longer
      validated, so a violation in it alone no longer triggers a repair.
 
+**Result: verified offline; Live unverified** (PR `#25`; evidence in `artifacts/logs/direct_headline_*`). The checks
+are met, with one safeguard added to check 3.
+1. **Causal questions:** a causal question with the controller's timing answer is headlined with that answer's first
+   sentence.
+   - F04 (both runs): "The records cannot settle this: … before the price extreme (…)".
+   - W18: "Timing rules this out: … after the price extreme (…), so what it reports came later".
+2. **Document answers:** a document answer is headlined with the validated statement its model headline paraphrases.
+   That is the statement with most of the headline's content words, the earlier on a tie, shown as rendered.
+   - **F03:** its outage statement, with the time and zone.
+   - **W10:** the answering statement, [2], not the first.
+   - **W15:** its "returned to service at 1430 hrs 31/07/2026" statement.
+   - **v4 W20:** its 'as generated' definition rather than its introduction.
+   - **Why not the first statement:** it regressed W10, W15 and v4 W20.
+3. **Unchanged:**
+   - **Headlines:** the model's headline stays for event and forecast reviews without a controller answer (W01–W08),
+     change questions (W04), and a causal question the controller cannot answer (W19). Fallback answers (W14, and
+     W18 under its saved repair) keep "Validated facts only…".
+   - **Safeguard, added:** a model headline that the language checks would act on (causal wording, instruction-like
+     text, an approval or write claim) is never replaced. It stays so the validator sees it. A headline claiming an
+     approval still fails closed (#13), and one stating a cause is still rejected.
+4. **Replays:** 26 saved replays keep their validation outcomes and summaries, and only 13 headlines change.
+   - **No new numbers:** no headline adds a number the answer does not show.
+   - **Behaviour change:** a replaced model headline is no longer validated. F03's first draft, whose only fault was
+     "275" in its headline, now needs no repair: 4 model calls instead of 5 in the replay.
+5. **Unchanged:**
+   - **The earlier fixes:** timing, cancellation, regional, change, time-zone and unit (every summary identical, and
+     their tests pass).
+   - **Replay evaluation:** identical to `main` in every section.
+   - **Safety suite:** PASS.
+   - **Tests:** 631 pass. 15 are new; on `main` 7 fail and 8 (the controls) pass.
+   - **Two existing tests changed, and the validator did not:**
+     - `test_notice_timing.py`'s helper now sets a neutral headline, because it reads only the given lines;
+     - `test_action_claims.py`'s scoped-repair test now expects the validated statement as the headline. It still
+       requires the repair to be scoped, no fallback, and no claim shown.
+   - **Scope:** controller behaviour (the headline shown, and repairs no longer triggered by a replaced headline). No
+     model instruction, schema or validator change. Scripted replays are not a measure of Live behaviour.
+
+**Still open for I-3c:**
+- **Change questions keep the model's headline.** W04's states the rise, but a headline is not required to cover every
+  part of a question.
+- **A document headline follows the model's headline,** so it answers only what that headline paraphrases (F03's shows
+  the line and time; the constraint set is in the next line).
+- **The Replay controller** is not changed.
+- **Live is unverified.**
+
 ### I-5: safety-language limitations (recorded, not being fixed)
 
 | Example | Where | Risk |
@@ -768,8 +813,10 @@ are met.
 ## Next
 
 **I-3 and I-4 (P2).**
-- **I-3, clear presentation:** vague headlines, and duplicated values. Verified offline, Live unverified: F03's zone
-  (I-3a, PR `#23`) and F01's unit (I-3b, PR `#24`).
+- **I-3, clear presentation:** duplicated values. Verified offline, Live unverified:
+  - F03's zone (I-3a, PR `#23`);
+  - F01's unit (I-3b, PR `#24`);
+  - headlines that answer the question (I-3c, PR `#25`).
 - **I-4, internal details in user-facing text:** tool names, controller notes and evidence IDs.
 
 **Fixed offline, Live unverified:** I-7 (W18's kept-open explanation, P2) in PR `#22`, and I-6 (W19's fallback, P1) in
@@ -801,3 +848,4 @@ PR `#21`. Both were found in the development-only Live check of 2026-09-30
 | I-7: a hypothesis may not rest on a cited notice whose stated time is after every interval of the event | #22 | offline; **Live unverified** |
 | I-3a: a quoted notice time is shown with its source-backed zone (NEM market time, UTC and local) | #23 | offline; **Live unverified** |
 | I-3b: a quoted table row is shown with the unit its table header states in the cited passage | #24 | verified offline; **Live unverified** |
+| I-3c: the headline states the validated answer where the controller holds it (causal timing answer; the document statement the model's headline paraphrases) | #25 | verified offline; **Live unverified** |
