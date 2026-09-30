@@ -1077,11 +1077,15 @@ checks are met, with one departure from check 2 (below).
 
 ## Next
 
-**Next:** no fix is in progress. The open items are:
+**Next:** fixes are paused. The open items are:
 - the I-3d repetitions and I-4 leftovers recorded above;
 - I-5 (recorded, not being fixed);
-- one grouped Live check of the fixes made since the 2026-09-30 check. That check needs approval and must fit the
-  USD 0.41 left.
+- **one grouped development-only Live check** of the fixes made since the 2026-09-30 check (I-6, I-7, I-3a–d, I-4).
+  - **Status:** frozen in `eval/live_check_dev2/PROTOCOL.md`; **not run, and waiting for approval**.
+  - **Cases:** F01, F03, W18 and W19 required; F04 and W04 optional controls.
+  - **Caps:** USD 0.15 per case and USD 0.30 for the run, both enforced by the ledger before every call.
+  - **Ledger:** USD 4.591922 committed, USD 0.408078 left. The USD 0.00183 above 4.590092 is synthetic: four offline
+    replays run outside pytest (no API call; `artifacts/logs/live_check_dev2_budget.log`).
 
 **I-4 (P2), internal details in displayed text:** verified offline, Live unverified (PR `#27`).
 
