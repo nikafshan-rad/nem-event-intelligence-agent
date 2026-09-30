@@ -1081,10 +1081,12 @@ checks are met, with one departure from check 2 (below).
 - the I-3d repetitions and I-4 leftovers recorded above;
 - I-5 (recorded, not being fixed);
 - **the second development-only Live check** (PR `#28`, **not merged; its results await review**):
-  - **Run:** once, 2026-09-30 22:45–22:52 UTC, as frozen. Coverage FULL (F01, F03, W18 and W19 completed); F04 ran;
-    W04 was held back by the start guard.
-  - **Verdicts:** W19 **held** (I-6, I-1b); F03 **held**; F04 **held**; F01 **not triggered** (I-3b held; I-4 had
-    nothing to rewrite); W18 **failed** (I-7 fired, then the answer fell back).
+  - **Run:** once, 2026-09-30 22:45–22:52 UTC, as frozen. Coverage FULL: F01, F03, W18 and W19 all completed,
+    which is not the same as all passing. F04 ran, and W04 was held back by the start guard.
+  - **Verdicts:**
+    - required: W19 **held** (I-6, I-1b); F03 **held**; W18 **failed** (I-7 fired, then the answer fell back); F01
+      **not triggered** (the unit fix I-3b held, but I-4 was not exercised);
+    - control: F04 **held**.
   - **Spend:** USD 0.168462. The ledger is at USD 4.760384, with USD 0.239616 left.
   - **Review:** `artifacts/live/live-check-dev2/REVIEW.md`. Development evidence only.
 - **new items recorded from that check (not fixed):**
@@ -1134,4 +1136,4 @@ generalisation):
 | I-3c: the headline states the validated answer where the controller holds it (causal timing answer; the document statement the model's headline paraphrases) | #25 | verified offline; **Live unverified** |
 | I-3d: a row-backed data point returned under several evidence IDs is shown once, after validation | #26 | verified offline; **Live unverified** |
 | I-4: displayed text is put in plain words after validation (no evidence IDs, tool or field names; controller notes and disclosures in plain language; originals kept) | #27 | verified offline; Live, development cases only (PR #28): held on W18, W19, F04 |
-| Second development-only Live check (F01, F03, W18, W19; F04 control), frozen then run once; recorded | #28 | Live, USD 0.168; **awaiting review, not merged** |
+| Second development-only Live check (F01, F03, W18, W19; F04 control), frozen then run once; an evaluation-only record | #28 | Live, USD 0.168; required coverage full, 2 of 4 held (F03, W19), W18 failed, F01 not triggered; **awaiting review, not merged** |

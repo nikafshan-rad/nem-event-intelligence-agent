@@ -12,11 +12,19 @@ stays failed, and W18 (2026-09-30) stays held.
 - **System:** `src/` tree `94e5c27` (main `d36721e`), gpt-5-mini, prompts v11.
 - **Reviewer:** the developer, not an independent person.
 
-## Coverage: FULL (4 of 4 required cases completed)
+## Coverage: FULL (4 of 4 required cases completed); two of the four held
+
+**Full coverage means every required case ran to completion. It does not mean they passed.** Of the four required
+cases:
+- **held:** F03 and W19;
+- **failed:** W18;
+- **not triggered:** F01, because I-4 was not exercised.
+
+The frozen verdicts below are the checker's, unedited.
 
 | Case | Role | Verdict | Fixes under test | Regression | Fallback | Ledger USD | Calls | Tokens in/out | Trace |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| F01 | required | **not triggered** | I-3b **held**; I-4 not triggered (nothing to rewrite) | none | no | 0.011769 | 4 | 19,366 / 3,953 | `tr-f3a3605ddb9b` |
+| F01 | required | **not triggered** | I-3b (the unit fix) **held**; I-4 **not exercised** (nothing internal to rewrite) | none | no | 0.011769 | 4 | 19,366 / 3,953 | `tr-f3a3605ddb9b` |
 | F03 | required | **held** | I-3a **held**, I-3c **held**; I-4 checked, not triggered | none | no | 0.018657 | 5 | 38,379 / 5,165 | `tr-638790a86c1a` |
 | W18 | required | **failed** | I-7 **failed**, I-3c **failed** (both fired, then the answer fell back); I-3d **held**, I-4 **held** | I-1a, I-2a **failed** (fell back) | **yes** | 0.044839 | 6 | 69,814 / 15,306 | `tr-68178b00c1f1` |
 | W19 | required | **held** | I-6 **held**, I-3d **held**, I-4 **held** | I-1b **held** | no | 0.053311 | 6 | 110,912 / 15,845 | `tr-db875cab1129` |
@@ -33,8 +41,10 @@ stays failed, and W18 (2026-09-30) stays held.
   - I-3d on W18 and W19;
   - I-4 on W18, W19 and F04.
 - **Failed:** I-7 and I-3c on W18, both because the answer fell back (see W18).
-- **Not triggered:** I-4 on F01 and F03, whose answers had nothing internal to rewrite. Under the frozen rule, F01's I-4
-  is a fix under test, so F01's case verdict is "not triggered" even though its display is clean. F03's I-4 was checked
+- **Not triggered:** I-4 on F01 and F03. Their answers had nothing internal to rewrite, so I-4 was not exercised.
+  - F01's I-4 is a fix under test under the frozen rule, so F01's case verdict is "not triggered".
+  - F01's unit fix (I-3b) held, and its display is clean.
+  - Neither of those makes F01 a held case. F03's I-4 was checked
   only for failures.
 
 ## Spend (hard caps held; no open reservations)
@@ -51,7 +61,7 @@ stays failed, and W18 (2026-09-30) stays held.
 
 ## Per case
 
-### F01: I-3b held; case not triggered (I-4)
+### F01: the unit fix (I-3b) held; I-4 was not exercised; frozen verdict not triggered
 
 - **Validation:** the first draft passed; there was no repair and no fallback. Status: answered.
 - **Gold:** status ok; the gold citation (`aemo_so_op_3710`) is hit.

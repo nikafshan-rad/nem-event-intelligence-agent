@@ -282,6 +282,7 @@ def test_case_cap_fits_under_the_run_cap_or_the_case_does_not_start():
 @pytest.mark.skipif(not FREEZE, reason="FREEZE.json not written yet")
 def test_the_runner_refuses_overrides_a_moved_ledger_and_a_missing_key(monkeypatch):
     frozen = {**FREEZE, "ledger_start_usd": 4.591922}
+    monkeypatch.setattr(RUN, "changed", lambda freeze: None)  # the frozen-material check is tested below
     monkeypatch.setenv("OPENAI_API_KEY", "placeholder-not-a-key")  # presence only; never read or sent
     monkeypatch.setattr(RUN.budget, "spent", lambda: frozen["ledger_start_usd"])
     for k in RUN.OVERRIDES[1:]:
@@ -301,9 +302,17 @@ def test_the_runner_refuses_overrides_a_moved_ledger_and_a_missing_key(monkeypat
 
 
 @pytest.mark.skipif(not FREEZE, reason="FREEZE.json not written yet")
-def test_the_freeze_matches_the_protocol_and_main():
+def test_the_runner_refuses_a_changed_frozen_file_or_src_tree():
+    assert RUN.changed({**FREEZE, "src_tree": "0" * 40}) == "the checkout's src/ is not the frozen tree"
+    bad = {**FREEZE, "files_sha256": {**FREEZE["files_sha256"], "eval/live_check_dev2/PROTOCOL.md": "0" * 64}}
+    assert RUN.changed(bad) == "eval/live_check_dev2/PROTOCOL.md differs from FREEZE.json"
+
+
+@pytest.mark.skipif(not FREEZE, reason="FREEZE.json not written yet")
+def test_the_freeze_matches_the_protocol_and_the_run():
+    """The frozen files are unchanged, and the run used the frozen commit and src/ tree. The run log is the record of
+    that; the checkout's own src/ may move on after the run."""
     import hashlib
-    import subprocess
 
     assert FREEZE["cases"] == [["F01", "eval/live_check_2026_09_29/cases.json"], ["F03", "eval/live_check_2026_09_29/cases.json"],
                                ["W18", "eval/holdout_v4/cases.json"], ["W19", "eval/holdout_v4/cases.json"],
@@ -312,8 +321,10 @@ def test_the_freeze_matches_the_protocol_and_main():
     assert (FREEZE["run_cap_usd"], FREEZE["case_cap_usd"], FREEZE["model"]) == (0.30, 0.15, "gpt-5-mini")
     for rel, want in FREEZE["files_sha256"].items():
         assert hashlib.sha256((REPO / rel).read_bytes()).hexdigest() == want, rel
-    tree = subprocess.run(["git", "rev-parse", "HEAD:src"], cwd=REPO, capture_output=True, text=True).stdout.strip()
-    assert tree == FREEZE["src_tree"]
+    start = json.loads((LIVE / "live-check-dev2" / "run_log.jsonl").read_text().splitlines()[0])
+    assert start["event"] == "start" and start["src_tree"] == FREEZE["src_tree"]
+    assert start["code_commit"] == FREEZE["code_commit"] and start["commit"].startswith("76f6aaf")
+    assert start["ledger_committed"] == FREEZE["ledger_start_usd"]
 
 
 # ------------------------------------------------------------------------------------------------ the checker
