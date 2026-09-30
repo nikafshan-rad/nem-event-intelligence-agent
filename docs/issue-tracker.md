@@ -13,9 +13,10 @@ One list of known defects, so that each fix is weighed against the whole. Eviden
 | --- | --- | --- | --- | --- |
 | I-1 | **Direct, complete answers** | **(a)** F04 (live check 2026-09-29) asked "Was Directlink being out of service what drove the NSW1 price spike…?": the answer lists correct observations and hedged possibilities but never says what the evidence supports. **(b)** W19 (held-out v4) does not say the reserve (LOR) forecasts were cancelled before the day, and its hypotheses lean on them | P1 | **(a): fixed offline** in PR `#16`. **Live (development cases only, 2026-09-30): held** on F04 and W18. **(b): fixed offline** in PR `#17`. **Live (development case): failed** on W19: it triggered internally and the sentence was correct, but the answer fell back, so it was not displayed (I-6). The outcome stays failed |
 | I-2 | **Evidence selection and calculations** | **(a)** F04 never fetched the other regions' prices, so it misses that VIC1, SA1 and TAS1 were also above 470 $/MWh while QLD1 was about 65. **(b)** W04 gives both total-demand values (10046.72 and 11432.7 MW) but not the rise between them: a derived number has no evidence ID | P1 | **(a): fixed offline** in PR `#18`. **Live (development cases only, 2026-09-30): held** on F04 and W18. **(b): fixed offline** in PR `#19`; departs from checks 4 and 5 as written (below). **Live (development case): held** on W04 |
-| I-3 | **Clear presentation** | F01 shows "New South Wales 150" without "MW". F03 shows "1630 hrs" without its zone (NEM time, 06:30 UTC). Headlines are vague or off the question: F03's after repair, F04's (the peak price). Also W18 (Live, 2026-09-30): the opening says timing rules the Hazelwood outage out, but a hedged hypothesis and a missing-evidence line keep it open. They suggest, without evidence, that the outage might have begun before the peak, although the cited notice gives 1100 hrs. It is inconsistent, not a causal claim stated as fact | P2 | open |
+| I-3 | **Clear presentation** | F01 shows "New South Wales 150" without "MW". F03 shows "1630 hrs" without its zone (NEM time, 06:30 UTC). Headlines are vague or off the question: F03's after repair, F04's (the peak price). (W18's inconsistency is now I-7) | P2 | open |
 | I-4 | **Internal details in user-facing text** | Tool names (W20: "API functions named get_actual_demand / get_forecast_runs"), controller notes ("Market notices were not searched…" on document questions, F01), and evidence IDs (F04: "ev0878 … is not a time-stamped observation") | P2 | open |
 | I-6 | **A valid controller answer lost to a fallback** | W19 (Live, 2026-09-30): the controller's cancellation sentence was correct, but the model's own lines quoted notice titles in single quotes ('… Lack Of Reserve Level 2 (LOR2) …'). `NUMERIC_UNTRACKED` counted the "2", and one line failed `TIME_NOT_IN_EVIDENCE`. The scoped repair did not clear them, so the answer fell back and nothing was shown | P1 | **fixed offline** in PR `#21` (below), **Live unverified**. The frozen run's outcome for W19 stays failed |
+| I-7 | **An explanation kept open that the answer's own timing rules out** | W18 (Live, 2026-09-30): the opening says timing rules the Hazelwood bus-tie outage out. The notice gives 1100 hrs 20/08, after every high-price interval. A hedged hypothesis resting on that notice [c1] still offers it as a possible influence | P2 | **in progress** in `fix/ruled-out-explanations` (below) |
 | I-5 | **Known safety-language limitations** | See the list below. Each is recorded with its risk. None is being worked on, to avoid an open-ended wording cycle | P3 | recorded; revisit only with a new concrete failure |
 
 ### I-1a: F04, the causal question not answered directly
@@ -467,6 +468,56 @@ check. It reads the digits inside notice titles as numbers.
   marker in the line itself would leave W19's answer falling back, because its lines carry none;
 - single-quoted text is otherwise read as before;
 - **Live is unverified.** A paid re-check of W19 would be development evidence only, and needs approval.
+
+### I-7: W18, an explanation its own timing rules out
+
+**What happened** (Live, 2026-09-30, `artifacts/live/live-check-p1-dev/W18.json`, trace `tr-37d19c4380bd`):
+- **The opening:** the controller's timing answer says "Timing rules this out": the AEMO market notice that mentions
+  Hazelwood gives 11:00 AEST on 20/08, after the price extreme (09:10 AEST).
+- **The hypothesis:** the answer's `possible_explanations[1]` still offers the Hazelwood bus-tie notice [c1] as
+  something that "might have limited local transfer capability and so could have influenced prices".
+- **The outcome:** W18 is held under the frozen rule, because a hedged hypothesis states no cause as fact (recheck in
+  `REVIEW.md`).
+
+**The evidence.**
+- **The notice:** `market_notice_144893` states one time, 1100 hrs 20/08/2026 = 2026-08-20T01:00Z.
+- **The event:** VIC1's six intervals at or above 300 $/MWh in the window end between 23:05Z and 23:45Z on 19/08.
+- **So:** the notice's time is after every high-price interval, and the incident cannot explain any part of the event.
+
+**Root cause** (reproduced offline from the saved calls, first draft and repair patch; the replay passes on `main`):
+- **Given, not used:** before writing, the model received the controller's notice timing, which puts the notice
+  "after the price extreme" and is required in the summary. It still kept the hypothesis.
+- **The repair kept it:** the one scoped repair rewrote this hypothesis for other faults (untracked numbers, times) and
+  kept the notice as a possible influence.
+- **No check:** nothing rejects a hypothesis resting on a cited notice whose time rules it out. The analogous rule
+  exists only for cancelled notices (I-1b, `CANCELLED_NOTICE_AS_ACTIVE`).
+
+**Acceptance check** (offline, written before the code change):
+1. **Rejected:** a possible explanation that cites a market notice for the answer's region is rejected (critical). This
+   applies when:
+   - the notice's earliest stated time is after every interval of the event beyond the threshold (at or above it for a
+     high-price event, below it for a low-price one);
+   - the prices are registered up to that time.
+
+   It is aimed at that hypothesis, so one scoped repair can drop it. A hypothesis saying that the timing rules it out
+   is allowed.
+2. **Controls,** with no new violation:
+   - **Genuinely uncertain timing:** a notice with no stated time; a notice time within or before a later high-price
+     interval; prices not registered up to the notice time;
+   - **An incident before the event:** F04's Directlink notice, 0700 hrs 27/07;
+   - **Unrelated hypotheses:** W18's other two;
+   - **Other cases:** a hypothesis citing the notice to say its timing rules it out; another region's notice.
+3. **W18 replay:**
+   - **The flag:** the rule flags `possible_explanations[1]`.
+   - **With a repair that deletes it:** the answer passes, with no fallback, and still opens with the timing answer
+     and the regional sentence.
+   - **With the saved Live repair patch,** which was not asked about this, the answer falls back. That is recorded as
+     the risk.
+4. **Unchanged:** F04 and W19 (their 2026-09-30 replays and earlier records), the Replay evaluation (or any change is
+   explained) and the safety suite.
+   - **Not covered:** caveat lines. W18's `missing_evidence[1]` asks for timestamps "to confirm whether the outage began
+     before or after" the peak. It is a request for evidence, not an explanation, and cites nothing.
+   - **Verdicts:** W19's Live verdict stays failed, and W18's stays held.
 
 ### I-5: safety-language limitations (recorded, not being fixed)
 
