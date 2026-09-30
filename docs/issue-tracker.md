@@ -755,7 +755,7 @@ are met.
      validated, so a violation in it alone no longer triggers a repair.
 
 **Result: verified offline; Live unverified** (PR `#25`; evidence in `artifacts/logs/direct_headline_*`). The checks
-are met, with one safeguard added to check 3.
+are met. A review before merging corrected check 5's "scope" point (below).
 1. **Causal questions:** a causal question with the controller's timing answer is headlined with that answer's first
    sentence.
    - F04 (both runs): "The records cannot settle this: … before the price extreme (…)".
@@ -771,25 +771,49 @@ are met, with one safeguard added to check 3.
    - **Headlines:** the model's headline stays for event and forecast reviews without a controller answer (W01–W08),
      change questions (W04), and a causal question the controller cannot answer (W19). Fallback answers (W14, and
      W18 under its saved repair) keep "Validated facts only…".
-   - **Safeguard, added:** a model headline that the language checks would act on (causal wording, instruction-like
-     text, an approval or write claim) is never replaced. It stays so the validator sees it. A headline claiming an
-     approval still fails closed (#13), and one stating a cause is still rejected.
+   - **The replaced model headline is still checked (review of PR #25):**
+     - It is kept on the report, unshown and never serialised (a private attribute, cleared by the fallback).
+     - Every check that reads a headline reads it too, through `_headlines()` in `_narratives`, the notice-timing texts
+       and the document-claim items.
+     - A violation in it is therefore repaired, or the answer withheld, exactly as when it was shown.
 4. **Replays:** 26 saved replays keep their validation outcomes and summaries, and only 13 headlines change.
    - **No new numbers:** no headline adds a number the answer does not show.
-   - **Behaviour change:** a replaced model headline is no longer validated. F03's first draft, whose only fault was
-     "275" in its headline, now needs no repair: 4 model calls instead of 5 in the replay.
+   - **Repairs as before:** F03's first draft, whose only fault is "275" in its model headline, is still repaired (5
+     model calls, as on `main`). It is then headlined with its validated statement.
 5. **Unchanged:**
    - **The earlier fixes:** timing, cancellation, regional, change, time-zone and unit (every summary identical, and
      their tests pass).
    - **Replay evaluation:** identical to `main` in every section.
    - **Safety suite:** PASS.
-   - **Tests:** 631 pass. 15 are new; on `main` 7 fail and 8 (the controls) pass.
-   - **Two existing tests changed, and the validator did not:**
-     - `test_notice_timing.py`'s helper now sets a neutral headline, because it reads only the given lines;
-     - `test_action_claims.py`'s scoped-repair test now expects the validated statement as the headline. It still
-       requires the repair to be scoped, no fallback, and no claim shown.
-   - **Scope:** controller behaviour (the headline shown, and repairs no longer triggered by a replaced headline). No
-     model instruction, schema or validator change. Scripted replays are not a measure of Live behaviour.
+   - **Tests:** 645 pass. `test_direct_headline.py` has 29; on `main` 9 fail, and 20 pass (the controls, and the
+     adversarial cases, which `main` catches in the shown headline).
+   - **Two existing tests changed.** The validator's checks did not; they now also read the replaced headline.
+     - **`test_notice_timing.py`:** its helper sets a neutral headline. It validates only the given lines, as before:
+       the model's draft headline is still validated (now hidden), and only the controller's timing-answer headline
+       is left out. Every assertion is unchanged.
+     - **`test_action_claims.py`:** the scoped-repair test now expects the validated statement as the shown
+       headline, in place of `headline == fixed`. It still requires a scoped repair, no fallback and status
+       answered_with_caveats, and it now also checks that no action claim is shown. The fail-closed test beside it is
+       unchanged and passes.
+   - **Scope:** controller behaviour (the headline shown), plus one private report attribute that the validator reads.
+     No model instruction, schema, API output or check changes. Scripted replays are not a measure of Live behaviour.
+
+**Review before merging (bypass of the replaced headline).**
+- **What PR #25 first did:** it validated only the shown headline. A replaced model headline was therefore unchecked,
+  except for causal wording, instruction-like text and approval claims, which were kept shown.
+- **What the review found:** adversarial model headlines, one per critical headline check
+  (`direct_headline_bypass_review.log`), were caught by 12 of 12 checks on `main` and 3 of 12 on that version:
+  - unsupported numbers, including another region's;
+  - an invented time;
+  - a missing zone;
+  - an unsupported time of day;
+  - a wrong interval;
+  - an invented quote;
+  - contradicted notice timing;
+  - an unsupported document claim;
+  - causal wording, instruction-like text and an approval claim (the 3 caught).
+- **Now:** all 12 are caught, the answer falls back as on `main`, and the rejected text is neither shown nor
+  serialised. A claim on another region's price is rejected whatever the headline.
 
 **Still open for I-3c:**
 - **Change questions keep the model's headline.** W04's states the rise, but a headline is not required to cover every
