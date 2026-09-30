@@ -16,7 +16,7 @@ One list of known defects, so that each fix is weighed against the whole. Eviden
 | I-3 | **Clear presentation** | F01 shows "New South Wales 150" without "MW". F03 shows "1630 hrs" without its zone (NEM time, 06:30 UTC). Headlines are vague or off the question: F03's after repair, F04's (the peak price). W04 and W18 (Live, 2026-09-30): the same value appears twice among the observations, and W04's headline has "(UTC+1000)". (W18's inconsistency is now I-7) | P2 | **(a) F03's notice time without a zone: fixed offline** in PR `#23` (below), **Live unverified**. **(b) F01's number without its unit: verified offline; Live unverified** (PR `#24`, below). **(c) headlines that do not answer the question: verified offline; Live unverified** (PR `#25`, below). **(d) duplicated values: verified offline; Live unverified** (PR `#26`, below). **Second development check (2026-09-30, PR `#28`, one run per case):** (a) **held** on F03; (b) **held** on F01; (c) **held** on F03 and F04, failed on W18 (fell back); (d) **held** on W18 and W19 |
 | I-4 | **Internal details in user-facing text** | Tool names (W20: "API functions named get_actual_demand / get_forecast_runs"), controller notes ("Market notices were not searched…" on document questions, F01), and evidence IDs (F04: "ev0878 … is not a time-stamped observation"). W04 (Live, 2026-09-30): "Controller-computed dispatch TOTALDEMAND (5-minute) change … [ev0975]" | P2 | **Verified offline** (PR `#27`, below). **Second development check (2026-09-30, PR `#28`, one run per case):** **held** on W18, W19 and F04; not triggered on F01 and F03 (nothing to rewrite). Recorded, not fixed: "(threshold ev0878)" became "(threshold the listed observation)" on F04, and model wording such as "returned to the controller" (W19) is not rewritten |
 | I-6 | **A valid controller answer lost to a fallback** | W19 (Live, 2026-09-30): the controller's cancellation sentence was correct, but the model's own lines quoted notice titles in single quotes ('… Lack Of Reserve Level 2 (LOR2) …'). `NUMERIC_UNTRACKED` counted the "2", and one line failed `TIME_NOT_IN_EVIDENCE`. The scoped repair did not clear them, so the answer fell back and nothing was shown | P1 | **fixed offline** in PR `#21` (below). The frozen run's outcome for W19 stays failed. **Second development check (2026-09-30, PR `#28`, one run per case):** **held** on W19: the model named cited notices by their exact titles, and the answer was shown with the cancellation sentence |
-| I-7 | **An explanation kept open that the answer's own timing rules out** | W18 (Live, 2026-09-30): the opening says timing rules the Hazelwood bus-tie outage out. The notice gives 1100 hrs 20/08, after every high-price interval. A hedged hypothesis resting on that notice [c1] still offers it as a possible influence | P2 | **fixed offline** in PR `#22` (below), **Live unverified**. Offline, W18's actual saved repair now falls back, and only a scripted repair that deletes the hypothesis passes. W18's Live verdict (held) is unchanged. **Second development check (2026-09-30, PR `#28`, one run per case):** **failed** on W18: it fired on a hypothesis that doubted the post-event notice; the scoped repair turned that hypothesis into an unhedged statement (HYPOTHESIS_UNHEDGED), and the answer fell back. **Recorded, not fixed:** I-7 treats a hypothesis that cites a post-event notice to doubt it like one that rests on it |
+| I-7 | **An explanation kept open that the answer's own timing rules out** | W18 (Live, 2026-09-30): the opening says timing rules the Hazelwood bus-tie outage out. The notice gives 1100 hrs 20/08, after every high-price interval. A hedged hypothesis resting on that notice [c1] still offers it as a possible influence | P2 | **fixed offline** in PR `#22` (below), **Live unverified**. Offline, W18's actual saved repair now falls back, and only a scripted repair that deletes the hypothesis passes. W18's Live verdict (held) is unchanged. **Second development check (2026-09-30, PR `#28`, one run per case):** **failed** on W18: it fired on a hypothesis that doubted the post-event notice; the scoped repair turned that hypothesis into an unhedged statement (HYPOTHESIS_UNHEDGED), and the answer fell back. **Recorded:** I-7 treats a hypothesis that cites a post-event notice to doubt it like one that rests on it; **in progress** as I-7b in `fix/ruled-out-exclusion` (below) |
 | I-5 | **Known safety-language limitations** | See the list below. Each is recorded with its risk. None is being worked on, to avoid an open-ended wording cycle | P3 | recorded; revisit only with a new concrete failure |
 
 ### I-1a: F04, the causal question not answered directly
@@ -558,6 +558,73 @@ check. It reads the digits inside notice titles as numbers.
   - caveat lines (W18's `missing_evidence[1]`);
   - a hypothesis naming the incident without citing the notice.
 - **Live is unverified.**
+
+### I-7b: W18 (second check), a doubting hypothesis flagged, and the exclusion its repair wrote rejected as unhedged
+
+**What happened** (Live, second development check, 2026-09-30, `artifacts/live/live-check-dev2/W18.json`, trace
+`tr-68178b00c1f1`; reproduced offline from the run's saved first draft and actual repair patch, with the same
+fallback):
+- **The first draft's `possible_explanations[0]`:** "The Hazelwood PS 4 6 bus‑tie outage notice [c1] might refer to a
+  later, separate outage and therefore might not correspond to the 2026-08-19T23:10:00Z price spike".
+  - **I-7 flagged it** (EXPLANATION_RULED_OUT_BY_TIMING), because it cites a notice whose only stated time (01:00Z on
+    20/08) is after every high-price interval.
+  - **Yet it doubts the incident's bearing on the event;** it does not offer it as an influence.
+- **The actual repair:** the one scoped repair followed I-7's message ("drop it, or say that the timing rules it
+  out"). It replaced the item with "…that timing is after every five-minute interval at-or-above the $300.0 $/MWh
+  analysis threshold …, so the notice's timing rules it out as an explanation for the price extreme".
+- **The outcome:** HYPOTHESIS_UNHEDGED rejected that sentence ("a hypothesis must be hedged"). It was the only
+  violation left, so the answer fell back. The fallback also withheld the controller's correct "Timing rules this out"
+  headline.
+
+**Root cause.**
+- **I-7 counts any citation as reliance.** Apart from explicit "rules out" / "could not have" wording, it flags every
+  hypothesis that cites the post-event notice, including one that only denies or doubts the incident's bearing.
+- **I-7's own remedy fails the hedging check.** HYPOTHESIS_UNHEDGED requires a hedge word in every possible
+  explanation, so the remedy I-7 asks for, stating that the timing rules the incident out, can never pass. For an
+  exclusion backed by the validated notice timing, the two checks contradict each other.
+
+**Acceptance check** (offline, written before the code change):
+1. **I-7 flags reliance, not doubt.** A possible explanation citing a notice that meets I-7's timing condition is
+   still EXPLANATION_RULED_OUT_BY_TIMING when it suggests the incident had any bearing on the event: "might have
+   limited transfer capability and so could have influenced prices", "might be a factor", or a sentence that doubts
+   one part and suggests another ("did not affect the first interval but could have influenced the peak"). It is not
+   flagged when it only denies or doubts that bearing ("might not correspond to the price spike", "is unrelated to
+   it"), or states that the timing rules it out (as before).
+2. **An evidence-backed exclusion needs no hedge word.**
+   - **What counts:** a possible explanation stating that the timing rules the incident out ("rules … out", "could
+     not have"), where every market notice it cites meets I-7's timing condition. That is, each notice's earliest
+     stated time is after every interval of the event beyond the threshold, and the prices are registered up to that
+     time.
+   - **Still checked:**
+     - **Asserted causal wording:** HYPOTHESIS_UNHEDGED. It is found clause by clause, as in caveats, so "…rules
+       Hazelwood out; wind caused the spike" is still rejected.
+     - **Everything else:** overconfident wording, numbers, times, citations and the notice-timing check, unchanged.
+   - **No exemption without that evidence:** a notice with no stated time, a time before or within the event, prices
+     not registered up to it, or no cited notice. There, "rules it out" still needs hedging.
+3. **Controls, each tested:**
+   - **Uncertain timing:** no stated time; a notice time within the event; prices not registered.
+   - **An incident before the event:** F04's Directlink notice.
+   - **Unsupported causal claims:** "the outage caused the spike [c1]"; an exclusion followed by an asserted cause.
+   - **Unrelated hypotheses:** an unhedged one is still HYPOTHESIS_UNHEDGED; a hedged one is unchanged.
+   - **I-7's original case:** W18's 2026-09-30 first-check hypothesis, "might have limited local transfer capability
+     and so could have influenced prices", is still flagged.
+4. **Replays** (saved Live material through the fake transport; results from the actual saved repair are reported
+   separately from any scripted alternative):
+   - **W18, second check, with its saved first draft and actual repair:** on `main` it falls back with
+     HYPOTHESIS_UNHEDGED, as in Live. With the fix, the answer is shown: the headline "Timing rules this out", with the
+     exclusion as a possible explanation.
+   - **W18, first check (2026-09-30), with its actual saved repair:** still falls back. That repair kept the notice as
+     a possible influence.
+   - **W19 and F04** (both checks' records): unchanged.
+   - **All saved replays:** validation outcomes unchanged, except W18's second-check replay.
+5. **Unchanged:**
+   - the Replay evaluation (or any change explained), and the safety suite;
+   - the frozen evaluation material (`eval/live_check_dev2`, `checks.json`);
+   - the original Live verdicts: W18 held on the first check and failed on the second; W19 failed on the first check
+     and held on the second.
+   - **Recorded as still not covered:** an exclusion phrased with causal wording ("rules it out as the cause of the
+     spike") is still rejected, because "rules … out" is not a clause qualifier and the causal checks are not
+     weakened; caveat lines; a hypothesis naming the incident without citing the notice.
 
 ### I-3a: F03, a notice time shown without its zone
 
