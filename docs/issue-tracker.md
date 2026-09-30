@@ -13,7 +13,7 @@ One list of known defects, so that each fix is weighed against the whole. Eviden
 | --- | --- | --- | --- | --- |
 | I-1 | **Direct, complete answers** | **(a)** F04 (live check 2026-09-29) asked "Was Directlink being out of service what drove the NSW1 price spike…?": the answer lists correct observations and hedged possibilities but never says what the evidence supports. **(b)** W19 (held-out v4) does not say the reserve (LOR) forecasts were cancelled before the day, and its hypotheses lean on them | P1 | **(a): fixed offline** in PR `#16`. **Live (development cases only, 2026-09-30): held** on F04 and W18. **(b): fixed offline** in PR `#17`. **Live (development case): failed** on W19: it triggered internally and the sentence was correct, but the answer fell back, so it was not displayed (I-6). The outcome stays failed |
 | I-2 | **Evidence selection and calculations** | **(a)** F04 never fetched the other regions' prices, so it misses that VIC1, SA1 and TAS1 were also above 470 $/MWh while QLD1 was about 65. **(b)** W04 gives both total-demand values (10046.72 and 11432.7 MW) but not the rise between them: a derived number has no evidence ID | P1 | **(a): fixed offline** in PR `#18`. **Live (development cases only, 2026-09-30): held** on F04 and W18. **(b): fixed offline** in PR `#19`; departs from checks 4 and 5 as written (below). **Live (development case): held** on W04 |
-| I-3 | **Clear presentation** | F01 shows "New South Wales 150" without "MW". F03 shows "1630 hrs" without its zone (NEM time, 06:30 UTC). Headlines are vague or off the question: F03's after repair, F04's (the peak price). W04 and W18 (Live, 2026-09-30): the same value appears twice among the observations, and W04's headline has "(UTC+1000)". (W18's inconsistency is now I-7) | P2 | **(a) F03's notice time without a zone: fixed offline** in PR `#23` (below), **Live unverified**. **(b) F01's number without its unit: in progress** in `fix/cited-unit` (below). The other examples (headlines, duplicated values): **open** |
+| I-3 | **Clear presentation** | F01 shows "New South Wales 150" without "MW". F03 shows "1630 hrs" without its zone (NEM time, 06:30 UTC). Headlines are vague or off the question: F03's after repair, F04's (the peak price). W04 and W18 (Live, 2026-09-30): the same value appears twice among the observations, and W04's headline has "(UTC+1000)". (W18's inconsistency is now I-7) | P2 | **(a) F03's notice time without a zone: fixed offline** in PR `#23` (below), **Live unverified**. **(b) F01's number without its unit: verified offline; Live unverified** (PR `#24`, below). The other examples (headlines, duplicated values): **open** |
 | I-4 | **Internal details in user-facing text** | Tool names (W20: "API functions named get_actual_demand / get_forecast_runs"), controller notes ("Market notices were not searched…" on document questions, F01), and evidence IDs (F04: "ev0878 … is not a time-stamped observation"). W04 (Live, 2026-09-30): "Controller-computed dispatch TOTALDEMAND (5-minute) change … [ev0975]" | P2 | open |
 | I-6 | **A valid controller answer lost to a fallback** | W19 (Live, 2026-09-30): the controller's cancellation sentence was correct, but the model's own lines quoted notice titles in single quotes ('… Lack Of Reserve Level 2 (LOR2) …'). `NUMERIC_UNTRACKED` counted the "2", and one line failed `TIME_NOT_IN_EVIDENCE`. The scoped repair did not clear them, so the answer fell back and nothing was shown | P1 | **fixed offline** in PR `#21` (below), **Live unverified**. The frozen run's outcome for W19 stays failed |
 | I-7 | **An explanation kept open that the answer's own timing rules out** | W18 (Live, 2026-09-30): the opening says timing rules the Hazelwood bus-tie outage out. The notice gives 1100 hrs 20/08, after every high-price interval. A hedged hypothesis resting on that notice [c1] still offers it as a possible influence | P2 | **fixed offline** in PR `#22` (below), **Live unverified**. Offline, W18's actual saved repair now falls back, and only a scripted repair that deletes the hypothesis passes. W18's Live verdict (held) is unchanged |
@@ -675,6 +675,40 @@ check. It reads the digits inside notice titles as numbers.
    - the Replay evaluation and the safety suite;
    - frozen evaluation material and the original Live verdicts.
 
+**Result: verified offline; Live unverified** (PR `#24`; evidence in `artifacts/logs/cited_unit_*`). All five checks
+are met.
+1. **The note:** `table_unit_note` (Live controller) reads only the cited passage.
+   - **When it applies:** after a verbatim quote of one table row (a label, then one bare number) that states no unit.
+     The row must follow a "Table N" caption, and the header between them must declare exactly one unit in
+     parentheses (MW, MWh, GWh, kW, kWh, kV, MVA, MVAr, $/MWh, % or Hz).
+   - **What it shows:** "(in <unit>, as the table header in the cited passage states)", after the quote and its
+     citation, for document statements and published findings.
+2. **The quote is unchanged,** and the note has no number.
+3. **F01:** “New South Wales 150” [aemo_so_op_3710#p7c12] (in MW, as the table header in the cited passage states).
+   The sentence after the table and the other procedure's quote are unchanged, and the answer passes with no fallback.
+4. **Controls, each tested, with no note:**
+   - a unit the quote states;
+   - a header with no unit, or with two;
+   - a row with two numbers;
+   - no caption before the row;
+   - an earlier table's unit, which is not borrowed;
+   - the sentence after the table;
+   - a neighbouring passage's unit.
+
+   **Positive controls:** a header stating $/MWh, and a row in the neighbouring passage itself.
+5. **Unchanged:**
+   - **Replays:** 26 saved replays keep their validation outcomes and their notice-time notes (I-3a). The only change
+     in what is shown is F01's one unit note.
+   - **Replay evaluation:** identical to `main` in every section.
+   - **Safety suite:** PASS.
+   - **Tests:** 616 pass, 12 of them new. On `main` 11 fail, and F03's notes check passes.
+
+**Still open for I-3b:**
+- **Tables whose headers the text extraction lost or scrambled:** they get no note.
+- **Units in other forms:** a unit not in parentheses, or not in the list, gets none.
+- **The Replay controller** is not changed.
+- **Live is unverified.**
+
 ### I-5: safety-language limitations (recorded, not being fixed)
 
 | Example | Where | Risk |
@@ -689,8 +723,8 @@ check. It reads the digits inside notice titles as numbers.
 ## Next
 
 **I-3 and I-4 (P2).**
-- **I-3, clear presentation:** F01's "150" without "MW", vague headlines, and duplicated values. F03's zone (I-3a) is
-  fixed offline in PR `#23`.
+- **I-3, clear presentation:** vague headlines, and duplicated values. Verified offline, Live unverified: F03's zone
+  (I-3a, PR `#23`) and F01's unit (I-3b, PR `#24`).
 - **I-4, internal details in user-facing text:** tool names, controller notes and evidence IDs.
 
 **Fixed offline, Live unverified:** I-7 (W18's kept-open explanation, P2) in PR `#22`, and I-6 (W19's fallback, P1) in
@@ -721,3 +755,4 @@ PR `#21`. Both were found in the development-only Live check of 2026-09-30
 | I-6: an exact title of a cited market notice is title text, not numbers, in the numeric check | #21 | offline; **Live unverified** |
 | I-7: a hypothesis may not rest on a cited notice whose stated time is after every interval of the event | #22 | offline; **Live unverified** |
 | I-3a: a quoted notice time is shown with its source-backed zone (NEM market time, UTC and local) | #23 | offline; **Live unverified** |
+| I-3b: a quoted table row is shown with the unit its table header states in the cited passage | #24 | verified offline; **Live unverified** |
