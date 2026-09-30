@@ -1379,16 +1379,12 @@ class LiveController:
             #   records cannot settle this";
             # - a document answer: the statement the model's own headline paraphrases (most of its content words;
             #   the earlier on a tie), shown as rendered, with its citation and any zone or unit note.
-            # Every other answer keeps the model's headline, and so does one the language checks would act on (causal
-            # wording, instruction-like text, an approval or write claim): it stays so the validator sees it, and the
-            # answer is repaired or withheld as before (a headline claiming an approval fails closed; PR #13).
-            from ..validation import CAUSAL_RE, INJECTION_RE, QUOTED_RE, action_claims, support
+            # Every other answer keeps the model's headline. A replaced one is kept on the report, unshown, and
+            # validated like the shown one, so the answer is repaired or withheld exactly as before (a headline
+            # claiming an approval still fails closed; PR #13).
+            from ..validation import support
 
-            bare = QUOTED_RE.sub(" ", m.headline)
-            flagged = bool(CAUSAL_RE.search(bare) or INJECTION_RE.search(bare) or action_claims(m.headline))
-            if flagged:
-                pass
-            elif answer is not None:
+            if answer is not None:
                 headline = re.split(r"(?<=\.)\s+(?=[A-Z])", answer, maxsplit=1)[0]
             elif res.intent == "source_explanation" and summary:
                 headline = summary[max(range(len(summary)), key=lambda i: (support(m.headline, summary[i]), -i))]
@@ -1427,7 +1423,7 @@ class LiveController:
                              start_local=local_str(res.window[0], res.region), end_local=local_str(res.window[1], res.region),
                              timezone=str(res.routing.get("region_tz") or ""))
         status = m.status if m else "abstained"
-        return InvestigationReport(
+        report = InvestigationReport(
             question=res.request.question, mode="live", intent=res.intent, region=res.region,
             as_of=iso_utc(res.as_of) if res.as_of else None, event_window=ew,
             headline=headline,
@@ -1443,3 +1439,5 @@ class LiveController:
             status=status if status != "needs_clarification" else "needs_clarification",
             trace_id=self.d.trace.trace_id if self.d else "n/a", versions=self.versions,
             generator=f"live-model:{self.model}")
+        report._model_headline = m.headline if m is not None and m.headline != headline else None
+        return report

@@ -190,8 +190,15 @@ def cancelled_notice_chunks(registry: EvidenceRegistry) -> dict[str, tuple[str, 
     return out
 
 
+def _headlines(r: InvestigationReport) -> list[tuple[str, str]]:
+    """The shown headline, and the model's own when the controller shows another (I-3c): both are checked, so a
+    violation in the replaced one is repaired or withheld exactly as if it were shown."""
+    hidden = r._model_headline
+    return [("headline", r.headline)] + ([("headline", hidden)] if hidden and hidden != r.headline else [])
+
+
 def _narratives(r: InvestigationReport) -> list[tuple[str, str]]:
-    out = [("headline", r.headline)] + [(f"summary[{i}]", s) for i, s in enumerate(r.summary)]
+    out = _headlines(r) + [(f"summary[{i}]", s) for i, s in enumerate(r.summary)]
     out += [(f"possible_explanations[{i}]", h.statement) for i, h in enumerate(r.possible_explanations)]
     out += [(f"published_findings[{i}]", f.statement) for i, f in enumerate(r.published_findings)]
     if r.forecast_comparison:
@@ -960,7 +967,7 @@ def validate(report: InvestigationReport, registry: EvidenceRegistry, *, as_of: 
         stated: set[datetime] = set()
         if notices:
             et = _event_times(report, registry, window, event_kind)
-            texts = [("headline", report.headline), *((f"summary[{i}]", x) for i, x in enumerate(report.summary)),
+            texts = [*_headlines(report), *((f"summary[{i}]", x) for i, x in enumerate(report.summary)),
                      *((f"possible_explanations[{i}]", h.statement) for i, h in enumerate(report.possible_explanations)),
                      *((f"uncertainties[{i}]", x) for i, x in enumerate(report.uncertainties))]
             for where, text in texts:
@@ -980,7 +987,7 @@ def validate(report: InvestigationReport, registry: EvidenceRegistry, *, as_of: 
 
     # -- document claims: cited, and supported by the cited passage (quoted, or mostly in its words)
     res.checks_run.append("document_claims")
-    items = [("headline", report.headline)] + [(f"summary[{i}]", s_) for i, s_ in enumerate(report.summary)]
+    items = _headlines(report) + [(f"summary[{i}]", s_) for i, s_ in enumerate(report.summary)]
     for where, text in items:
         cited_ids = [c for c in CITE_RE.findall(text) if c in cites]
         if report.intent == "source_explanation" and where != "headline" and not cited_ids and \
@@ -1121,7 +1128,7 @@ def facts_only(report: InvestigationReport, registry: EvidenceRegistry, result: 
         good_obs.append(o)
     codes = sorted({v.code for v in result.critical})
     named = {m.group(0) for v in result.critical if (m := re.match(r"(?:uncertainties|missing_evidence)\[\d+\]", v.detail))}
-    return report.model_copy(update={
+    out = report.model_copy(update={
         "headline": ("Validated facts only: the generated narrative failed independent validation "
                      f"({', '.join(codes)}). Observations below are tool values with source rows."),
         "summary": [], "possible_explanations": [], "published_findings": [], "citations": [],
@@ -1135,6 +1142,8 @@ def facts_only(report: InvestigationReport, registry: EvidenceRegistry, result: 
                              if f"missing_evidence[{i}]" not in named and not action_claims(x)],
         "status": "answered_with_caveats" if good_obs else "abstained",
     })
+    out._model_headline = None  # withheld with the rest of the narrative
+    return out
 
 
 def validate_and_finalize(report: InvestigationReport, registry: EvidenceRegistry, records: list[Any], res: Any,
