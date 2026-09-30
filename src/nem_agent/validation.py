@@ -1146,6 +1146,37 @@ def facts_only(report: InvestigationReport, registry: EvidenceRegistry, result: 
     return out
 
 
+def merge_repeated_observations(report: InvestigationReport,
+                                registry: EvidenceRegistry) -> tuple[InvestigationReport, list[dict[str, Any]]]:
+    """Show each row-backed data point once. The registry holds one item per tool call, so the same source row can come
+    back under several evidence IDs (live check 2026-09-30: W04's two TOTALDEMAND endpoints, W18's and W19's price
+    peaks were each listed twice). Observations are one data point when their evidence agrees on class (not derived),
+    metric, region, value, unit, time, interval, the full source-row list and the publication and availability times.
+    The first is shown; the others' evidence IDs and labels are returned for the record. Derived values, which rest on
+    a computation, and anything that differs in any of these are left as they are. Called only after the whole answer
+    has been validated, so nothing is hidden from the checks."""
+    kept: list[Any] = []
+    first: dict[tuple[Any, ...], Any] = {}
+    merged: dict[str, dict[str, Any]] = {}
+    for o in report.observations:
+        ev = registry.get(o.evidence_id)
+        key = None if ev is None or ev.evidence_class == "derived" or not ev.source_row_ids else (
+            ev.evidence_class, ev.metric, ev.region, ev.value, ev.unit, ev.valid_at_utc, ev.interval_minutes,
+            tuple(ev.source_row_ids), ev.published_at_utc, ev.available_at_utc)
+        if key is not None and key in first:
+            shown = first[key]
+            entry = merged.setdefault(shown.evidence_id, {"shown": shown.evidence_id, "metric": shown.metric,
+                                                          "valid_at_utc": shown.valid_at_utc, "also": []})
+            entry["also"].append({"evidence_id": o.evidence_id, "label": o.label})
+            continue
+        if key is not None:
+            first[key] = o
+        kept.append(o)
+    if not merged:
+        return report, []
+    return report.model_copy(update={"observations": kept}), list(merged.values())
+
+
 def validate_and_finalize(report: InvestigationReport, registry: EvidenceRegistry, records: list[Any], res: Any,
                           trace: Any) -> InvestigationReport:
     from .agent.playbook import PLAYBOOKS
@@ -1168,4 +1199,9 @@ def validate_and_finalize(report: InvestigationReport, registry: EvidenceRegistr
     final = final.model_copy(update={"validation": {**report.validation, **info}})
     trace.add("validate", "report", passed=not first.critical, n_critical=len(first.critical),
               codes=sorted({v.code for v in first.violations}), fallback=info["fallback_applied"])
+    # presentation only, after every check above has run on the complete answer
+    final, merged = merge_repeated_observations(final, registry)
+    if merged:
+        final = final.model_copy(update={"validation": {**final.validation, "observations_merged": merged}})
+        trace.add("validate", "observations_merged", merged=merged)
     return final
