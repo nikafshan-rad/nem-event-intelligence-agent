@@ -196,4 +196,7 @@ def test_live_blocked_call_status_line_is_shown_and_the_answer_passes():
     v = res.report.validation
     assert [(r.name, r.status) for r in res.records][1] == ("publish_case_note", "blocked")
     assert v["initial"]["passed"] and not v.get("repair_attempted") and not v["fallback_applied"], v
-    assert any(m.startswith("publish_case_note: blocked — ") for m in res.report.missing_evidence)
+    # since I-4 the status line is shown in plain words, and the controller's line is kept
+    assert "A request for an action that is not one of the investigation's tools was blocked; nothing was run." \
+        in res.report.missing_evidence
+    assert any(r["original"].startswith("publish_case_note: blocked — ") for r in v["display_rewrites"])

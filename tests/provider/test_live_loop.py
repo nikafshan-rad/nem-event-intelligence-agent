@@ -98,9 +98,13 @@ def test_unknown_function_and_bad_args_are_blocked_not_executed(ev):
     sent = outputs(fake.requests[2])
     assert all(sent[b.call_id]["status"] == "blocked" for b in blocked)
     assert res.report.validation["final_passed"]
-    # a blocked call stays reported unless a later call of the same tool succeeded
-    miss = " ".join(res.report.missing_evidence)
-    assert "publish_case_note: blocked" in miss and "get_price_timeline: blocked" not in miss
+    # a blocked call stays reported unless a later call of the same tool succeeded; since I-4 it is shown in plain
+    # words (the two tools that do not exist read the same, so once) and the controller's line is kept
+    noted = " ".join(r["original"] for r in res.report.validation["display_rewrites"])
+    assert "publish_case_note: blocked" in noted and "run_sql: blocked" in noted and "get_price_timeline: blocked" not in noted
+    assert res.report.missing_evidence.count("A request for an action that is not one of the investigation's tools was "
+                                             "blocked; nothing was run.") == 1
+    assert "price timeline was blocked" not in " ".join(res.report.missing_evidence)
 
 
 def test_missing_required_tools_are_requested_once(ev):
@@ -121,13 +125,14 @@ def test_iteration_cap_stops_the_loop(ev):
     res = investigate(InvestigateRequest(question="What happened around the SA1 price spike on 2026-07-31?", mode="live"),
                       live_client=fake, write_trace=False)
     assert res.usage["model_calls"] <= config.MAX_MODEL_CALLS
-    assert any("model call cap" in m for m in res.report.missing_evidence)
+    assert "The investigation stopped early, at its limit on model calls." in res.report.missing_evidence  # since I-4
+    assert any("model call cap" in r["original"] for r in res.report.validation["display_rewrites"])
     assert res.report.status in ("abstained", "answered_with_caveats")
     # the tool loop leaves room for synthesis and one repair turn instead of consuming every call
     from nem_agent.agent.live import RESERVED_CALLS
 
     assert res.usage["model_calls"] == config.MAX_MODEL_CALLS - RESERVED_CALLS + 1  # tool turns, then synthesis
-    assert any("kept for synthesis and repair" in m for m in res.report.missing_evidence)
+    assert any("kept for synthesis and repair" in r["original"] for r in res.report.validation["display_rewrites"])
 
 
 def test_validator_driven_repair_then_pass(ev):
@@ -184,7 +189,9 @@ def test_findings_are_rendered_from_the_cited_quote(ev):
     assert not rep.validation["fallback_applied"], rep.validation
     assert len(rep.published_findings) == 1 and rep.published_findings[0].citation_ids == ["c1"]
     assert f"“{rep.citations[0].quote}”" in rep.published_findings[0].statement
-    assert any("unknown or unretrieved citation c9" in m for m in rep.missing_evidence)
+    assert "A published finding the answer listed is not shown: its source passage was not retrieved in this " \
+        "investigation." in rep.missing_evidence  # since I-4 in plain words; the controller's line is kept
+    assert any("unknown or unretrieved citation c9" in r["original"] for r in rep.validation["display_rewrites"])
 
 
 def test_threshold_claim_resolves_to_its_own_evidence(ev):
@@ -379,7 +386,9 @@ def test_unknown_forecast_evidence_is_reported_not_invented(ev):
     res = investigate(InvestigateRequest(question="Did AEMO's demand forecast miss in SA1 on 2026-07-31?", mode="live"),
                       live_client=fake, write_trace=False)
     assert res.report.forecast_comparison is None
-    assert any("ev9999" in m for m in res.report.missing_evidence)
+    assert "The forecast-versus-actual summary is not shown: the answer referred to a comparison that was not " \
+        "returned." in res.report.missing_evidence  # since I-4 in plain words; the controller's line is kept
+    assert any("ev9999" in r["original"] for r in res.report.validation["display_rewrites"])
 
 
 def test_large_tool_outputs_stay_valid_json():
