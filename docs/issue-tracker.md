@@ -13,10 +13,10 @@ One list of known defects, so that each fix is weighed against the whole. Eviden
 | --- | --- | --- | --- | --- |
 | I-1 | **Direct, complete answers** | **(a)** F04 (live check 2026-09-29) asked "Was Directlink being out of service what drove the NSW1 price spike…?": the answer lists correct observations and hedged possibilities but never says what the evidence supports. **(b)** W19 (held-out v4) does not say the reserve (LOR) forecasts were cancelled before the day, and its hypotheses lean on them | P1 | **(a): fixed offline** in PR `#16`. **Live (development cases only, 2026-09-30): held** on F04 and W18. **(b): fixed offline** in PR `#17`. **Live (development case): failed** on W19: it triggered internally and the sentence was correct, but the answer fell back, so it was not displayed (I-6). The outcome stays failed |
 | I-2 | **Evidence selection and calculations** | **(a)** F04 never fetched the other regions' prices, so it misses that VIC1, SA1 and TAS1 were also above 470 $/MWh while QLD1 was about 65. **(b)** W04 gives both total-demand values (10046.72 and 11432.7 MW) but not the rise between them: a derived number has no evidence ID | P1 | **(a): fixed offline** in PR `#18`. **Live (development cases only, 2026-09-30): held** on F04 and W18. **(b): fixed offline** in PR `#19`; departs from checks 4 and 5 as written (below). **Live (development case): held** on W04 |
-| I-3 | **Clear presentation** | F01 shows "New South Wales 150" without "MW". F03 shows "1630 hrs" without its zone (NEM time, 06:30 UTC). Headlines are vague or off the question: F03's after repair, F04's (the peak price). W04 and W18 (Live, 2026-09-30): the same value appears twice among the observations, and W04's headline has "(UTC+1000)". (W18's inconsistency is now I-7) | P2 | open |
+| I-3 | **Clear presentation** | F01 shows "New South Wales 150" without "MW". F03 shows "1630 hrs" without its zone (NEM time, 06:30 UTC). Headlines are vague or off the question: F03's after repair, F04's (the peak price). W04 and W18 (Live, 2026-09-30): the same value appears twice among the observations, and W04's headline has "(UTC+1000)". (W18's inconsistency is now I-7) | P2 | **(a) F03's notice time without a zone: fixed offline** in PR `#23` (below), **Live unverified**. The other examples (units, headlines, duplicated values): **open** |
 | I-4 | **Internal details in user-facing text** | Tool names (W20: "API functions named get_actual_demand / get_forecast_runs"), controller notes ("Market notices were not searched…" on document questions, F01), and evidence IDs (F04: "ev0878 … is not a time-stamped observation"). W04 (Live, 2026-09-30): "Controller-computed dispatch TOTALDEMAND (5-minute) change … [ev0975]" | P2 | open |
 | I-6 | **A valid controller answer lost to a fallback** | W19 (Live, 2026-09-30): the controller's cancellation sentence was correct, but the model's own lines quoted notice titles in single quotes ('… Lack Of Reserve Level 2 (LOR2) …'). `NUMERIC_UNTRACKED` counted the "2", and one line failed `TIME_NOT_IN_EVIDENCE`. The scoped repair did not clear them, so the answer fell back and nothing was shown | P1 | **fixed offline** in PR `#21` (below), **Live unverified**. The frozen run's outcome for W19 stays failed |
-| I-7 | **An explanation kept open that the answer's own timing rules out** | W18 (Live, 2026-09-30): the opening says timing rules the Hazelwood bus-tie outage out. The notice gives 1100 hrs 20/08, after every high-price interval. A hedged hypothesis resting on that notice [c1] still offers it as a possible influence | P2 | **fixed offline** in PR `#22` (below), **Live unverified** |
+| I-7 | **An explanation kept open that the answer's own timing rules out** | W18 (Live, 2026-09-30): the opening says timing rules the Hazelwood bus-tie outage out. The notice gives 1100 hrs 20/08, after every high-price interval. A hedged hypothesis resting on that notice [c1] still offers it as a possible influence | P2 | **fixed offline** in PR `#22` (below), **Live unverified**. Offline, W18's actual saved repair now falls back, and only a scripted repair that deletes the hypothesis passes. W18's Live verdict (held) is unchanged |
 | I-5 | **Known safety-language limitations** | See the list below. Each is recorded with its risk. None is being worked on, to avoid an open-ended wording cycle | P3 | recorded; revisit only with a new concrete failure |
 
 ### I-1a: F04, the causal question not answered directly
@@ -559,6 +559,82 @@ check. It reads the digits inside notice titles as numbers.
   - a hypothesis naming the incident without citing the notice.
 - **Live is unverified.**
 
+### I-3a: F03, a notice time shown without its zone
+
+**What happened** (Live check 2026-09-29, `artifacts/live/live-check-2026-09-29/F03.json`, trace `tr-77c70c8d1482`):
+- **The answer:** both summary lines and both published findings show "1630 hrs 30/07/2026". They are verbatim quotes of
+  notice 144693, with no zone anywhere in the answer.
+- **What the time means:** NEM market time, 2026-07-30T06:30Z = 16:00 ACST.
+- **Reproduced offline on `main`** from the saved calls and final draft: validation passes, and the times are shown
+  with no zone.
+
+**Root cause.**
+- **The zone is source-backed, but only in the tool output.** AEMO notices write "HHMM hrs" with no zone.
+  `notice_clock_times` reads each such time in a notice's own text as NEM market time (UTC+10), the basis checked in
+  D18 against the publication times of all 13 "At HHMM hrs" notices. `retrieve_public_evidence` returns the result as
+  each notice passage's `clock_times` (UTC, and local time in the notice's region). The model received it, and it is
+  not shown.
+- **A document answer has no place for it.** The schema has no free summary, and the controller renders each
+  statement and each published finding as the verbatim quote plus its citation. A quote cannot carry a zone the notice
+  does not write, and no controller step adds one.
+- **No check sees it.** The zone check (`TIME_ZONE_MISSING`) runs only for event and forecast reviews, and skips quoted
+  text.
+
+**Acceptance check** (offline, written before the code change):
+1. **Where it applies:** where the controller renders a verbatim quote of a market notice (a document statement or a
+   published finding) and the quote contains notice clock times ("HHMM hrs"). After the quote and its citation, a
+   controller note gives the basis, "NEM market time, UTC+10", from that passage's `clock_times`.
+   - **When every such time in the quote carries its date:** the note also gives each time's UTC and region-local
+     equivalents, in order.
+   - **When a date is missing:** the basis only. No date is guessed.
+2. **Never altered:** the quote itself, verbatim. The note adds no bare number, so the numeric check is unaffected.
+3. **F03:** both statements and both findings carry "NEM market time, UTC+10: 2026-07-30T06:30:00Z = 2026-07-30 16:00
+   ACST". The answer passes validation, with no fallback.
+4. **Controls:**
+   - **Explicit zones:** no note for a time the quote already zones (for example "10:30 am … AEST"), and none for a
+     quote with no notice clock time.
+   - **Conversions:** UTC and local conversions are correct, including another region's local zone and daylight
+     saving (from the tool's `clock_times`).
+   - **Ambiguous or missing zone information:**
+     - a time without its date gets the basis only;
+     - a time with no `clock_times` entry gets no note;
+     - a quote from a document that is not a market notice gets no note. No zone is guessed.
+5. **Unchanged:**
+   - **Replays:** W18, F04 and W19 change only by the note on their notice quotes, and their validation outcomes are
+     unchanged.
+   - **Other checks:** the Replay evaluation (the Live controller only) and the safety suite.
+   - **Frozen material:** frozen evaluation material and the original Live verdicts.
+
+**Result** (PR `#23`, offline; evidence in `artifacts/logs/notice_time_zone_*`). All five checks are met.
+1. **The note:** `notice_time_note` (Live controller) builds it from the passage's `clock_times`, returned by
+   `retrieve_public_evidence` in this investigation. It is shown after each verbatim market-notice quote in a document
+   statement or published finding.
+   - **Every time dated:** "(NEM market time, UTC+10: <UTC> = <local>; …)", in quote order.
+   - **Otherwise:** "(Notice times are NEM market time, UTC+10.)".
+2. **The quotes are unchanged,** and the note adds no bare number.
+3. **F03:** both statements and both findings end with "(NEM market time, UTC+10: 2026-07-30T06:30:00Z = 2026-07-30
+   16:00 ACST.)", and the answer passes with no fallback.
+4. **Controls, each tested:**
+   - F04's two times, in order;
+   - daylight saving (a VIC1 January time shown as AEDT);
+   - a zone the notice writes itself, and an already zoned time;
+   - no clock time;
+   - a time without its date, or a quote stopping before the date (the basis only);
+   - no `clock_times` entry (no note);
+   - a quote from a document that is not a market notice (no note).
+5. **Unchanged:**
+   - **Validation outcomes:** unchanged in all 26 saved replays. Ten gain notes, and every controller-rendered notice
+     quote with an "HHMM hrs" time now carries its zone.
+   - **Replay evaluation:** identical to `main` in every section (the Replay controller is not changed).
+   - **Safety suite:** PASS.
+   - **Tests:** 604 pass, 15 of them new. All 15 fail on `main`, where the function does not exist.
+
+**Still open for I-3a:**
+- **The model's own lines:** a notice quoted inside a line the model writes is not covered. The one left without a
+  zone is 2026-09-29 F04's summary line quoting the Directlink notice; its finding now carries both conversions.
+- **The Replay controller** is not changed.
+- **Live is unverified.**
+
 ### I-5: safety-language limitations (recorded, not being fixed)
 
 | Example | Where | Risk |
@@ -573,7 +649,8 @@ check. It reads the digits inside notice titles as numbers.
 ## Next
 
 **I-3 and I-4 (P2).**
-- **I-3, clear presentation:** F01's "150" without "MW", F03's "1630 hrs" without its zone, and vague headlines.
+- **I-3, clear presentation:** F01's "150" without "MW", vague headlines, and duplicated values. F03's zone (I-3a) is
+  fixed offline in PR `#23`.
 - **I-4, internal details in user-facing text:** tool names, controller notes and evidence IDs.
 
 **Fixed offline, Live unverified:** I-7 (W18's kept-open explanation, P2) in PR `#22`, and I-6 (W19's fallback, P1) in
@@ -603,3 +680,4 @@ PR `#21`. Both were found in the development-only Live check of 2026-09-30
 | Live check of the P1 fixes, development cases only (F04, W19, W04, W18), recorded | #20 | Live, USD 0.192 |
 | I-6: an exact title of a cited market notice is title text, not numbers, in the numeric check | #21 | offline; **Live unverified** |
 | I-7: a hypothesis may not rest on a cited notice whose stated time is after every interval of the event | #22 | offline; **Live unverified** |
+| I-3a: a quoted notice time is shown with its source-backed zone (NEM market time, UTC and local) | #23 | offline; **Live unverified** |
