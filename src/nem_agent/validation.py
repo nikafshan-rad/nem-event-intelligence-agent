@@ -392,6 +392,8 @@ ANCHOR_RE = re.compile(r"\b(?:(?P<first>first|start of|onset)|(?P<last>last|fina
 LOW_SET_RE = re.compile(r"\b(negative|low[- ]price|below the low)\b", re.I)
 HIGH_SET_RE = re.compile(r"\b(high[- ]price|at or above|spikes?)\b", re.I)
 HYPOTHETICAL_RE = re.compile(r"\b(whether|if)\b", re.I)
+# a hypothesis that itself says the timing excludes it ("timing rules this out", "could not have …")
+RULED_OUT_RE = re.compile(r"\brul(?:e|es|ed|ing)\b(?:\s+\w+){0,2}\s+out\b|\b(?:cannot|can't|could not|couldn't) have\b", re.I)
 _FIVE = timedelta(minutes=5)
 
 
@@ -421,6 +423,7 @@ class _EventTimes:
     peak: datetime | None            # the price extreme (maximum for a high-price event, minimum for a low-price one)
     complete: bool                   # every interval from the window start to the last one held is registered
     thresholds: tuple[float, float]
+    last: datetime | None = None     # the last interval registered
 
 
 def _event_times(report: InvestigationReport, registry: EvidenceRegistry, window: tuple[datetime, datetime] | None,
@@ -445,7 +448,7 @@ def _event_times(report: InvestigationReport, registry: EvidenceRegistry, window
     if ends:
         peak = (max(ends, key=lambda t: (rrp[t], -t.timestamp())) if kind == "high_price"
                 else min(ends, key=lambda t: (rrp[t], t.timestamp())))
-    return _EventTimes(kind, sets, peak, complete, (hi_thr, lo_thr))
+    return _EventTimes(kind, sets, peak, complete, (hi_thr, lo_thr), ends[-1] if ends else None)
 
 
 @dataclass
@@ -899,6 +902,37 @@ def validate(report: InvestigationReport, registry: EvidenceRegistry, *, as_of: 
                                        f"possible_explanations[{i}]: rests on {relied_on.chunk_id} [{ref}], but "
                                        f"{canceller} cancelled it at {iso_utc(cancelled_at)}, before the price extreme; "
                                        "say it was cancelled, or drop it"))
+
+    # -- explanations ruled out by timing: a hypothesis may not rest on a cited market notice whose earliest stated time
+    #    comes after every interval of the event, as if what it reports could explain the event (Live check
+    #    2026-09-30, W18: the answer opened with "Timing rules this out" for the Hazelwood bus-tie outage at 1100 hrs
+    #    20/08, after all six high-price intervals, and a hypothesis still offered it as a possible influence). Saying
+    #    the timing rules it out is allowed. Only the unambiguous case counts: a notice with no stated time, a time before
+    #    or within the event, or prices not registered up to that time are left alone.
+    if report.intent == "market_event_review":
+        res.checks_run.append("ruled_out_by_timing")
+        et = _event_times(report, registry, window, event_kind)
+        w = window or ((parse_iso(report.event_window.start_utc), parse_iso(report.event_window.end_utc))
+                       if report.event_window else None)
+        spans = et.ends["high" if et.kind == "high_price" else "low"] if et is not None else []
+        for i, h in enumerate(report.possible_explanations):
+            if et is None or w is None or not spans or RULED_OUT_RE.search(h.statement):
+                continue
+            for ref in dict.fromkeys(CITE_RE.findall(h.statement)):
+                rested = cites.get(ref)
+                notice = registry.chunks.get(rested.chunk_id) if rested is not None else None
+                if notice is None or notice.doc_type != "market_notice" or notice.event_region not in (None, report.region):
+                    continue
+                stated_at = _notice_instants(notice.text, notice.event_date)
+                earliest = min(stated_at) if stated_at else None
+                if earliest is None or earliest <= spans[-1] or not et.complete or et.last is None or \
+                        et.last < min(earliest, w[1]):
+                    continue
+                V.append(Violation("EXPLANATION_RULED_OUT_BY_TIMING", "critical",
+                                   f"possible_explanations[{i}]: rests on {notice.chunk_id} [{ref}], whose earliest stated "
+                                   f"time ({iso_utc(earliest)}) is after every interval of the event (the last ends "
+                                   f"{iso_utc(spans[-1])}), so its timing rules this out; drop it, or say that the "
+                                   "timing rules it out"))
 
     # -- notice timing in market-event reviews. Every sentence (headline, summary, hypotheses, uncertainties; not a
     #    quote, a hypothesis's test or a "whether"/"if" clause) that sets a retrieved notice's time before, between or
