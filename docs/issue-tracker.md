@@ -13,7 +13,7 @@ One list of known defects, so that each fix is weighed against the whole. Eviden
 | --- | --- | --- | --- | --- |
 | I-1 | **Direct, complete answers** | **(a)** F04 (live check 2026-09-29) asked "Was Directlink being out of service what drove the NSW1 price spike…?": the answer lists correct observations and hedged possibilities but never says what the evidence supports. **(b)** W19 (held-out v4) does not say the reserve (LOR) forecasts were cancelled before the day, and its hypotheses lean on them | P1 | **(a): fixed offline** in PR `#16`. **Live (development cases only, 2026-09-30): held** on F04 and W18. **(b): fixed offline** in PR `#17`. **Live (development case): failed** on W19: it triggered internally and the sentence was correct, but the answer fell back, so it was not displayed (I-6). The outcome stays failed |
 | I-2 | **Evidence selection and calculations** | **(a)** F04 never fetched the other regions' prices, so it misses that VIC1, SA1 and TAS1 were also above 470 $/MWh while QLD1 was about 65. **(b)** W04 gives both total-demand values (10046.72 and 11432.7 MW) but not the rise between them: a derived number has no evidence ID | P1 | **(a): fixed offline** in PR `#18`. **Live (development cases only, 2026-09-30): held** on F04 and W18. **(b): fixed offline** in PR `#19`; departs from checks 4 and 5 as written (below). **Live (development case): held** on W04 |
-| I-3 | **Clear presentation** | F01 shows "New South Wales 150" without "MW". F03 shows "1630 hrs" without its zone (NEM time, 06:30 UTC). Headlines are vague or off the question: F03's after repair, F04's (the peak price). W04 and W18 (Live, 2026-09-30): the same value appears twice among the observations, and W04's headline has "(UTC+1000)". (W18's inconsistency is now I-7) | P2 | **(a) F03's notice time without a zone: fixed offline** in PR `#23` (below), **Live unverified**. **(b) F01's number without its unit: verified offline; Live unverified** (PR `#24`, below). **(c) headlines that do not answer the question: verified offline; Live unverified** (PR `#25`, below). **(d) duplicated values: in progress** in `fix/duplicate-values` (below) |
+| I-3 | **Clear presentation** | F01 shows "New South Wales 150" without "MW". F03 shows "1630 hrs" without its zone (NEM time, 06:30 UTC). Headlines are vague or off the question: F03's after repair, F04's (the peak price). W04 and W18 (Live, 2026-09-30): the same value appears twice among the observations, and W04's headline has "(UTC+1000)". (W18's inconsistency is now I-7) | P2 | **(a) F03's notice time without a zone: fixed offline** in PR `#23` (below), **Live unverified**. **(b) F01's number without its unit: verified offline; Live unverified** (PR `#24`, below). **(c) headlines that do not answer the question: verified offline; Live unverified** (PR `#25`, below). **(d) duplicated values: verified offline; Live unverified** (PR `#26`, below) |
 | I-4 | **Internal details in user-facing text** | Tool names (W20: "API functions named get_actual_demand / get_forecast_runs"), controller notes ("Market notices were not searched…" on document questions, F01), and evidence IDs (F04: "ev0878 … is not a time-stamped observation"). W04 (Live, 2026-09-30): "Controller-computed dispatch TOTALDEMAND (5-minute) change … [ev0975]" | P2 | open |
 | I-6 | **A valid controller answer lost to a fallback** | W19 (Live, 2026-09-30): the controller's cancellation sentence was correct, but the model's own lines quoted notice titles in single quotes ('… Lack Of Reserve Level 2 (LOR2) …'). `NUMERIC_UNTRACKED` counted the "2", and one line failed `TIME_NOT_IN_EVIDENCE`. The scoped repair did not clear them, so the answer fell back and nothing was shown | P1 | **fixed offline** in PR `#21` (below), **Live unverified**. The frozen run's outcome for W19 stays failed |
 | I-7 | **An explanation kept open that the answer's own timing rules out** | W18 (Live, 2026-09-30): the opening says timing rules the Hazelwood bus-tie outage out. The notice gives 1100 hrs 20/08, after every high-price interval. A hedged hypothesis resting on that notice [c1] still offers it as a possible influence | P2 | **fixed offline** in PR `#22` (below), **Live unverified**. Offline, W18's actual saved repair now falls back, and only a scripted repair that deletes the hypothesis passes. W18's Live verdict (held) is unchanged |
@@ -877,6 +877,44 @@ are met. A review before merging corrected check 5's "scope" point (below).
    - PR #25's hidden-headline checks and the earlier fixes are unchanged.
 5. **Unchanged:** the Replay evaluation (or any change is explained) and the safety suite.
 
+**Result: verified offline; Live unverified** (PR `#26`; evidence in `artifacts/logs/duplicate_values_*`). All five
+checks are met.
+1. **The merge:** `merge_repeated_observations` runs in `validate_and_finalize`, after the final validation result is
+   recorded, on the answer or its fallback. It keeps the first observation of each row-backed data point. The others'
+   evidence IDs and labels go into `validation.observations_merged`, and the trace records it.
+2. **Nothing else changes:**
+   - in all 26 saved replays, validation codes and outcomes are unchanged;
+   - so are the distinct data points shown;
+   - so are the headline, summary, claims, findings, caveats, citations and status.
+3. **The examples:**
+   - W04 (2026-09-30): observations 10 → 8, both TOTALDEMAND endpoints once each;
+   - W18: 12 → 11, the VIC1 peak once;
+   - W19: 10 → 9, the SA1 peak once;
+   - v4 W01: 14 → 13, the TAS1 peak once.
+
+   W04's change sentence and derived change are unchanged. Its controller claims cite the repeats (ev0395, ev0431),
+   which the record maps to the shown observations of the same rows.
+4. **Controls, each tested:**
+   - W18's four 301.55 $/MWh intervals at different times: all kept;
+   - another region's price at the same time: kept;
+   - a disagreeing value at the same time: kept;
+   - v4 W01's two agreeing derived counts: both kept;
+   - both endpoints of W04's change: kept;
+   - a claim giving the wrong value for a repeat's evidence: still rejected, and the answer falls back, because
+     validation runs first.
+5. **Unchanged:**
+   - **Replay evaluation:** identical to `main` in every section (the Replay controller shows no such repeats).
+   - **Safety suite:** PASS.
+   - **Tests:** 654 pass. 9 are new; on `main` 7 fail and the 2 controls pass.
+   - **PR #25's hidden-headline checks and the earlier fixes:** their tests pass.
+
+**Still open for I-3d** (recorded above, not changed):
+- findings that repeat a summary quote;
+- the I-3c headline repeating the lead sentence;
+- a model line restating a controller sentence;
+- agreeing derived values;
+- **Live is unverified.**
+
 ### I-5: safety-language limitations (recorded, not being fixed)
 
 | Example | Where | Risk |
@@ -890,12 +928,13 @@ are met. A review before merging corrected check 5's "scope" point (below).
 
 ## Next
 
-**I-3 and I-4 (P2).**
-- **I-3, clear presentation:** duplicated values. Verified offline, Live unverified:
-  - F03's zone (I-3a, PR `#23`);
-  - F01's unit (I-3b, PR `#24`);
-  - headlines that answer the question (I-3c, PR `#25`).
-- **I-4, internal details in user-facing text:** tool names, controller notes and evidence IDs.
+**Next: I-4 (P2), internal details in user-facing text:** tool names, controller notes and evidence IDs.
+
+**I-3 (P2), clear presentation:** only the repetitions recorded under I-3d remain. Verified offline, Live unverified:
+- F03's zone (I-3a, PR `#23`);
+- F01's unit (I-3b, PR `#24`);
+- headlines that answer the question (I-3c, PR `#25`);
+- one data point shown once (I-3d, PR `#26`).
 
 **Fixed offline, Live unverified:** I-7 (W18's kept-open explanation, P2) in PR `#22`, and I-6 (W19's fallback, P1) in
 PR `#21`. Both were found in the development-only Live check of 2026-09-30
@@ -927,3 +966,4 @@ PR `#21`. Both were found in the development-only Live check of 2026-09-30
 | I-3a: a quoted notice time is shown with its source-backed zone (NEM market time, UTC and local) | #23 | offline; **Live unverified** |
 | I-3b: a quoted table row is shown with the unit its table header states in the cited passage | #24 | verified offline; **Live unverified** |
 | I-3c: the headline states the validated answer where the controller holds it (causal timing answer; the document statement the model's headline paraphrases) | #25 | verified offline; **Live unverified** |
+| I-3d: a row-backed data point returned under several evidence IDs is shown once, after validation | #26 | verified offline; **Live unverified** |
