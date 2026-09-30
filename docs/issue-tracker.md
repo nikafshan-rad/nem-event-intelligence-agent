@@ -415,10 +415,20 @@ check. It reads the digits inside notice titles as numbers.
 4. **Unchanged:** the Replay evaluation, the safety suite and the other saved replays. The frozen run's outcome for W19
    stays failed. PR #20 is unchanged.
 
-**Result** (PR `#21`, offline; evidence in `artifacts/logs/notice_title_numbers_*`). All four checks are met.
+**Result** (PR `#21`, offline; evidence in `artifacts/logs/notice_title_numbers_*` and
+`artifacts/logs/notice_title_citation_bypass.log`). All four checks are met. Check 1 was tightened after review (below).
 1. **Recognised:**
-   - `notice_titles(registry)` collects each eligible, unflagged, retrieved market notice's own title: the chunk title
+   - `notice_titles(registry, chunk_ids)` collects each eligible, unflagged market notice's own title: the chunk title
      after "AEMO market notice N (SECTION): ", of at least 4 words.
+   - **Tightened after review of PR #21:** check 1 exempted the title of any retrieved notice. Review asked whether a
+     title with no citation, or next to a citation to another notice, could bypass the numeric check. Both could
+     (`notice_title_citation_bypass.log`). Now a title counts only where a matching cited notice supports it:
+     - **A line without citation markers:** the report must cite that notice. This is W19's form.
+     - **A line with markers:** one of them must point to that notice, by citation ID or by the cited passage's ID.
+     - **Other markers:** evidence markers (`[ev0436]`) are not citations. A marker to anything the report does not
+       cite gives no cover.
+     - **Stricter only:** a title of a retrieved but uncited notice, or one next to a citation of another notice, is
+       read like any other text.
    - `narrative_numbers` removes a title only where it appears whole: not inside a longer number, and after the same
      hyphen normalisation the rest of the text gets.
    - All three uses of the numeric reader get the titles: untracked numbers, intervals and times.
@@ -427,7 +437,10 @@ check. It reads the digits inside notice titles as numbers.
    - an altered digit or word;
    - a shortened or invented title;
    - a title followed by more digits;
-   - the title of a notice not retrieved, ineligible or flagged;
+   - the title of a notice not retrieved, ineligible or flagged, even when cited;
+   - the title of a notice retrieved but not cited;
+   - a title in a line citing only another notice, even when the titled notice is cited elsewhere;
+   - a title in a line whose marker points to nothing the report cites;
    - numeric claims, which are unchanged (`CLAIM_VALUE_MISMATCH` and `CLAIM_EVIDENCE_MISSING` still fire).
 3. **W19 replay:**
    - **Before the fix:** it falls back as in Live. After the repair, 4 × `NUMERIC_UNTRACKED` ("2") and
@@ -435,17 +448,23 @@ check. It reads the digits inside notice titles as numbers.
    - **With it:** only the first draft's two genuine faults are caught (the contradicted notice timing, and "29").
      After the repair the answer passes, with no fallback, and opens with the cancellation sentence, identical to the
      one the Live run built.
+   - **The tightened rule gives the same result,** because W19's lines have no citation markers and the report cites
+     every notice they name.
    - **A title altered to "Level 3 (LOR3)", or a "2 MW" added outside a title,** still falls back.
 4. **Unchanged:**
    - **Replays:** 25 of 26 saved replays are identical, and only the 2026-09-30 W19 run changes.
    - **Replay evaluation:** identical to the base in every section.
    - **Safety suite:** PASS.
-   - **Tests:** 564 pass (20 new; on the base 13 of them fail, and the 7 "still rejected" controls pass).
+   - **Tests:** 574 pass, 30 of them new.
+     - **On the base:** 17 of the new tests fail, and the 13 "still rejected" controls pass.
+     - **On PR #21 as first proposed:** 7 fail, the 6 bypass cases and the new function signature.
    - **The frozen Live run's outcome for W19** stays failed.
 
 **Still open for I-6:**
-- only a market notice's own title is recognised, not the "AEMO market notice N (SECTION): " prefix (its notice number
-  is still read as a number), a partial title, or the title of another document type;
+- only a cited market notice's own title is recognised, not the "AEMO market notice N (SECTION): " prefix (its notice
+  number is still read as a number), a partial title, or the title of another document type;
+- **Report-level support:** a line without markers is supported by a citation anywhere in the report. Requiring a
+  marker in the line itself would leave W19's answer falling back, because its lines carry none;
 - single-quoted text is otherwise read as before;
 - **Live is unverified.** A paid re-check of W19 would be development evidence only, and needs approval.
 
@@ -486,4 +505,4 @@ found in the development-only Live check of 2026-09-30 (`artifacts/live/live-che
 | I-2a: an event question about other regions gets their prices at the price extreme, traced to source rows | #18 | offline; Live, development cases only: held on F04 and W18 |
 | I-2b: a question asking by how much a demand measure changed gets the change, computed by code and traced to both source rows | #19 | offline; departs from checks 4 and 5 as written; Live, development case: held on W04 |
 | Live check of the P1 fixes, development cases only (F04, W19, W04, W18), recorded | #20 | Live, USD 0.192 |
-| I-6: an exact title of a retrieved market notice is title text, not numbers, in the numeric check | #21 | offline; **Live unverified** |
+| I-6: an exact title of a cited market notice is title text, not numbers, in the numeric check | #21 | offline; **Live unverified** |
