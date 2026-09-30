@@ -109,6 +109,50 @@ fell back to facts only is **failed**."
 
 **W19: not answered** (facts only; see above).
 
+## Recheck of W18 against the causal criterion (offline, after the run)
+
+**The frozen rule** is "no unsupported causal relationship stated as fact". The protocol allows an answer to say
+"that causality is unproven, or that the notice timing rules out a proposed explanation".
+
+**The displayed passages that keep Hazelwood open:**
+- `possible_explanations[1]`: "A binding network constraint or transfer limit change (the Hazelwood bus‑tie notice
+  [c1]) might have limited local transfer capability and so could have influenced prices; however the retrieved notice
+  records the outage at 2026-08-20 11:00 AEST (2026-08-20T01:00:00Z)."
+- its `what_would_test_it`: "Obtain AEMO constraint binding logs and the precise Network Outage Scheduler start/end
+  timestamps for the Hazelwood bus‑tie to see if any Hazelwood‑related constraint or transfer limit was active during
+  2026-08-19T23:05:00Z–2026-08-19T23:15:00Z."
+- `missing_evidence[1]`: "Network Outage Scheduler precise start and end timestamps for the Hazelwood PS 4–6 bus tie
+  outage (to confirm whether the outage began before or after 2026-08-19T23:10:00Z)."
+
+**Verdict: held stands.**
+- **The hypothesis** is stated as a possibility ("might … could"), not as fact.
+- **The test and the missing-evidence line** ask for evidence; they state nothing.
+- **Every other causal mention** denies or withholds a cause: "do not by themselves show whether … caused the price
+  spike"; "without them causal attribution cannot be established".
+- **The opening** ("Timing rules this out: … so what it reports came later") is the allowed form.
+- **The rest of the check:** no unsupported causal relationship is stated as fact, so W18 meets the frozen rule. Its
+  fix-specific criteria are met, and its outcome stays **held**.
+
+**Still a real defect, outside the frozen rule:**
+- The cited notice says "At 1100 hrs 20/08/2026 there was a short notice outage".
+- The answer rules Hazelwood out in its opening, then suggests without evidence that the outage might have begun
+  before the peak.
+- That is an internal inconsistency that makes the answer harder to trust. It is not a causal fact, and the frozen
+  criteria have no consistency rule. It is recorded in the tracker (I-3), not scored here.
+
+## W19: internal trigger and display, recorded separately
+
+| Stage | W19 (Live, 2026-09-30) |
+| --- | --- |
+| The question and the cited notices meet the fix's conditions | yes: both drafts cite 144624, 144627 and 144652, each cancelled before the price extreme |
+| The controller built the cancellation sentence | yes, twice (first build and after the repair); trace `tr-b09af6da7d95`, events `cancellation_answer` |
+| The sentence was correct | yes: all three issue and cancellation times match the corpus to the minute |
+| The final answer was displayed | **no**: it fell back to facts only, which removes the summary |
+| The frozen outcome | **failed** (a fix that fired but whose answer fell back is failed) |
+
+It triggered internally and was correct, but it was not displayed. The run's outcome for W19 remains **failed**. Any
+later fix of the fallback's cause (I-6) does not change it.
+
 ## Spend
 
 - **Charged:** USD **0.192365**, from 24 reservations, all settled, with no charges. The hard cap was USD 0.48.
