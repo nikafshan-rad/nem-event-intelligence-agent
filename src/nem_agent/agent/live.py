@@ -43,6 +43,7 @@ from ..report import (
 from ..timeutil import half_hour_end_for, iso_utc, local_str, parse_iso
 from ..tools import openai_function_tools
 from ..tools.args import strict_json_schema
+from ..tools.impl import NOTICE_TIME_RE
 from .dispatcher import Dispatcher
 from .playbook import PLAYBOOKS
 from .replay import forecast_focus
@@ -76,6 +77,38 @@ _INTERVAL_NAMES = {5: "5-minute interval", 30: "half-hour"}
 def _zoned(local: str) -> str:
     """"2026-07-27 07:00 AEST (UTC+1000)" -> "2026-07-27 07:00 AEST"."""
     return re.sub(r" [(]UTC[^)]*[)]", "", local)
+
+
+# a zone written right after a notice time in the notice itself
+_ZONE_AFTER_RE = re.compile(r"\s*(?:AEST|AEDT|ACST|ACDT|AWST|UTC|GMT|Z|NEM(?: time)?|market time)\b")
+
+
+def notice_time_note(quote: str, clock_times: list[dict[str, str]]) -> str | None:
+    """A note to show after a verbatim notice quote: the basis of its "HHMM hrs" times, from that passage's clock_times
+    (retrieve_public_evidence reads them as NEM market time, UTC+10; docs/decisions.md D18). The quote itself cannot
+    carry a zone the notice does not write. Live check 2026-09-29, F03: "1630 hrs 30/07/2026" was shown twice with no
+    zone. Each time gets its UTC and local equivalents, in order, only when every time in the quote carries its date;
+    otherwise the basis alone. A time the notice already zones gets nothing, and a time with no clock_times entry means
+    no note: no zone or date is guessed."""
+    shown: list[dict[str, str]] = []
+    dated = True
+    for m in NOTICE_TIME_RE.finditer(quote):
+        if _ZONE_AFTER_RE.match(quote, m.end()):
+            continue
+        c = next((x for x in clock_times if x.get("text") == m[0]), None)
+        if c is None:  # the quote may stop before the date the notice gives
+            c = next((x for x in clock_times if str(x.get("text", "")).startswith(m[0])), None)
+            dated = False
+        if c is None:
+            return None
+        dated = dated and "date" not in c and bool(c.get("utc"))
+        shown.append(c)
+    if not shown:
+        return None
+    if not dated:
+        return "(Notice times are NEM market time, UTC+10.)"
+    conv = "; ".join(dict.fromkeys(c["utc"] + (f" = {_zoned(c['local'])}" if c.get("local") else "") for c in shown))
+    return f"(NEM market time, UTC+10: {conv}.)"
 
 
 # capitalised words that locate or phrase a question rather than name an incident (for _timing_answer)
@@ -1166,6 +1199,20 @@ class LiveController:
         return (f"AEMO later cancelled what these cited notices announced, each before the price extreme (interval "
                 f"ending {iso_utc(peak)} = {_zoned(local_str(peak, region))}): " + "; ".join(parts) + ".")
 
+    def _clock_times(self, chunk_id: str) -> list[dict[str, str]]:
+        """The clock_times retrieve_public_evidence returned for this passage in this investigation."""
+        for r in self.d.records if self.d else []:
+            if r.name == "retrieve_public_evidence" and r.status == "ok":
+                for h in r.view.get("results", []):
+                    if h.get("chunk_id") == chunk_id and h.get("clock_times"):
+                        return list(h["clock_times"])
+        return []
+
+    def _quote_time_note(self, quote: str, chunk_id: str, doc_type: str | None) -> str:
+        """" " + the note on a market notice quote's clock times, or "" (see notice_time_note)."""
+        note = notice_time_note(quote, self._clock_times(chunk_id)) if doc_type == "market_notice" else None
+        return f" {note}" if note else ""
+
     def _question_retrieval(self, res: Resolution, trace: Any) -> str:
         """For a document question, one retrieval with the question itself, issued by the controller, so the
         passage that answers it is available even when the model's own queries miss it (held-out H07, H14)."""
@@ -1222,7 +1269,8 @@ class LiveController:
                 missing.append(f"model listed a published finding for unknown or unretrieved citation {f.citation_id}")
                 continue
             findings.append(PublishedFinding(
-                statement=f"An AEMO {fc.doc_type.replace('_', ' ')} for {res.region} [{fc.citation_id}] says: “{fc.quote}”",
+                statement=f"An AEMO {fc.doc_type.replace('_', ' ')} for {res.region} [{fc.citation_id}] says: “{fc.quote}”"
+                          + self._quote_time_note(fc.quote, fc.chunk_id, fc.doc_type),
                 citation_ids=[fc.citation_id], doc_type=fc.doc_type, applies_to_event=f.applies_to_event))
         # Document sentences are written by the controller: a quote is shown in quotation marks only when it is
         # verbatim in the cited passage; anything else is shown as the model's own words, so every check applies.
@@ -1245,7 +1293,7 @@ class LiveController:
                 ref = cit.citation_id if cit is not None else s.citation_id  # an unresolved ID stays, and fails
                 ch = self.reg.chunks.get(cit.chunk_id) if cit else None
                 if q and ch is not None and _norm(q) in _norm(ch.text):
-                    text = f"“{q}” [{ref}]"
+                    text = f"“{q}” [{ref}]" + self._quote_time_note(q, ch.chunk_id, ch.doc_type)
                 elif s.paraphrase or q:
                     if q and cit is not None:
                         not_verbatim.append(ref)
