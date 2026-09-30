@@ -111,6 +111,35 @@ def notice_time_note(quote: str, clock_times: list[dict[str, str]]) -> str | Non
     return f"(NEM market time, UTC+10: {conv}.)"
 
 
+# units a table header may declare in parentheses ("Forecast Error Threshold (MW)")
+_UNITS = "|".join(re.escape(u) for u in ("$/MWh", "MVAr", "MWh", "GWh", "kWh", "MVA", "MW", "kW", "kV", "Hz", "%"))
+_HEADER_UNIT_RE = re.compile(rf"\(({_UNITS})\)")
+_STATED_UNIT_RE = re.compile(rf"(?<![A-Za-z])(?:{_UNITS})(?![A-Za-z])")
+_TABLE_CAPTION_RE = re.compile(r"\bTable \d+\b")
+_TABLE_ROW_RE = re.compile(r"[A-Za-z][A-Za-z .&'/-]*\s-?\d[\d,]*(?:\.\d+)?")  # a label, then one number
+
+
+def table_unit_note(quote: str, passage: str) -> str | None:
+    """A note to show after a verbatim quote of one table row (a label, then one bare number): the unit its table's
+    header declares in the cited passage, which the row itself does not state. Live check 2026-09-29, F01: "New South
+    Wales 150" was shown from Table 5 of SO_OP_3710, whose header reads "Forecast Error Threshold (MW)". Only the cited
+    passage is read: the row must follow a "Table N" caption, and the header between them must declare exactly one unit
+    in parentheses. A quote stating a unit itself, a row with more than one number, and a header with no unit or with
+    several get nothing: no unit is inferred from the number or from another passage."""
+    from ..validation import _norm
+
+    q = _norm(quote)
+    if not _TABLE_ROW_RE.fullmatch(q) or _STATED_UNIT_RE.search(q):
+        return None
+    text = _norm(passage)
+    at = text.find(q)
+    captions = list(_TABLE_CAPTION_RE.finditer(text, 0, at)) if at >= 0 else []
+    if not captions:
+        return None
+    units = set(_HEADER_UNIT_RE.findall(text, captions[-1].end(), at))
+    return f"(in {units.pop()}, as the table header in the cited passage states)" if len(units) == 1 else None
+
+
 # capitalised words that locate or phrase a question rather than name an incident (for _timing_answer)
 _NOT_NAMES = {
     "was", "were", "is", "are", "did", "does", "do", "could", "would", "can", "has", "had", "how", "what", "why", "when",
@@ -1213,6 +1242,13 @@ class LiveController:
         note = notice_time_note(quote, self._clock_times(chunk_id)) if doc_type == "market_notice" else None
         return f" {note}" if note else ""
 
+    def _quote_unit_note(self, quote: str, chunk_id: str) -> str:
+        """" " + the unit a quoted table row takes from its table header in the cited passage, or "" (see
+        table_unit_note)."""
+        ch = self.reg.chunks.get(chunk_id)
+        note = table_unit_note(quote, ch.text) if ch is not None else None
+        return f" {note}" if note else ""
+
     def _question_retrieval(self, res: Resolution, trace: Any) -> str:
         """For a document question, one retrieval with the question itself, issued by the controller, so the
         passage that answers it is available even when the model's own queries miss it (held-out H07, H14)."""
@@ -1270,7 +1306,8 @@ class LiveController:
                 continue
             findings.append(PublishedFinding(
                 statement=f"An AEMO {fc.doc_type.replace('_', ' ')} for {res.region} [{fc.citation_id}] says: “{fc.quote}”"
-                          + self._quote_time_note(fc.quote, fc.chunk_id, fc.doc_type),
+                          + self._quote_time_note(fc.quote, fc.chunk_id, fc.doc_type)
+                          + self._quote_unit_note(fc.quote, fc.chunk_id),
                 citation_ids=[fc.citation_id], doc_type=fc.doc_type, applies_to_event=f.applies_to_event))
         # Document sentences are written by the controller: a quote is shown in quotation marks only when it is
         # verbatim in the cited passage; anything else is shown as the model's own words, so every check applies.
@@ -1293,7 +1330,8 @@ class LiveController:
                 ref = cit.citation_id if cit is not None else s.citation_id  # an unresolved ID stays, and fails
                 ch = self.reg.chunks.get(cit.chunk_id) if cit else None
                 if q and ch is not None and _norm(q) in _norm(ch.text):
-                    text = f"“{q}” [{ref}]" + self._quote_time_note(q, ch.chunk_id, ch.doc_type)
+                    text = (f"“{q}” [{ref}]" + self._quote_time_note(q, ch.chunk_id, ch.doc_type)
+                            + self._quote_unit_note(q, ch.chunk_id))
                 elif s.paraphrase or q:
                     if q and cit is not None:
                         not_verbatim.append(ref)
