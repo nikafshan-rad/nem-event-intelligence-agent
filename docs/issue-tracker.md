@@ -14,7 +14,7 @@ One list of known defects, so that each fix is weighed against the whole. Eviden
 | I-1 | **Direct, complete answers** | **(a)** F04 (live check 2026-09-29) asked "Was Directlink being out of service what drove the NSW1 price spike…?": the answer lists correct observations and hedged possibilities but never says what the evidence supports. **(b)** W19 (held-out v4) does not say the reserve (LOR) forecasts were cancelled before the day, and its hypotheses lean on them | P1 | **(a): fixed offline** in PR `#16`. **Live (development cases only, 2026-09-30): held** on F04 and W18. **(b): fixed offline** in PR `#17`. **Live (development case): failed** on W19: it triggered internally and the sentence was correct, but the answer fell back, so it was not displayed (I-6). The outcome stays failed |
 | I-2 | **Evidence selection and calculations** | **(a)** F04 never fetched the other regions' prices, so it misses that VIC1, SA1 and TAS1 were also above 470 $/MWh while QLD1 was about 65. **(b)** W04 gives both total-demand values (10046.72 and 11432.7 MW) but not the rise between them: a derived number has no evidence ID | P1 | **(a): fixed offline** in PR `#18`. **Live (development cases only, 2026-09-30): held** on F04 and W18. **(b): fixed offline** in PR `#19`; departs from checks 4 and 5 as written (below). **Live (development case): held** on W04 |
 | I-3 | **Clear presentation** | F01 shows "New South Wales 150" without "MW". F03 shows "1630 hrs" without its zone (NEM time, 06:30 UTC). Headlines are vague or off the question: F03's after repair, F04's (the peak price). W04 and W18 (Live, 2026-09-30): the same value appears twice among the observations, and W04's headline has "(UTC+1000)". (W18's inconsistency is now I-7) | P2 | **(a) F03's notice time without a zone: fixed offline** in PR `#23` (below), **Live unverified**. **(b) F01's number without its unit: verified offline; Live unverified** (PR `#24`, below). **(c) headlines that do not answer the question: verified offline; Live unverified** (PR `#25`, below). **(d) duplicated values: verified offline; Live unverified** (PR `#26`, below) |
-| I-4 | **Internal details in user-facing text** | Tool names (W20: "API functions named get_actual_demand / get_forecast_runs"), controller notes ("Market notices were not searched…" on document questions, F01), and evidence IDs (F04: "ev0878 … is not a time-stamped observation"). W04 (Live, 2026-09-30): "Controller-computed dispatch TOTALDEMAND (5-minute) change … [ev0975]" | P2 | open |
+| I-4 | **Internal details in user-facing text** | Tool names (W20: "API functions named get_actual_demand / get_forecast_runs"), controller notes ("Market notices were not searched…" on document questions, F01), and evidence IDs (F04: "ev0878 … is not a time-stamped observation"). W04 (Live, 2026-09-30): "Controller-computed dispatch TOTALDEMAND (5-minute) change … [ev0975]" | P2 | **in progress** in `fix/plain-display` (below) |
 | I-6 | **A valid controller answer lost to a fallback** | W19 (Live, 2026-09-30): the controller's cancellation sentence was correct, but the model's own lines quoted notice titles in single quotes ('… Lack Of Reserve Level 2 (LOR2) …'). `NUMERIC_UNTRACKED` counted the "2", and one line failed `TIME_NOT_IN_EVIDENCE`. The scoped repair did not clear them, so the answer fell back and nothing was shown | P1 | **fixed offline** in PR `#21` (below), **Live unverified**. The frozen run's outcome for W19 stays failed |
 | I-7 | **An explanation kept open that the answer's own timing rules out** | W18 (Live, 2026-09-30): the opening says timing rules the Hazelwood bus-tie outage out. The notice gives 1100 hrs 20/08, after every high-price interval. A hedged hypothesis resting on that notice [c1] still offers it as a possible influence | P2 | **fixed offline** in PR `#22` (below), **Live unverified**. Offline, W18's actual saved repair now falls back, and only a scripted repair that deletes the hypothesis passes. W18's Live verdict (held) is unchanged |
 | I-5 | **Known safety-language limitations** | See the list below. Each is recorded with its risk. None is being worked on, to avoid an open-ended wording cycle | P3 | recorded; revisit only with a new concrete failure |
@@ -914,6 +914,66 @@ checks are met.
 - a model line restating a controller sentence;
 - agreeing derived values;
 - **Live is unverified.**
+
+### I-4: internal details in displayed answers
+
+**What happened** (saved Live records, all runs; counted outside quotations in the displayed text):
+- **Evidence IDs (566 occurrences in 79 records):**
+  - in model text: "(evidence_id: ev0436)", "(ev1565)", "[ev0436] [ev0884]", "Controller-computed … change … 1385.98 MW
+    [ev0975]" (W04, 2026-09-30);
+  - in a controller note: "ev0878 (project_analysis_threshold) is not a time-stamped observation; listed only as a
+    claim" (F04, 2026-09-29; 48 records).
+- **Tool names (148 occurrences):**
+  - in model text: "API functions named get_actual_demand / get_forecast_runs" (W20, 2026-09-29), "(compare_forecast_actual)";
+  - in controller notes: "get_generation_change: blocked — invalid arguments: …", "compare_forecast_actual:
+    unavailable — …".
+- **Field names:** `peak_half_hour_end_utc` (W18, 2026-09-30), `evidence_id`, `project_analysis_threshold`,
+  `target_end_utc`, `latest_available`, `as_of` and others.
+- **Model-directed instructions:** "Market notices were not searched: … call again with region, event_start_utc and
+  event_end_utc (one call per region)" (F01, 2026-09-29).
+- **Validation codes:** in the fallback headline, "(NUMERIC_UNTRACKED, TIME_NOT_IN_EVIDENCE)".
+- **Legitimate and kept:** source identifiers in citations (`[aemo_so_op_3710#p7c12]`, `market_notice_144693`),
+  AEMO field and constraint names (`PRICE_STATUS`, `S-DVBL_BC-2CP`) and unit IDs (`SNAPPER1`).
+
+**Root cause.**
+- **The model works in the tools' terms.** Claims must carry evidence IDs (synthesis prompt), and tool outputs name
+  tools and fields, so the model echoes them in its prose.
+- **The controller writes its diagnostics into `missing_evidence` in the same terms,** as do the tools' own messages:
+  `_build`'s tool-status and evidence notes, and `notice_search_scope`'s instruction to the model.
+- **Nothing turns either into plain language for display.**
+
+**Acceptance check** (offline, written before the code change):
+1. **When:** after the complete answer is validated (the answer or its fallback, after I-3d's merge).
+2. **What changes,** only outside quotations, in the displayed text (headline, summary, hypotheses and their tests,
+   findings, uncertainties, missing evidence):
+   - **Evidence-ID markers:** removed.
+   - **Tool names:** become readable names ("the forecast-versus-actual comparison").
+   - **Known internal field names:** become readable words.
+   - **Controller notes:** rewritten in plain language.
+     - **Diagnostics about the answer's own structure are not shown:** a non-time-stamped observation, an unknown
+       evidence ID, an unknown finding citation.
+     - **Disclosures are kept, in plain words:** unavailable, refused, failed or blocked tool calls; searches not
+       performed; a stopped run.
+     - **Model-directed instructions are removed.**
+   - **Fallback headline:** loses its code list.
+3. **Kept, unchanged:**
+   - quotations;
+   - citation markers and legitimate source identifiers;
+   - numbers, units and time zones;
+   - substantive caveats.
+
+   The structured fields keep every evidence ID, tool and provenance detail: claims, observations, citations, search
+   scope, source manifest and `validation` (including `observations_merged`). Each rewritten or unshown line keeps its
+   original in `validation.display_rewrites`.
+4. **Checks:**
+   - the saved examples above (W04, W18, F04, F01, W20);
+   - controls for legitimate identifiers, quoted text, a blocked-call disclosure, a fallback answer, and merged
+     observations whose references still resolve;
+   - a violation next to an evidence marker or a tool name is still caught, and the answer falls back, because
+     validation runs first;
+   - no rewrite adds a number.
+5. **Unchanged:** validation codes and outcomes, the Replay evaluation (or any change explained), the safety suite, and
+   the earlier fixes.
 
 ### I-5: safety-language limitations (recorded, not being fixed)
 
