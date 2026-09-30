@@ -15,7 +15,7 @@ One list of known defects, so that each fix is weighed against the whole. Eviden
 | I-2 | **Evidence selection and calculations** | **(a)** F04 never fetched the other regions' prices, so it misses that VIC1, SA1 and TAS1 were also above 470 $/MWh while QLD1 was about 65. **(b)** W04 gives both total-demand values (10046.72 and 11432.7 MW) but not the rise between them: a derived number has no evidence ID | P1 | **(a): fixed offline** in PR `#18`. **Live (development cases only, 2026-09-30): held** on F04 and W18. **(b): fixed offline** in PR `#19`; departs from checks 4 and 5 as written (below). **Live (development case): held** on W04 |
 | I-3 | **Clear presentation** | F01 shows "New South Wales 150" without "MW". F03 shows "1630 hrs" without its zone (NEM time, 06:30 UTC). Headlines are vague or off the question: F03's after repair, F04's (the peak price). Also W18 (Live, 2026-09-30): the opening says timing rules the Hazelwood outage out, but a hedged hypothesis and a missing-evidence line keep it open. They suggest, without evidence, that the outage might have begun before the peak, although the cited notice gives 1100 hrs. It is inconsistent, not a causal claim stated as fact | P2 | open |
 | I-4 | **Internal details in user-facing text** | Tool names (W20: "API functions named get_actual_demand / get_forecast_runs"), controller notes ("Market notices were not searched…" on document questions, F01), and evidence IDs (F04: "ev0878 … is not a time-stamped observation") | P2 | open |
-| I-6 | **A valid controller answer lost to a fallback** | W19 (Live, 2026-09-30): the controller's cancellation sentence was correct, but the model's own lines quoted notice titles in single quotes ('… Lack Of Reserve Level 2 (LOR2) …'). `NUMERIC_UNTRACKED` counted the "2", and one line failed `TIME_NOT_IN_EVIDENCE`. The scoped repair did not clear them, so the answer fell back and nothing was shown | P1 | open; found in the Live check, not yet analysed offline. Any fix must not weaken the numeric check |
+| I-6 | **A valid controller answer lost to a fallback** | W19 (Live, 2026-09-30): the controller's cancellation sentence was correct, but the model's own lines quoted notice titles in single quotes ('… Lack Of Reserve Level 2 (LOR2) …'). `NUMERIC_UNTRACKED` counted the "2", and one line failed `TIME_NOT_IN_EVIDENCE`. The scoped repair did not clear them, so the answer fell back and nothing was shown | P1 | **fixed offline** in PR `#21` (below), **Live unverified**. The frozen run's outcome for W19 stays failed |
 | I-5 | **Known safety-language limitations** | See the list below. Each is recorded with its risk. None is being worked on, to avoid an open-ended wording cycle | P3 | recorded; revisit only with a new concrete failure |
 
 ### I-1a: F04, the causal question not answered directly
@@ -374,6 +374,100 @@ has no "or any change is explained" clause, unlike I-2a's.
 - the model's own text may still restate or contradict the change;
 - **Live is unverified.**
 
+### I-6: W19, a valid controller answer lost to a fallback
+
+**What happened** (Live, 2026-09-30, `artifacts/live/live-check-p1-dev/W19.json`, trace `tr-b09af6da7d95`):
+- **The controller's sentence:** it was correct; the cancellation sentence named 144624, 144627 and 144652 with their
+  exact times.
+- **The fallback:** after one scoped repair, the answer still failed validation and fell back to facts only. So the
+  sentence was not displayed. The run's outcome stays **failed**.
+
+**Root cause.** The numeric check (`narrative_numbers`) serves `NUMERIC_UNTRACKED`, the interval check and the time
+check. It reads the digits inside notice titles as numbers.
+- **What it already skips:** text in double quotes, system IDs, and identifier patterns ("LOR2" is already one).
+- **What it misses:** a title in single quotes. So the "2" of "Level 2" and the "1" of "Level 1" count as numbers.
+- **The repaired draft:**
+  - four lines quote 'STPASA - (Cancellation of the) Forecast Lack Of Reserve Level 2 (LOR2) in the SA Region on
+    29/07/2026'. The "2" matches no claim, so `NUMERIC_UNTRACKED`;
+  - one line quotes '… Level 1 (LOR1) …'. The "1" happens to equal an unrelated claim (1 interval at 07:55Z), which
+    ties the line to 07:55Z. Its notice times then fail `TIME_NOT_IN_EVIDENCE`.
+- **The titles are exact:** each is the retrieved notice's own title. That is the chunk title after "AEMO market notice
+  N (SECTION): ", and the start of the notice text.
+- **Not the cause:** the controller sentence, retrieval, and tool selection.
+- **The first draft's other two faults were genuine** (a contradicted notice timing, and "29 July" without a year),
+  and the repair fixed them.
+
+**Acceptance check** (offline, written before the code change):
+1. **Recognised as title text:** an exact title of a market notice retrieved in this investigation. The notice must be
+   eligible and not flagged as instruction-like, and the title at least 4 words. Wherever it appears in narrative
+   text, its digits are not read as numbers.
+2. **Still rejected:**
+   - a number outside the title, in the same sentence;
+   - an altered title (a changed digit or word);
+   - an invented title;
+   - the title of a notice not retrieved in this investigation;
+   - the title of an ineligible or instruction-like passage;
+   - a shortened title;
+   - an unsupported numeric claim (claims are checked as before).
+3. **W19 replay:** use the Live run's saved tool calls, first draft and saved repair patch.
+   - **This branch:** the answer passes after the repair, with no fallback, and the cancellation sentence is displayed.
+   - **Before the fix:** the same replay falls back with `NUMERIC_UNTRACKED` and `TIME_NOT_IN_EVIDENCE`, as in Live.
+4. **Unchanged:** the Replay evaluation, the safety suite and the other saved replays. The frozen run's outcome for W19
+   stays failed. PR #20 is unchanged.
+
+**Result** (PR `#21`, offline; evidence in `artifacts/logs/notice_title_numbers_*` and
+`artifacts/logs/notice_title_citation_bypass.log`). All four checks are met. Check 1 was tightened after review (below).
+1. **Recognised:**
+   - `notice_titles(registry, chunk_ids)` collects each eligible, unflagged market notice's own title: the chunk title
+     after "AEMO market notice N (SECTION): ", of at least 4 words.
+   - **Tightened after review of PR #21:** check 1 exempted the title of any retrieved notice. Review asked whether a
+     title with no citation, or next to a citation to another notice, could bypass the numeric check. Both could
+     (`notice_title_citation_bypass.log`). Now a title counts only where a matching cited notice supports it:
+     - **A line without citation markers:** the report must cite that notice. This is W19's form.
+     - **A line with markers:** one of them must point to that notice, by citation ID or by the cited passage's ID.
+     - **Other markers:** evidence markers (`[ev0436]`) are not citations. A marker to anything the report does not
+       cite gives no cover.
+     - **Stricter only:** a title of a retrieved but uncited notice, or one next to a citation of another notice, is
+       read like any other text.
+   - `narrative_numbers` removes a title only where it appears whole: not inside a longer number, and after the same
+     hyphen normalisation the rest of the text gets.
+   - All three uses of the numeric reader get the titles: untracked numbers, intervals and times.
+2. **Still rejected, each tested:**
+   - a number outside the title;
+   - an altered digit or word;
+   - a shortened or invented title;
+   - a title followed by more digits;
+   - the title of a notice not retrieved, ineligible or flagged, even when cited;
+   - the title of a notice retrieved but not cited;
+   - a title in a line citing only another notice, even when the titled notice is cited elsewhere;
+   - a title in a line whose marker points to nothing the report cites;
+   - numeric claims, which are unchanged (`CLAIM_VALUE_MISMATCH` and `CLAIM_EVIDENCE_MISSING` still fire).
+3. **W19 replay:**
+   - **Before the fix:** it falls back as in Live. After the repair, 4 × `NUMERIC_UNTRACKED` ("2") and
+     `TIME_NOT_IN_EVIDENCE` remain.
+   - **With it:** only the first draft's two genuine faults are caught (the contradicted notice timing, and "29").
+     After the repair the answer passes, with no fallback, and opens with the cancellation sentence, identical to the
+     one the Live run built.
+   - **The tightened rule gives the same result,** because W19's lines have no citation markers and the report cites
+     every notice they name.
+   - **A title altered to "Level 3 (LOR3)", or a "2 MW" added outside a title,** still falls back.
+4. **Unchanged:**
+   - **Replays:** 25 of 26 saved replays are identical, and only the 2026-09-30 W19 run changes.
+   - **Replay evaluation:** identical to the base in every section.
+   - **Safety suite:** PASS.
+   - **Tests:** 574 pass, 30 of them new.
+     - **On the base:** 17 of the new tests fail, and the 13 "still rejected" controls pass.
+     - **On PR #21 as first proposed:** 7 fail, the 6 bypass cases and the new function signature.
+   - **The frozen Live run's outcome for W19** stays failed.
+
+**Still open for I-6:**
+- only a cited market notice's own title is recognised, not the "AEMO market notice N (SECTION): " prefix (its notice
+  number is still read as a number), a partial title, or the title of another document type;
+- **Report-level support:** a line without markers is supported by a citation anywhere in the report. Requiring a
+  marker in the line itself would leave W19's answer falling back, because its lines carry none;
+- single-quoted text is otherwise read as before;
+- **Live is unverified.** A paid re-check of W19 would be development evidence only, and needs approval.
+
 ### I-5: safety-language limitations (recorded, not being fixed)
 
 | Example | Where | Risk |
@@ -387,13 +481,12 @@ has no "or any change is explained" clause, unlike I-2a's.
 
 ## Next
 
-**I-6 (W19: a valid controller answer lost to a fallback).** P1. It is found in the development-only Live check of
-2026-09-30 (`artifacts/live/live-check-p1-dev/REVIEW.md`).
+**I-3 (P2: clear presentation).** I-6 (W19's fallback, P1) is fixed offline in PR `#21`, Live unverified. It was
+found in the development-only Live check of 2026-09-30 (`artifacts/live/live-check-p1-dev/REVIEW.md`).
 - **In that check,** I-1a, I-2a and I-2b held on their development cases, and I-1b failed on W19.
 - **This is development evidence,** not generalisation.
 - **A fresh, independent check** of the P1 fixes needs about USD 0.85–1.00. USD 0.41 is left under the USD 5.00 task
   cap, so it is not funded.
-- **After I-6** comes I-3 (P2).
 
 ## Completed
 
@@ -412,3 +505,4 @@ has no "or any change is explained" clause, unlike I-2a's.
 | I-2a: an event question about other regions gets their prices at the price extreme, traced to source rows | #18 | offline; Live, development cases only: held on F04 and W18 |
 | I-2b: a question asking by how much a demand measure changed gets the change, computed by code and traced to both source rows | #19 | offline; departs from checks 4 and 5 as written; Live, development case: held on W04 |
 | Live check of the P1 fixes, development cases only (F04, W19, W04, W18), recorded | #20 | Live, USD 0.192 |
+| I-6: an exact title of a cited market notice is title text, not numbers, in the numeric check | #21 | offline; **Live unverified** |

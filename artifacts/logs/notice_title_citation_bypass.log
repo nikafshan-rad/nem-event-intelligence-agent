@@ -1,0 +1,17 @@
+# PR #21 review: can an exact retrieved notice title with (a) no citation, or (b) a citation to another notice,
+# exempt its digits from the numeric check? A line naming notice 144624's exact title is added to the SA1 29/07 replay
+# answer, with the SYNTHETIC-fixture citations shown. Offline, no network.
+
+## PR #21 as first proposed (442ae05): any retrieved notice's title
+(a) retrieved, not cited anywhere                                      -> title digits exempt (no NUMERIC_UNTRACKED)
+(b) line cites a different notice                                      -> title digits exempt (no NUMERIC_UNTRACKED)
+(b') line cites a different notice; the titled one is cited elsewhere  -> title digits exempt (no NUMERIC_UNTRACKED)
+control: line cites the matching notice                                -> title digits exempt (no NUMERIC_UNTRACKED)
+control: no marker; the titled notice is cited in the report           -> title digits exempt (no NUMERIC_UNTRACKED)
+
+## this branch: only a title supported by the matching cited notice
+(a) retrieved, not cited anywhere                                      -> NUMERIC_UNTRACKED: summary[6]: number 2 is not a registered claim
+(b) line cites a different notice                                      -> NUMERIC_UNTRACKED: summary[6]: number 2 is not a registered claim
+(b') line cites a different notice; the titled one is cited elsewhere  -> NUMERIC_UNTRACKED: summary[6]: number 2 is not a registered claim
+control: line cites the matching notice                                -> title digits exempt (no NUMERIC_UNTRACKED)
+control: no marker; the titled notice is cited in the report           -> title digits exempt (no NUMERIC_UNTRACKED)

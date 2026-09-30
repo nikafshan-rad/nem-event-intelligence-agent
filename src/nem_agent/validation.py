@@ -29,7 +29,7 @@ import contextlib
 import functools
 import re
 import unicodedata
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -121,16 +121,43 @@ def _unit(u: str) -> str:
     return UNIT_ALIASES.get(u.strip().lower(), u.strip())
 
 
-def narrative_numbers(text: str, ids: frozenset[str] = frozenset()) -> list[float]:
+# a market notice's own title follows this prefix in its chunk title ("AEMO market notice 144624 (RESERVE NOTICE): …")
+_NOTICE_TITLE_PREFIX_RE = re.compile(r"^AEMO market notice \d+ \([^)]*\): ")
+NOTICE_TITLE_MIN_WORDS = 4  # a short title could hide a number anywhere it happens to occur
+
+
+def notice_titles(registry: EvidenceRegistry, chunk_ids: Iterable[str]) -> frozenset[str]:
+    """The exact titles of the given retrieved chunks that are market notices, eligible and not flagged as
+    instruction-like, with at least ``NOTICE_TITLE_MIN_WORDS`` words. A narrative may name a cited notice by its title,
+    and the title's digits ("Level 2 (LOR2)") are then not numbers. Live check 2026-09-30, W19: four lines naming
+    'STPASA - Forecast Lack Of Reserve Level 2 (LOR2) in the SA Region on 29/07/2026' failed as an untracked "2", and
+    the "1" of a LOR1 title tied its line to an unrelated one-interval claim; the answer fell back."""
+    out = set()
+    for cid in chunk_ids:
+        ch = registry.chunks.get(cid)
+        if ch is None or ch.doc_type != "market_notice" or not ch.eligible or ch.instruction_like:
+            continue
+        title = _NOTICE_TITLE_PREFIX_RE.sub("", ch.title or "").strip()
+        if len(title.split()) >= NOTICE_TITLE_MIN_WORDS:
+            out.add(title)
+    return frozenset(out)
+
+
+def narrative_numbers(text: str, ids: frozenset[str] = frozenset(),
+                      titles: frozenset[str] = frozenset()) -> list[float]:
     """Numbers stated in ``text`` outside quotations, dates, times and identifiers.
 
     ``ids`` are identifiers issued by the system in this request (retrieved chunk ids such as
     ``market_notice_144692#0``); only exact matches are removed, so a model cannot hide a number by calling it an id.
+    ``titles`` (``notice_titles``) are removed the same way, only where one appears whole and unaltered: a changed,
+    shortened or invented title, and any number outside it, are still read.
     """
     t = QUOTED_RE.sub(" ", text)
     for i in sorted(ids, key=len, reverse=True):
         t = t.replace(i, " ")
     t = t.replace("\u2010", "-").replace("\u2011", "-")  # U+2010/U+2011 hyphens: same duration label as "5-minute"
+    for title in sorted(titles, key=len, reverse=True):
+        t = re.sub(rf"(?<!\w){re.escape(title)}(?!\w)", " ", t)
     for pat in IGNORE_RES:
         t = pat.sub(" ", t)
     out = []
@@ -669,8 +696,18 @@ def validate(report: InvestigationReport, registry: EvidenceRegistry, *, as_of: 
     res.checks_run.append("narrative_numbers")
     claim_vals = [(float(c.value), c.rounding) for c in report.numeric_claims]
     chunk_ids = frozenset(registry.chunks)
+    cited_chunk = {c.citation_id: c.chunk_id for c in report.citations}
+
+    def titles(text: str) -> frozenset[str]:
+        """Titles whose digits are not numbers in this narrative item: those of the notices the report cites. When the
+        item carries citation markers, only the notices they point to count, so a title next to a citation of another
+        notice (or of nothing the report cites) is read like any other text. Evidence markers ([ev0436]) are not
+        citations."""
+        marks = [m for m in CITE_RE.findall(text) if not re.fullmatch(r"ev\d{4}", m)]
+        return notice_titles(registry, {cited_chunk.get(m, m) for m in marks} & set(cited_chunk.values()) if marks
+                             else cited_chunk.values())
     for where, text in _narratives(report):
-        for n in narrative_numbers(text, chunk_ids):
+        for n in narrative_numbers(text, chunk_ids, titles(text)):
             res.numbers_checked += 1
             if not any(abs(n - v) <= tol + 1e-9 or abs(abs(n) - abs(v)) <= tol + 1e-9 for v, tol in claim_vals):
                 V.append(Violation("NUMERIC_UNTRACKED", "critical", f"{where}: number {n:g} is not a registered claim"))
@@ -730,7 +767,7 @@ def validate(report: InvestigationReport, registry: EvidenceRegistry, *, as_of: 
             if not times:
                 continue
             tied: set[datetime] = set()
-            for n in narrative_numbers(sentence, chunk_ids):
+            for n in narrative_numbers(sentence, chunk_ids, titles(text)):
                 for c in report.numeric_claims:
                     ev = registry.get(c.evidence_id)
                     if ev is not None and ev.valid_at_utc and (abs(n - c.value) <= c.rounding + 1e-9 or
@@ -797,7 +834,7 @@ def validate(report: InvestigationReport, registry: EvidenceRegistry, *, as_of: 
             named = _durations(sentence)
             if not named:
                 continue
-            for n in narrative_numbers(sentence, chunk_ids):
+            for n in narrative_numbers(sentence, chunk_ids, titles(text)):
                 resolutions = {ev.interval_minutes for c in report.numeric_claims
                                if (ev := registry.get(c.evidence_id)) is not None and ev.interval_minutes
                                and (abs(n - c.value) <= c.rounding + 1e-9 or abs(abs(n) - abs(c.value)) <= c.rounding + 1e-9)}
