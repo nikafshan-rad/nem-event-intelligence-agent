@@ -1,0 +1,198 @@
+"""Plain display text (issue I-4), applied after the complete answer has been validated.
+
+The model works in the tools' terms (claims carry evidence IDs; tool outputs name tools and fields), and the controller
+writes its diagnostics in the same terms, so answers showed "[ev0436]", "(compare_forecast_actual)",
+"peak_half_hour_end_utc" and "ev0878 (project_analysis_threshold) is not a time-stamped observation". Here, outside
+quotations only, evidence-ID markers are removed, tool and internal field names become readable words, and controller
+notes are put in plain language. Disclosures (a tool call unavailable, refused, failed or blocked; a search not
+performed; a stopped run; part of the model's answer left out) are kept in plain words; the one diagnostic that only
+reclassifies a value still shown as a claim is not shown. No rewrite adds a number. The structured fields (claims,
+observations, citations, search scope, source manifest, validation) keep every ID and provenance detail, and each
+changed line keeps its original in ``validation.display_rewrites``.
+"""
+
+from __future__ import annotations
+
+import re
+from typing import Any
+
+from .report import InvestigationReport
+from .validation import QUOTED_RE
+
+TOOL_NAMES = {
+    "find_market_events": "the market-event search", "get_price_timeline": "the price timeline",
+    "get_forecast_runs": "the forecast-run data", "get_actual_demand": "the actual-demand data",
+    "compare_forecast_actual": "the forecast-versus-actual comparison", "get_generation_change": "the generation-change data",
+    "get_weather_context": "the weather data", "retrieve_public_evidence": "the document search",
+    "get_regional_prices": "the regional-price lookup",
+}
+# internal field and context names (tool arguments and outputs, controller context), never AEMO's own identifiers
+FIELD_NAMES = {
+    "evidence_id": "evidence reference", "evidence_ids": "evidence references", "chunk_id": "passage reference",
+    "chunk_ids": "passage references", "observation_evidence_ids": "observations", "numeric_claims": "numeric claims",
+    "published_findings": "published findings", "search_scope": "search record", "clock_times": "clock times",
+    "project_analysis_threshold": "analysis threshold", "as_of": "as-of time", "as_of_utc": "as-of time (UTC)",
+    "start_utc": "start (UTC)", "end_utc": "end (UTC)", "event_start_utc": "event window start (UTC)",
+    "event_end_utc": "event window end (UTC)", "target_start_utc": "target start (UTC)", "target_end_utc": "target end (UTC)",
+    "target_end_local": "target end (local time)", "interval_end_utc": "interval end (UTC)",
+    "interval_end_local": "interval end (local time)", "published_at_utc": "publication time (UTC)",
+    "available_at_utc": "availability time (UTC)", "peak_half_hour_end_utc": "peak half-hour end (UTC)",
+    "peak_half_hour_end_local": "peak half-hour end (local time)", "event_peak_interval_end_utc": "peak interval end (UTC)",
+    "event_peak_interval_end_local": "peak interval end (local time)", "forecast_targets_utc": "forecast target period (UTC)",
+    "forecast_targets_local": "forecast target period (local time)", "run_id": "forecast run", "run_selector": "run selection",
+    "latest_available": "latest available", "latest_before_target": "latest before the target",
+    "latest_available_as_of": "latest available at the as-of time", "revision_policy": "revision policy",
+    "operational_demand_mw": "operational demand (MW)", "threshold_aud_per_mwh": "threshold ($/MWh)",
+    "max_results": "result limit", "top_k": "result count", "doc_types": "document types",
+    "issued_at_utc": "issue time (UTC)", "error_pct": "percentage error", "run_issued_at_utc": "run issue time (UTC)",
+    "run_available_at_utc": "run availability time (UTC)", "publication_date": "publication date",
+    "lead_hours": "lead time (hours)", "poe10_mw": "POE10 (MW)", "poe50_mw": "POE50 (MW)", "poe90_mw": "POE90 (MW)",
+    "totaldemand_at_peak": "TOTALDEMAND at the peak", "totaldemand_at_minimum": "TOTALDEMAND at the minimum",
+    "totaldemand_around_peak": "TOTALDEMAND around the peak",
+    "totaldemand_around_minimum": "TOTALDEMAND around the minimum", "netinterchange_at_peak": "net interchange at the peak",
+    "largest_changes": "largest changes", "market_notice": "market notice", "citation_id": "citation reference",
+    "missing_evidence": "missing evidence", "possible_explanations": "possible explanations",
+}
+_EV_LIST = r"ev\d{4}(?:\s*(?:,|;|and|&)?\s*ev\d{4})*(?:,?\s*etc\.?)?"
+# a label naming the references: "evidence_id:", "threshold evidence:", "supporting evidence", "threshold and count:"
+_EV_LABEL = (r"(?:(?:[A-Za-z_]\w*\s+){0,2}evidence(?:[ _]ids?)?\s*:?\s*|see\s*:?\s*|(?:[A-Za-z_]\w*\s+){0,3}[A-Za-z_]\w*\s*:\s*)?")
+_EV_GROUP_RE = re.compile(r"\s*[\[(]\s*" + _EV_LABEL + _EV_LIST + r"\s*[\])]", re.I)  # "(evidence: ev0003)", "[ev0436]"
+_EV_PART_RE = (re.compile(r"\s*[;,]\s*" + _EV_LABEL + _EV_LIST + r"(?=\s*[;,)\]])", re.I),  # "(…; evidence_id: ev0626)"
+               re.compile(r"(?<=[(\[])\s*" + _EV_LABEL + _EV_LIST + r"\s*[;,]\s*", re.I),  # "(evidence_id: ev0625; …"
+               re.compile(r"(?:(?<=\d)|(?<=MW)|(?<=Wh)|(?<=%))\s*[;,]?\s*" + _EV_LIST + r"(?=\s*[;,.)\]]|\s*$)"),  # "−82.59 MW ev0438)"
+               re.compile(r"\s*\(see [^()]*?" + _EV_LIST + r"\)", re.I))  # "(see SCADA change ev0940)"
+_EV_WORD_RE = re.compile(r"\bevidence(?:[ _](?:ids?|references?))?\s*:?\s*(?=ev\d{4})", re.I)  # "with evidence ev0948"
+_EV_RE = re.compile(r"\b" + _EV_LIST)  # a reference used as a noun: "compare those values to ev0538"
+_TOOL_RE = re.compile(r"\b(?:([Tt]he) )?(" + "|".join(TOOL_NAMES) + r")(\s+search_scope)?\b")
+# a tool's name alone in quote marks is the model naming it (under three words, so not a checked quotation, and no
+# source document contains one); every other quotation is left exactly as written
+_QUOTED_TOOL_RE = re.compile(r"[“\"]\s*(" + "|".join(TOOL_NAMES) + r")\s*[”\"]")
+_FIELD_RE = re.compile(r"\b(" + "|".join(sorted(FIELD_NAMES, key=len, reverse=True)) + r")\b")
+_COMPUTED_RE = re.compile(r"\b([Cc])ontroller[- ]computed\b")
+_FALLBACK_HEADLINE_RE = re.compile(r"^(Validated facts only: the generated narrative failed independent validation) "
+                                   r"\([A-Z_, ]+\)")
+# a controller diagnostic about the answer's own structure (the value is still shown, as a claim): kept in the record
+_UNSHOWN_NOTE_RE = re.compile(r"^ev\d{4} \([a-z0-9_]+\) is not a time-stamped observation; listed only as a claim$")
+_DROPPED = (  # the controller left part of the model's answer out: said in plain words
+    (re.compile(r"^model referenced unknown or non-numeric evidence id \S+$"),
+     "An observation the answer listed is not shown: its evidence is not among this investigation's records."),
+    (re.compile(r"^model listed a published finding for unknown or unretrieved citation \S+$"),
+     "A published finding the answer listed is not shown: its source passage was not retrieved in this investigation."),
+    (re.compile(r"^model referenced forecast MAE evidence \S+, which no compare_forecast_actual call returned$"),
+     "The forecast-versus-actual summary is not shown: the answer referred to a comparison that was not returned."),
+)
+_TOOL_NOTE_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*): (unavailable|refused|error|blocked) — (.*)$", re.S)
+_BLOCKED = (  # the dispatcher's reasons for not running a call
+    (re.compile(r"'[^']*' already called"), "its call limit had been reached"),
+    (re.compile(r"optional diagnostic budget exhausted"), "the limit on optional checks had been reached"),
+    (re.compile(r"'[^']*' is not in the \S+ playbook"), "it is not used for this kind of question"),
+    (re.compile(r"invalid arguments|arguments are not valid JSON|arguments must be"), "the request was invalid"),
+    (re.compile(r"as_of_utc \S+ is later than the request cutoff"), "it asked for data later than the question's as-of time"),
+)
+_CALL_AGAIN_RE = re.compile(r";\s*call again with [^.]*$")  # an instruction written for the model
+
+
+def _tool(m: re.Match[str], first: bool) -> str:
+    """A tool's readable name, keeping the text's own article and capitalising at the start of a sentence."""
+    article, name, scope = m.groups()
+    words = TOOL_NAMES[name] + (" record" if scope else "")
+    if article:
+        words = article + words[3:]
+    elif (first and m.start() == 0) or re.search(r"[.!?]\s+$", m.string[:m.start()]):
+        words = words[0].upper() + words[1:]
+    return words
+
+
+def _plain(segment: str, first: bool) -> str:
+    s, last = segment, None
+    while s != last:
+        last = s
+        s = _EV_GROUP_RE.sub("", s)
+        for part in _EV_PART_RE:
+            s = part.sub("", s)
+    if first and not segment[:1].isspace():
+        s = s.lstrip()
+    s = _EV_RE.sub(lambda m: "the listed observation" + ("s" if len(re.findall(r"ev\d{4}", m.group(0))) > 1 else ""),
+                   _EV_WORD_RE.sub("", s))
+    s = _TOOL_RE.sub(lambda m: _tool(m, first), s)
+    s = _FIELD_RE.sub(lambda m: FIELD_NAMES[m.group(1)], s)
+    return _COMPUTED_RE.sub(lambda m: "Computed" if m.group(1) == "C" else "computed", s)
+
+
+def plain_text(text: str) -> str:
+    """``text`` with internal references made readable, quotations untouched."""
+    text = _QUOTED_TOOL_RE.sub(r"\1", text)
+    out: list[str] = []
+    last = 0
+    for m in QUOTED_RE.finditer(text):
+        out += [_plain(text[last:m.start()], not out), m.group(0)]
+        last = m.end()
+    return "".join([*out, _plain(text[last:], not out)])
+
+
+def plain_note(text: str) -> str | None:
+    """A caveat in plain language, or None for a diagnostic that is not shown."""
+    if _UNSHOWN_NOTE_RE.match(text):
+        return None
+    for r, plain in _DROPPED:
+        if r.match(text):
+            return plain
+    m = _TOOL_NOTE_RE.match(text)
+    if m:
+        name, status, reason = m.groups()
+        if name not in TOOL_NAMES:  # the model asked for a tool that does not exist; its name stays in the record
+            return "A request for an action that is not one of the investigation's tools was blocked; nothing was run."
+        if status == "unavailable":
+            return f"{TOOL_NAMES[name][0].upper()}{TOOL_NAMES[name][1:]} was unavailable: {plain_text(reason)}"
+        why = next((plain for r, plain in _BLOCKED if r.match(reason)), None) if status == "blocked" else None
+        if why:
+            return f"A request to {TOOL_NAMES[name]} was blocked: {why}, so it was not run."
+        return f"A request to {TOOL_NAMES[name]} {'failed' if status == 'error' else 'was ' + status}: {plain_text(reason)}"
+    if text.startswith("Tool loop stopped at the model call cap"):
+        return "The investigation stopped early, at its limit on model calls."
+    if text == "Model output did not match the report schema.":
+        return "The model's answer was not in the expected form."
+    return plain_text(_CALL_AGAIN_RE.sub(".", text))
+
+
+def plain_display(report: InvestigationReport) -> tuple[InvestigationReport, list[dict[str, Any]]]:
+    """The report with plain display text, and the originals of every changed or unshown line."""
+    changed: list[dict[str, Any]] = []
+
+    def text(where: str, value: str) -> str:
+        new = plain_text(value)
+        if new != value:
+            changed.append({"where": where, "original": value})
+        return new
+
+    def notes(field: str, values: list[str]) -> list[str]:
+        kept: list[str] = []
+        for i, v in enumerate(values):
+            new = plain_note(v)
+            if new in kept:  # two notes that now read the same are shown once, as the controller does
+                new = None
+            if new != v:
+                changed.append({"where": f"{field}[{i}]", "original": v, **({"shown": False} if new is None else {})})
+            if new is not None:
+                kept.append(new)
+        return kept
+
+    headline = _FALLBACK_HEADLINE_RE.sub(r"\1", report.headline)
+    if headline != report.headline:
+        changed.append({"where": "headline", "original": report.headline})
+        headline = plain_text(headline)
+    else:
+        headline = text("headline", headline)
+    update: dict[str, Any] = {
+        "headline": headline,
+        "summary": [text(f"summary[{i}]", s) for i, s in enumerate(report.summary)],
+        "possible_explanations": [h.model_copy(update={
+            "statement": text(f"possible_explanations[{i}]", h.statement),
+            "what_would_test_it": text(f"possible_explanations[{i}].what_would_test_it", h.what_would_test_it)})
+            for i, h in enumerate(report.possible_explanations)],
+        "published_findings": [f.model_copy(update={"statement": text(f"published_findings[{i}]", f.statement)})
+                               for i, f in enumerate(report.published_findings)],
+        "uncertainties": notes("uncertainties", report.uncertainties),
+        "missing_evidence": notes("missing_evidence", report.missing_evidence),
+    }
+    return (report.model_copy(update=update), changed) if changed else (report, [])

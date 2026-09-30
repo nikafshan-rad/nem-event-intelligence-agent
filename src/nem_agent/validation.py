@@ -1204,4 +1204,10 @@ def validate_and_finalize(report: InvestigationReport, registry: EvidenceRegistr
     if merged:
         final = final.model_copy(update={"validation": {**final.validation, "observations_merged": merged}})
         trace.add("validate", "observations_merged", merged=merged)
+    from .display import plain_display  # presentation only, after validation (I-4)
+
+    final, rewrites = plain_display(final)
+    if rewrites:
+        final = final.model_copy(update={"validation": {**final.validation, "display_rewrites": rewrites}})
+        trace.add("validate", "display_rewrites", n=len(rewrites))
     return final

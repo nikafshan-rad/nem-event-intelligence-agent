@@ -104,7 +104,10 @@ def test_other_answers_keep_the_models_headline(path, kw, why):
     assert _passes(res), why
     rec = json.loads(path.read_text())
     shown = rec["drafts"].get("repair:draft") or draft  # the headline after the run's own repair
-    assert res.report.headline in (draft["headline"], shown["headline"]), why
+    # since I-4 it is shown in plain words (W05: "available_at_utc"); the headline as validated is kept
+    headline = next((r["original"] for r in res.report.validation.get("display_rewrites", []) if r["where"] == "headline"),
+                    res.report.headline)
+    assert headline in (draft["headline"], shown["headline"]), why
 
 
 @pytest.mark.parametrize("path,kw", [(V4 / "W14.json", {}), (C0930 / "W18.json", {"first_draft": True})])
