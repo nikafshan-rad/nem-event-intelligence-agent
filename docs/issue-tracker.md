@@ -11,10 +11,11 @@ One list of known defects, so that each fix is weighed against the whole. Eviden
 
 | ID | Area | Concrete example | Priority | Status |
 | --- | --- | --- | --- | --- |
-| I-1 | **Direct, complete answers** | **(a)** F04 (live check 2026-09-29) asked "Was Directlink being out of service what drove the NSW1 price spike…?": the answer lists correct observations and hedged possibilities but never says what the evidence supports. **(b)** W19 (held-out v4) does not say the reserve (LOR) forecasts were cancelled before the day, and its hypotheses lean on them | P1 | **(a): fixed offline** in PR `#16` (below), **Live unverified**. **(b): fixed offline** in PR `#17` (below), **Live unverified** |
-| I-2 | **Evidence selection and calculations** | **(a)** F04 never fetched the other regions' prices, so it misses that VIC1, SA1 and TAS1 were also above 470 $/MWh while QLD1 was about 65. **(b)** W04 gives both total-demand values (10046.72 and 11432.7 MW) but not the rise between them: a derived number has no evidence ID | P1 | **(a): fixed offline** in PR `#18` (below), **Live unverified**. **(b): fixed offline** in PR `#19` (below), **Live unverified**; departs from checks 4 and 5 as written (below) |
+| I-1 | **Direct, complete answers** | **(a)** F04 (live check 2026-09-29) asked "Was Directlink being out of service what drove the NSW1 price spike…?": the answer lists correct observations and hedged possibilities but never says what the evidence supports. **(b)** W19 (held-out v4) does not say the reserve (LOR) forecasts were cancelled before the day, and its hypotheses lean on them | P1 | **(a): fixed offline** in PR `#16`. **Live (development cases only, 2026-09-30): held** on F04 and W18. **(b): fixed offline** in PR `#17`. **Live (development case): failed** on W19: the sentence fired correctly, but the answer fell back, so it was not shown (I-6) |
+| I-2 | **Evidence selection and calculations** | **(a)** F04 never fetched the other regions' prices, so it misses that VIC1, SA1 and TAS1 were also above 470 $/MWh while QLD1 was about 65. **(b)** W04 gives both total-demand values (10046.72 and 11432.7 MW) but not the rise between them: a derived number has no evidence ID | P1 | **(a): fixed offline** in PR `#18`. **Live (development cases only, 2026-09-30): held** on F04 and W18. **(b): fixed offline** in PR `#19`; departs from checks 4 and 5 as written (below). **Live (development case): held** on W04 |
 | I-3 | **Clear presentation** | F01 shows "New South Wales 150" without "MW". F03 shows "1630 hrs" without its zone (NEM time, 06:30 UTC). Headlines are vague or off the question: F03's after repair, F04's (the peak price) | P2 | open |
 | I-4 | **Internal details in user-facing text** | Tool names (W20: "API functions named get_actual_demand / get_forecast_runs"), controller notes ("Market notices were not searched…" on document questions, F01), and evidence IDs (F04: "ev0878 … is not a time-stamped observation") | P2 | open |
+| I-6 | **A valid controller answer lost to a fallback** | W19 (Live, 2026-09-30): the controller's cancellation sentence was correct, but the model's own lines quoted notice titles in single quotes ('… Lack Of Reserve Level 2 (LOR2) …'). `NUMERIC_UNTRACKED` counted the "2", and one line failed `TIME_NOT_IN_EVIDENCE`. The scoped repair did not clear them, so the answer fell back and nothing was shown | P1 | open; found in the Live check, not yet analysed offline. Any fix must not weaken the numeric check |
 | I-5 | **Known safety-language limitations** | See the list below. Each is recorded with its risk. None is being worked on, to avoid an open-ended wording cycle | P3 | recorded; revisit only with a new concrete failure |
 
 ### I-1a: F04, the causal question not answered directly
@@ -386,9 +387,13 @@ has no "or any change is explained" clause, unlike I-2a's.
 
 ## Next
 
-**A paid Live check of the P1 fixes.** Every P1 item (I-1a, I-1b, I-2a, I-2b) is fixed offline only. The fixes'
-development cases (F04, W19, W18, W04) and fresh frozen questions would show whether they hold in Live. The run needs
-approval and a spending cap (USD 0.60 is left under the USD 5.00 task cap). After that comes I-3 (P2).
+**I-6 (W19: a valid controller answer lost to a fallback).** P1. It is found in the development-only Live check of
+2026-09-30 (`artifacts/live/live-check-p1-dev/REVIEW.md`).
+- **In that check,** I-1a, I-2a and I-2b held on their development cases, and I-1b failed on W19.
+- **This is development evidence,** not generalisation.
+- **A fresh, independent check** of the P1 fixes needs about USD 0.85–1.00. USD 0.41 is left under the USD 5.00 task
+  cap, so it is not funded.
+- **After I-6** comes I-3 (P2).
 
 ## Completed
 
@@ -402,7 +407,8 @@ approval and a spending cap (USD 0.60 is left under the USD 5.00 task cap). Afte
 | Approval claims: stating that a case note or action was approved or written needs an approval record | #13 | offline |
 | Caveat fields: causal and injection checks read uncertainties and missing evidence; a qualifier counts only in its own clause | #14 | offline |
 | Live check 2026-09-29: W20 plus 4 fresh cases, recorded | #15 | Live, USD 0.106 |
-| I-1a: a causal question about a notice-reported incident gets the answer its timing supports | #16 | offline; **Live unverified** |
-| I-1b: a cited notice's cancellation is stated, and a cancelled forecast is never relied on as active | #17 | offline; **Live unverified** |
-| I-2a: an event question about other regions gets their prices at the price extreme, traced to source rows | #18 | offline; **Live unverified** |
-| I-2b: a question asking by how much a demand measure changed gets the change, computed by code and traced to both source rows | #19 | offline; **Live unverified**; departs from checks 4 and 5 as written |
+| I-1a: a causal question about a notice-reported incident gets the answer its timing supports | #16 | offline; Live, development cases only: held on F04 and W18 |
+| I-1b: a cited notice's cancellation is stated, and a cancelled forecast is never relied on as active | #17 | offline; Live, development case: **failed** on W19 (fired, then fell back; I-6) |
+| I-2a: an event question about other regions gets their prices at the price extreme, traced to source rows | #18 | offline; Live, development cases only: held on F04 and W18 |
+| I-2b: a question asking by how much a demand measure changed gets the change, computed by code and traced to both source rows | #19 | offline; departs from checks 4 and 5 as written; Live, development case: held on W04 |
+| Live check of the P1 fixes, development cases only (F04, W19, W04, W18), recorded | #20 | Live, USD 0.192 |
