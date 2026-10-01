@@ -866,6 +866,47 @@ checks are met.
   - the prompts' own vocabulary, unchanged, so the model may keep writing these phrases.
 - **Live is unverified.**
 
+### I-3e: a price shown as "$845.0", without "/MWh"
+
+**What happened** (Live, second development check, 2026-09-30, `artifacts/live/live-check-dev2/W19.json`, trace
+`tr-db875cab1129`): the shown answer reads "SA1 had a single five-minute RRP spike of $845.0 at 2026-07-29 17:25 ACST
+…", "The price extreme: Regional Reference Price $845.0 at interval ending …" and "… the analysis threshold of $300.0 in
+the window". The answer's validated claims give both as dollars per megawatt-hour: c1 = 845.0 `$/MWh` (evidence
+`ev0445`, the dispatch price) and c3 = 300.0 `$/MWh` (`ev0886`, the analysis threshold).
+
+**Root cause.**
+- **The validator checks units on claims, not in the text.**
+  - **The number check** links each number in the text to a numeric claim by its value.
+  - **The claim check** compares each claim's unit with its evidence's unit.
+  - **The gap:** nothing checks or completes the unit as the text writes it, so "$845.0" passes with only a dollar
+    sign.
+- **The display step adds no units.** The one unit note (I-3b) is for a quoted table row from a cited passage.
+
+**Acceptance check** (offline, written before the code change):
+1. **When:** display only, after the complete answer has been validated. Nothing in validation, the model or the
+   controller changes.
+2. **What changes:** outside quotations, an amount written with a currency sign but no rate ("$845.0", "−$504.6525") is
+   completed with the rest of its evidence's unit ("$845.0/MWh"). This happens only when the amount links unambiguously
+   to validated evidence carrying a "$/…" unit:
+   - **The link:** the answer passed validation, and every numeric claim matching the value (the validator's own
+     tolerance) cites evidence in the registry with one and the same unit.
+   - **The unit:** the evidence's own unit, not the claim's or the text's.
+3. **Unchanged:**
+   - **Complete forms:** "$845.0/MWh", "845.0 $/MWh", "$845 per MWh".
+   - **Other amounts:** a monetary amount that is not a rate ("$1.5 million"; an amount with no matching claim, or
+     whose evidence unit is not "$/…").
+   - **Ambiguity:** matching claims whose evidence carries different units, or evidence missing from the registry.
+   - **No inference:** a unit is never inferred from the dollar sign, the question or neighbouring values.
+   - **Quotations and citations;** no number added or removed; the original line kept in `display_rewrites`.
+4. **Validation first:** an unsupported "$999.0" is still NUMERIC_UNTRACKED, and the answer falls back without showing
+   it.
+5. **Tests and checks:**
+   - **The cases tested:** W19's saved example (replayed with its first draft and actual saved repair), complete units,
+     non-rate amounts, ambiguous evidence, quotations, citations and unsupported numbers.
+   - **Unchanged:** validation outcomes in every saved replay; the earlier fixes; the Replay evaluation (or any change
+     explained); and the safety suite.
+   - **Live is unverified.**
+
 ### I-3a: F03, a notice time shown without its zone
 
 **What happened** (Live check 2026-09-29, `artifacts/live/live-check-2026-09-29/F03.json`, trace `tr-77c70c8d1482`):
@@ -1406,7 +1447,7 @@ checks are met, with one departure from check 2 (below).
 - **Display issues from that check** (queued after I-7b; the last four are not started):
   - an I-4 marker label without a colon: **I-4b, verified offline; Live unverified** (PR `#31`, below);
   - internal wording ("returned to the controller"): **I-4c, verified offline; Live unverified** (PR `#32`, below);
-  - "$845.0" shown without "/MWh";
+  - "$845.0" shown without "/MWh": **in progress** as I-3e in `fix/price-units` (below);
   - repeated finding titles;
   - raw passage IDs as citation markers;
   - an evidence-backed exclusion shown under "Possible explanations".
