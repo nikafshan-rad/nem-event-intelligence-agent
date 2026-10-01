@@ -120,6 +120,8 @@ class InvestigationReport(_M):
     observations: list[Observation] = Field(default_factory=list)
     forecast_comparison: ForecastComparison | None = None
     possible_explanations: list[Hypothesis] = Field(default_factory=list)
+    # explanations the validated evidence rules out (I-7c), moved here from possible_explanations after validation
+    ruled_out_explanations: list[Hypothesis] = Field(default_factory=list)
     published_findings: list[PublishedFinding] = Field(default_factory=list)
     uncertainties: list[str] = Field(default_factory=list)
     missing_evidence: list[str] = Field(default_factory=list)

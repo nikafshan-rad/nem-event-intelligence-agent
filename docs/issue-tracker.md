@@ -1133,6 +1133,96 @@ checks are met, with one departure from check 2 (below).
 - **F01's duplicate:** its citations list holds one passage twice, under one ID, so both entries show as [c1].
 - **Live is unverified.**
 
+### I-7c: an evidence-backed exclusion shown under "Possible explanations"
+
+**What happened** (W18, second development check, 2026-09-30, `artifacts/live/live-check-dev2/W18.json`, trace
+`tr-68178b00c1f1`; replayed on `main` with the run's own first draft and actual saved repair, an offline replay, since
+the Live answer itself fell back):
+- **The answer passes,** headed "Timing rules this out: …".
+- **`possible_explanations[0]` is the repair's exclusion:** "The Hazelwood bus‑tie notice [c1] is dated
+  2026-08-20T01:00:00Z …; that timing is after every five-minute interval at-or-above the $300.0 $/MWh analysis
+  threshold …, so the notice's timing rules it out as an explanation for the price extreme."
+- **Next to it are two hedged hypotheses** that remain possible ("Local supply tightness … might have contributed …",
+  "Observed generator output reductions … might have reduced available supply …").
+- **How it reads:** the app lists all three under "Possible explanations (hypotheses, not findings)", so a conclusion
+  the evidence supports reads as an open hypothesis.
+
+**Root cause.**
+- **One field for both:** the report has a single field for explanations, `possible_explanations`.
+- **The validator knows which items are exclusions but does not say so.** Since I-7b, it accepts a statement that the
+  notice timing rules an incident out, when every market notice it cites is timed after every interval of the event.
+  It knows which items those are, but does not record it.
+- **So the display cannot tell a validated exclusion from a hypothesis.**
+
+**Acceptance check** (offline, written before the code change):
+1. **The outcome is the validator's own, recorded on the answer.**
+   - **What qualifies:** an item of `possible_explanations` that is both:
+     - evidence-backed under I-7b (it states the timing rules the incident out, and every market notice it cites is
+       timed after every interval of the event, with prices registered up to that time);
+     - a pure exclusion: no hedge word remains once the rule-out wording is removed.
+   - **Where it is recorded:** in `validation.ruled_out_explanations`, only when the answer is shown (no fallback).
+   - **Validation codes and outcomes are unchanged.**
+2. **What changes, display only and after validation:**
+   - **The move:** those items move from `possible_explanations` to a new, separately labelled field,
+     `ruled_out_explanations`. The app shows it as "Ruled out by the evidence (validated)".
+   - **What the item keeps:** its wording, test, evidence IDs and citations. Its original place is recorded in
+     `display_rewrites`. Each item is moved once: none is lost or duplicated.
+3. **Left where they are:**
+   - **Negation is not enough:** wording alone ("might not correspond", "unlikely") is never classified as ruled out.
+   - **Without timing evidence:** an exclusion citing a notice before or within the event, with prices not registered,
+     or with no notice.
+   - **Mixed statements:** an exclusion that also offers an open hypothesis (a hedge word outside the rule-out
+     wording).
+   - **Fallbacks,** which have no hypotheses.
+   - **Hypotheses that remain possible,** such as F04's "might have reduced NSW1's interconnector capability".
+4. **Unchanged:**
+   - validation outcomes in every saved replay;
+   - evaluation scoring. Hypotheses reach scoring only in the synthetic-injection document case's text scan, while
+     exclusions arise only in market-event answers;
+   - the Replay evaluation (or any change explained), and the safety suite;
+   - the earlier fixes, apart from I-7b's test that read the exclusion from `possible_explanations`.
+5. **Tests:**
+   - W18, from its saved draft and actual repair;
+   - F04's still-possible hypothesis;
+   - uncertain timing;
+   - mixed statements;
+   - negation without timing evidence;
+   - a fallback.
+   - **Live is unverified.**
+
+**Result: verified offline; Live unverified** (PR `#36`; evidence in `artifacts/logs/exclusion_placement_*`). All five
+checks are met.
+1. **The outcome is the validator's.** `ValidationResult.ruled_out` lists the possible explanations that are both
+   evidence-backed under I-7b and pure exclusions. `validate_and_finalize` records them as
+   `validation.ruled_out_explanations`, only when the answer is shown. No code or outcome changes.
+2. **What changes:**
+   - **The move:** after validation, exactly those items move to the report's new field, `ruled_out_explanations`. The
+     app shows it as "Ruled out by the evidence (validated)".
+   - **What the item keeps:** its wording, test, evidence IDs and citation ([c1], the Hazelwood notice). Its original
+     place is in `display_rewrites` (`moved_to`).
+3. **Left where they are, each tested:**
+   - F04's still-possible hypothesis;
+   - uncertain timing (a notice within the event, or with no stated time);
+   - a mixed statement (an exclusion plus "rebidding … may have raised the price");
+   - negation without the timing outcome ("might not correspond");
+   - an unrelated hypothesis;
+   - a fallback, including W18's first check with its actual repair, and an exclusion beside a violation.
+4. **Unchanged:**
+   - **Saved replays:** in all 32, validation, claims, observations, citations, headline, summary and findings are
+     identical to `main`. Every hypothesis is kept exactly once; only W18 (second check) moves one.
+   - **Replay evaluation:** identical to `main` in every section, rows included. All 40 Replay answers' text and
+     hypotheses are identical, and none has a ruled-out explanation.
+   - **Safety suite:** PASS, with output identical to `main`.
+   - **Scoring:** document answers never get the field (tested), so scoring is unaffected.
+   - **Earlier fixes:** their tests pass. I-7b's W18 test now reads the exclusion from the new field.
+5. **Tests:** 910 pass. 13 are new; on `main` 7 fail and the 6 controls pass.
+
+**Still open for I-7c:**
+- **Only timing exclusions are covered.** An explanation ruled out by other evidence has no validated outcome, so it
+  stays a hypothesis.
+- **API change:** consumers of the report JSON see a new field, empty unless an exclusion is validated.
+- **Live is unverified.**
+
 ### I-3a: F03, a notice time shown without its zone
 
 **What happened** (Live check 2026-09-29, `artifacts/live/live-check-2026-09-29/F03.json`, trace `tr-77c70c8d1482`):
@@ -1670,13 +1760,13 @@ checks are met, with one departure from check 2 (below).
   - **PR `#30`** carries those commits to `main`.
   - **The second check's W18 verdict stays failed.** Its passing replay with the actual saved repair is offline
     evidence only.
-- **Display issues from that check** (queued after I-7b; the last one is not started):
+- **Display issues from that check** (queued after I-7b; all six now verified offline, Live unverified):
   - an I-4 marker label without a colon: **I-4b, verified offline; Live unverified** (PR `#31`, below);
   - internal wording ("returned to the controller"): **I-4c, verified offline; Live unverified** (PR `#32`, below);
   - "$845.0" shown without "/MWh": **I-3e, verified offline; Live unverified** (PR `#33`, below);
   - repeated finding titles: **I-3f, verified offline; Live unverified** (PR `#34`, below);
   - raw passage IDs as citation markers: **I-3g, verified offline; Live unverified** (PR `#35`, below);
-  - an evidence-backed exclusion shown under "Possible explanations".
+  - an evidence-backed exclusion shown under "Possible explanations": **I-7c, verified offline; Live unverified** (PR `#36`, below).
 
 **Status after the second development check** (PR `#28`; development cases only, one run each, so no
 generalisation):
@@ -1719,6 +1809,7 @@ generalisation):
 | I-3c: the headline states the validated answer where the controller holds it (causal timing answer; the document statement the model's headline paraphrases) | #25 | verified offline; **Live unverified** |
 | I-3d: a row-backed data point returned under several evidence IDs is shown once, after validation | #26 | verified offline; **Live unverified** |
 | I-4: displayed text is put in plain words after validation (no evidence IDs, tool or field names; controller notes and disclosures in plain language; originals kept) | #27 | verified offline; Live, development cases only (PR #28): held on W18, W19, F04 |
+| I-7c: an explanation the validated notice timing rules out is shown apart from hypotheses (`ruled_out_explanations`), using the validator's recorded outcome | #36 | verified offline; **Live unverified** |
 | I-3g: raw source IDs used as citation labels are shown as [c1], [c2], … mapped deterministically from the answer's own citations; existing short labels kept | #35 | verified offline; **Live unverified** |
 | I-3f: separate findings with the same wording are kept and marked as separate notices; only one finding repeated (same passage, same quote) is shown once | #34 | verified offline; **Live unverified** |
 | I-3e: a currency amount shown without its rate ("$845.0") is completed from its validated evidence's own unit ("$845.0/MWh"), only when unambiguous | #33 | verified offline; **Live unverified** |
