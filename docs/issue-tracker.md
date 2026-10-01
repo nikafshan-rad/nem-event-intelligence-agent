@@ -676,6 +676,61 @@ five checks are met.
 - **Not covered:** caveat lines, and a hypothesis naming the incident without citing the notice.
 - **Live is unverified.**
 
+### I-4b: a reference label without a colon shown as "the listed observation"
+
+**What happened** (Live, second development check, 2026-09-30, `artifacts/live/live-check-dev2/F04.json`, trace
+`tr-22aebfbab09f`; reproduced on `main` by applying the display step to the run's own sentence):
+- **The model wrote:** "There were 14 five-minute intervals at or above the analysis threshold of 300.0 $/MWh in the
+  window (ev0876; threshold ev0878)."
+- **The run showed:** "… in the window (threshold the listed observation)."
+- **The same form elsewhere:**
+  - W18 in the same check: "(ev0945; threshold ev0946)";
+  - older records: "the net interchange value ev0438" and "run ev0568";
+  - a unit ID: "YENDONWF ev0984" became "YENDONWF the listed observation", while "GPWFEST2 ev0978" became "GPWFEST2".
+
+**Root cause.** The display step (I-4, `display.py`) removes an evidence ID as a marker only in these positions:
+- alone in brackets;
+- after an "evidence" or "see" label, or a label ending in a colon;
+- after a number or unit;
+- after a list separator, before a closing bracket.
+
+A label followed directly by the ID, with no colon ("threshold ev0878"), fits none of these. So the ID falls through
+to the rule for an ID used as a noun ("compare those values to ev0538"), which writes "the listed observation" after
+the label. The PR #27 review said this happened only in older-format answers; it was wrong.
+
+**Acceptance check** (offline, written before the code change):
+1. **When:** display only, after the complete answer has been validated (unchanged).
+2. **What changes,** outside quotations only:
+   - **A bracketed group made only of evidence references is removed whole.** Such a group holds only bare IDs, IDs
+     after a colon or "evidence" label, or IDs after a lower-case label of up to three words. For example, "(ev0876;
+     threshold ev0878)" is removed, and the sentence keeps its own figures ("… threshold of 300.0 $/MWh in the
+     window.").
+   - **An ID directly after a label is removed, and the label kept.** This applies when the ID is followed by a
+     separator, a closing bracket or the end of the sentence, and the label is not a function word. For example, "the
+     net interchange value ev0438." becomes "the net interchange value.", and "YENDONWF ev0984," becomes "YENDONWF,".
+     Capitalised and alphanumeric labels (unit IDs, AEMO field names, proper nouns) are always kept: "(excluding
+     Tasmania ev0441)" becomes "(excluding Tasmania)".
+   - **Unchanged:** an ID used as a noun, after a preposition or conjunction ("to", "than", "with", "between", "in",
+     "including", …), keeps the existing wording "the listed observation(s)".
+3. **Kept:**
+   - quotations;
+   - citation markers and source identifiers (`[c1]`, `aemo_so_op_3710#p7c12`, `market_notice_144693`, DUIDs,
+     `PRICE_STATUS`);
+   - every number, unit and threshold value written in the text;
+   - each changed line's original in `validation.display_rewrites`;
+   - the evidence IDs in claims and observations.
+
+   No rewrite adds a number, or removes one other than an evidence ID.
+4. **Validation first:** an unsupported number beside a colon-less reference is still rejected before any cleanup. For
+   example, "threshold of 350.0 $/MWh (ev0876; threshold ev0878)" or "(threshold 999 $/MWh ev0878)" is
+   NUMERIC_UNTRACKED, and the answer falls back without showing it.
+5. **Tests and checks:**
+   - **The forms:** colon and colon-less references, mixed groups, legitimate source identifiers and quoted text, with
+     F04's (and W18's) saved sentences reproduced.
+   - **Unchanged:** validation outcomes across all saved replays, the Replay evaluation (or any change explained), the
+     safety suite, and the earlier display tests.
+   - **Live is unverified.**
+
 ### I-3a: F03, a notice time shown without its zone
 
 **What happened** (Live check 2026-09-29, `artifacts/live/live-check-2026-09-29/F03.json`, trace `tr-77c70c8d1482`):
@@ -1214,7 +1269,7 @@ checks are met, with one departure from check 2 (below).
   - **The second check's W18 verdict stays failed.** Its passing replay with the actual saved repair is offline
     evidence only.
 - **Display issues from that check, queued after I-7b (not started):**
-  - an I-4 marker label without a colon;
+  - an I-4 marker label without a colon: **in progress** as I-4b in `fix/reference-labels` (below);
   - internal wording ("returned to the controller");
   - "$845.0" shown without "/MWh";
   - repeated finding titles;
