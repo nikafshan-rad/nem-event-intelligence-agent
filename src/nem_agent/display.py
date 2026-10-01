@@ -219,10 +219,62 @@ def complete_rates(text: str, claims: list[tuple[float, float, str | None]]) -> 
     return "".join([*out, _AMOUNT_RE.sub(fix, text[last:])])
 
 
+_LABEL_RE = re.compile(r"c(\d+)")
+_ID_CHARS = r"\w#.:\-"
+
+
+def citation_labels(report: InvestigationReport) -> tuple[dict[str, str], dict[str, str]]:
+    """Readable citation labels (I-3g, F01/F03/F04: "[aemo_so_op_3710#p7c12]"), from the answer's own citations list:
+    (citation ID -> label for the citations list, and every ID the text may use -> label). Only a citation whose ID is
+    a raw source ID (its passage ID, its document ID, or a passage ID with a suffix) is relabelled, with the next unused
+    cN in list order, the same ID always the same label; labels such as c1 or the Replay controller's s01 are kept. A
+    passage ID used in the text maps to its citation's label only when exactly one label cites that passage. Nothing
+    else is mapped: an unknown ID is left as written."""
+    numbers = [int(m.group(1)) for c in report.citations if (m := _LABEL_RE.fullmatch(c.citation_id))]
+    following = max(numbers, default=0) + 1
+    labels: dict[str, str] = {}
+    for c in report.citations:
+        raw = c.citation_id in (c.chunk_id, c.doc_id) or "#" in c.citation_id
+        if raw and not _LABEL_RE.fullmatch(c.citation_id) and c.citation_id not in labels:
+            labels[c.citation_id] = f"c{following}"
+            following += 1
+    by_passage: dict[str, set[str]] = {}
+    for c in report.citations:
+        by_passage.setdefault(c.chunk_id, set()).add(labels.get(c.citation_id, c.citation_id))
+    in_text = dict(labels)
+    ids = {c.citation_id for c in report.citations}
+    for chunk, found in by_passage.items():
+        if chunk not in ids and len(found) == 1:
+            in_text[chunk] = next(iter(found))
+    return labels, in_text
+
+
+def relabel(text: str, in_text: dict[str, str]) -> str:
+    """``text`` with each mapped citation ID shown as "[cN]", outside quotations; a label repeated side by side once."""
+    if not in_text:
+        return text
+    keys = "|".join(re.escape(k) for k in sorted(in_text, key=len, reverse=True))
+    wrapped = re.compile(rf"[\[(]\s*({keys})\s*[\])]")
+    bare = re.compile(rf"(?<![{_ID_CHARS}\[])({keys})(?![{_ID_CHARS}\]])")
+
+    def one(segment: str) -> str:
+        segment = wrapped.sub(lambda m: f"[{in_text[m.group(1)]}]", segment)
+        segment = bare.sub(lambda m: f"[{in_text[m.group(1)]}]", segment)
+        return re.sub(r"\[(c\d+)\](?:\s*\[\1\])+", r"[\1]", segment)
+
+    out: list[str] = []
+    last = 0
+    for q in QUOTED_RE.finditer(text):
+        out += [one(text[last:q.start()]), q.group(0)]
+        last = q.end()
+    return "".join([*out, one(text[last:])])
+
+
 def plain_display(report: InvestigationReport, registry: Any = None) -> tuple[InvestigationReport, list[dict[str, Any]]]:
     """The report with plain display text, and the originals of every changed or unshown line. With the evidence
     ``registry`` of an answer that passed validation, currency amounts are completed with their evidence's rate unit."""
     changed: list[dict[str, Any]] = []
+    labels, in_text = citation_labels(report)
     claims: list[tuple[float, float, str | None]] = []
     if registry is not None and report.validation.get("final_passed"):
         for c in report.numeric_claims:
@@ -233,6 +285,7 @@ def plain_display(report: InvestigationReport, registry: Any = None) -> tuple[In
         new = plain_text(value)
         if claims:
             new = complete_rates(new, claims)
+        new = relabel(new, in_text)
         if new != value:
             changed.append({"where": where, "original": value})
         return new
@@ -241,6 +294,8 @@ def plain_display(report: InvestigationReport, registry: Any = None) -> tuple[In
         kept: list[str] = []
         for i, v in enumerate(values):
             new = plain_note(v)
+            if new is not None:
+                new = relabel(new, in_text)
             if new in kept:  # two notes that now read the same are shown once, as the controller does
                 new = None
             if new != v:
@@ -252,7 +307,7 @@ def plain_display(report: InvestigationReport, registry: Any = None) -> tuple[In
     headline = _FALLBACK_HEADLINE_RE.sub(r"\1", report.headline)
     if headline != report.headline:
         changed.append({"where": "headline", "original": report.headline})
-        headline = plain_text(headline)
+        headline = relabel(plain_text(headline), in_text)
     else:
         headline = text("headline", headline)
     update: dict[str, Any] = {
@@ -262,13 +317,20 @@ def plain_display(report: InvestigationReport, registry: Any = None) -> tuple[In
             "statement": text(f"possible_explanations[{i}]", h.statement),
             "what_would_test_it": text(f"possible_explanations[{i}].what_would_test_it", h.what_would_test_it)})
             for i, h in enumerate(report.possible_explanations)],
-        "published_findings": [f.model_copy(update={"statement": text(f"published_findings[{i}]", f.statement)})
-                               for i, f in enumerate(report.published_findings)],
+        "published_findings": [f.model_copy(update={
+            "statement": text(f"published_findings[{i}]", f.statement),
+            "citation_ids": list(dict.fromkeys(labels.get(c, c) for c in f.citation_ids))})
+            for i, f in enumerate(report.published_findings)],
         "uncertainties": notes("uncertainties", report.uncertainties),
         "missing_evidence": notes("missing_evidence", report.missing_evidence),
     }
-    update["published_findings"] = distinct_findings(report, update["published_findings"], changed)
-    return (report.model_copy(update=update), changed) if changed else (report, [])
+    if labels:  # the citations list under the same labels; the mapping is kept with the validation record
+        update["citations"] = [c.model_copy(update={"citation_id": labels.get(c.citation_id, c.citation_id)})
+                               for c in report.citations]
+        update["validation"] = {**report.validation, "citation_labels": labels}
+    update["published_findings"] = distinct_findings(report.model_copy(update={"citations": update.get(
+        "citations", report.citations)}), update["published_findings"], changed)
+    return (report.model_copy(update=update), changed) if changed or labels else (report, [])
 
 
 def distinct_findings(report: InvestigationReport, findings: list[Any], changed: list[dict[str, Any]]) -> list[Any]:
