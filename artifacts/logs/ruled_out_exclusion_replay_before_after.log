@@ -1,0 +1,47 @@
+# I-7b replay of every saved Live record with a saved draft, main's code (d36721e) vs this branch, through the
+# SYNTHETIC fake transport (no network, no key; scratch ledger). First- and second-check records (check1, check2)
+# replay the run's first draft and its ACTUAL saved repair patch; v4 W19 its two-deletion patch; the others their
+# last saved draft. No scripted alternative is in this log (they are in tests/validation/test_ruled_out_exclusion.py,
+# labelled scripted). Scripted or replayed drafts are not a measure of Live behaviour.
+
+v4:W01: identical; fix: answer shown; first-draft codes None; after repair []
+v4:W02: identical; fix: answer shown; first-draft codes None; after repair []
+v4:W03: identical; fix: answer shown; first-draft codes None; after repair []
+v4:W04: identical; fix: answer shown; first-draft codes None; after repair []
+v4:W05: identical; fix: answer shown; first-draft codes None; after repair []
+v4:W06: identical; fix: answer shown; first-draft codes None; after repair []
+v4:W07: identical; fix: answer shown; first-draft codes None; after repair []
+v4:W08: identical; fix: answer shown; first-draft codes None; after repair []
+v4:W09: identical; fix: answer shown; first-draft codes None; after repair []
+v4:W10: identical; fix: answer shown; first-draft codes None; after repair []
+v4:W11: identical; fix: answer shown; first-draft codes None; after repair []
+v4:W12: identical; fix: answer shown; first-draft codes None; after repair []
+v4:W13: identical; fix: answer shown; first-draft codes None; after repair []
+v4:W14: identical; fix: fallback; first-draft codes ['DOC_CLAIM_UNCITED']; after repair ['DOC_CLAIM_UNCITED']
+v4:W15: identical; fix: answer shown; first-draft codes None; after repair []
+v4:W16: skipped (no saved draft)
+v4:W17: skipped (no saved draft)
+v4:W18: identical; fix: answer shown; first-draft codes None; after repair []
+v4:W19: identical; fix: answer shown; first-draft codes ['CANCELLED_NOTICE_AS_ACTIVE']; after repair []
+v4:W20: identical; fix: answer shown; first-draft codes None; after repair []
+0929:F01: identical; fix: answer shown; first-draft codes None; after repair []
+0929:F02: identical; fix: answer shown; first-draft codes None; after repair []
+0929:F03: identical; fix: answer shown; first-draft codes None; after repair []
+0929:F04: identical; fix: answer shown; first-draft codes None; after repair []
+0929:W20: identical; fix: answer shown; first-draft codes None; after repair []
+check1:F04: identical; fix: answer shown; first-draft codes ['TIME_NOT_IN_EVIDENCE']; after repair []
+check1:W19: identical; fix: answer shown; first-draft codes ['NOTICE_TIMING_CONTRADICTED', 'NUMERIC_UNTRACKED']; after repair []
+check1:W04: identical; fix: answer shown; first-draft codes ['CLAIM_INTERVAL_MISMATCH', 'TIME_ZONE_MISSING']; after repair []
+check1:W18: identical; fix: fallback; first-draft codes ['CLAIM_UNIT_MISMATCH', 'EXPLANATION_RULED_OUT_BY_TIMING', 'NUMERIC_UNTRACKED', 'TIME_NOT_IN_EVIDENCE', 'TIME_ZONE_MISSING']; after repair ['EXPLANATION_RULED_OUT_BY_TIMING']
+check2:F01: identical; fix: answer shown; first-draft codes None; after repair []
+check2:F03: identical; fix: answer shown; first-draft codes ['NUMERIC_UNTRACKED']; after repair []
+check2:W18: CHANGED; fix: answer shown; first-draft codes ['CLAIM_UNIT_MISMATCH', 'NUMERIC_UNTRACKED', 'TIME_NOT_IN_EVIDENCE', 'TIME_ZONE_MISSING']; after repair []
+    main: first-draft codes ['CLAIM_UNIT_MISMATCH', 'EXPLANATION_RULED_OUT_BY_TIMING', 'NUMERIC_UNTRACKED', 'TIME_NOT_IN_EVIDENCE', 'TIME_ZONE_MISSING']; after the actual saved repair ['HYPOTHESIS_UNHEDGED']; fallback True
+      headline: Validated facts only: the generated narrative failed independent validation. Observations below are tool values with source rows.
+    fix: first-draft codes ['CLAIM_UNIT_MISMATCH', 'NUMERIC_UNTRACKED', 'TIME_NOT_IN_EVIDENCE', 'TIME_ZONE_MISSING']; after the actual saved repair []; fallback False
+      headline: Timing rules this out: the AEMO market notice that mentions Hazelwood gives 2026-08-20 11:00 AEST (2026-08-20T01:00:00Z), after the price extreme (interval ending 2026-08-19T23:10:00Z = 2026-08-20 09:10 AEST), so what it reports came later.
+      possible_explanations[0]: The Hazelwood bus‑tie notice [c1] is dated 2026-08-20T01:00:00Z (2026-08-20 11:00 AEST); that timing is after every five-minute interval at-or-above the $300.0 $/MWh analysis threshold (last interval ending 2026-08-19T23:45:00Z = 2026-08-20 09:45 AEST), so the notice's timing rules it out as an explanation for the price extreme.
+      possible_explanations[1]: Local supply tightness (high dispatch TOTALDEMAND and net import) might have contributed to the 406.00544 $/MWh 5‑minute RRP at 2026-08-19T23:10:00Z.
+      possible_explanations[2]: Observed generator output reductions (for example MURRAY -277.2 MW, MREHA3 -196.16 MW, MREHA1 -148.31 MW) might have reduced available supply, which could be related to the price spike.
+check2:W19: identical; fix: answer shown; first-draft codes ['CANCELLED_NOTICE_AS_ACTIVE', 'NUMERIC_UNTRACKED', 'TIME_OF_DAY_UNVERIFIED']; after repair []
+check2:F04: identical; fix: answer shown; first-draft codes ['NUMERIC_UNTRACKED', 'UNSUPPORTED_CAUSALITY']; after repair []
