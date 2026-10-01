@@ -11,12 +11,12 @@ One list of known defects, so that each fix is weighed against the whole. Eviden
 
 | ID | Area | Concrete example | Priority | Status |
 | --- | --- | --- | --- | --- |
-| I-1 | **Direct, complete answers** | **(a)** F04 (live check 2026-09-29) asked "Was Directlink being out of service what drove the NSW1 price spike…?": the answer lists correct observations and hedged possibilities but never says what the evidence supports. **(b)** W19 (held-out v4) does not say the reserve (LOR) forecasts were cancelled before the day, and its hypotheses lean on them | P1 | **(a): fixed offline** in PR `#16`. **Live (development cases only, 2026-09-30): held** on F04 and W18. **(b): fixed offline** in PR `#17`. **Live (development case): failed** on W19: it triggered internally and the sentence was correct, but the answer fell back, so it was not displayed (I-6). The outcome stays failed |
+| I-1 | **Direct, complete answers** | **(a)** F04 (live check 2026-09-29) asked "Was Directlink being out of service what drove the NSW1 price spike…?": the answer lists correct observations and hedged possibilities but never says what the evidence supports. **(b)** W19 (held-out v4) does not say the reserve (LOR) forecasts were cancelled before the day, and its hypotheses lean on them | P1 | **(a): fixed offline** in PR `#16`. **Live (development cases only, 2026-09-30): held** on F04 and W18. **(b): fixed offline** in PR `#17`. **Live (development case): failed** on W19: it triggered internally and the sentence was correct, but the answer fell back, so it was not displayed (I-6). The outcome stays failed. **Second development check (2026-09-30, PR `#28`, one run per case):** (a) held on F04, failed on W18 (the answer fell back; I-7); (b) **held** on W19 |
 | I-2 | **Evidence selection and calculations** | **(a)** F04 never fetched the other regions' prices, so it misses that VIC1, SA1 and TAS1 were also above 470 $/MWh while QLD1 was about 65. **(b)** W04 gives both total-demand values (10046.72 and 11432.7 MW) but not the rise between them: a derived number has no evidence ID | P1 | **(a): fixed offline** in PR `#18`. **Live (development cases only, 2026-09-30): held** on F04 and W18. **(b): fixed offline** in PR `#19`; departs from checks 4 and 5 as written (below). **Live (development case): held** on W04 |
-| I-3 | **Clear presentation** | F01 shows "New South Wales 150" without "MW". F03 shows "1630 hrs" without its zone (NEM time, 06:30 UTC). Headlines are vague or off the question: F03's after repair, F04's (the peak price). W04 and W18 (Live, 2026-09-30): the same value appears twice among the observations, and W04's headline has "(UTC+1000)". (W18's inconsistency is now I-7) | P2 | **(a) F03's notice time without a zone: fixed offline** in PR `#23` (below), **Live unverified**. **(b) F01's number without its unit: verified offline; Live unverified** (PR `#24`, below). **(c) headlines that do not answer the question: verified offline; Live unverified** (PR `#25`, below). **(d) duplicated values: verified offline; Live unverified** (PR `#26`, below) |
-| I-4 | **Internal details in user-facing text** | Tool names (W20: "API functions named get_actual_demand / get_forecast_runs"), controller notes ("Market notices were not searched…" on document questions, F01), and evidence IDs (F04: "ev0878 … is not a time-stamped observation"). W04 (Live, 2026-09-30): "Controller-computed dispatch TOTALDEMAND (5-minute) change … [ev0975]" | P2 | **Verified offline; Live unverified** (PR `#27`, below) |
-| I-6 | **A valid controller answer lost to a fallback** | W19 (Live, 2026-09-30): the controller's cancellation sentence was correct, but the model's own lines quoted notice titles in single quotes ('… Lack Of Reserve Level 2 (LOR2) …'). `NUMERIC_UNTRACKED` counted the "2", and one line failed `TIME_NOT_IN_EVIDENCE`. The scoped repair did not clear them, so the answer fell back and nothing was shown | P1 | **fixed offline** in PR `#21` (below), **Live unverified**. The frozen run's outcome for W19 stays failed |
-| I-7 | **An explanation kept open that the answer's own timing rules out** | W18 (Live, 2026-09-30): the opening says timing rules the Hazelwood bus-tie outage out. The notice gives 1100 hrs 20/08, after every high-price interval. A hedged hypothesis resting on that notice [c1] still offers it as a possible influence | P2 | **fixed offline** in PR `#22` (below), **Live unverified**. Offline, W18's actual saved repair now falls back, and only a scripted repair that deletes the hypothesis passes. W18's Live verdict (held) is unchanged |
+| I-3 | **Clear presentation** | F01 shows "New South Wales 150" without "MW". F03 shows "1630 hrs" without its zone (NEM time, 06:30 UTC). Headlines are vague or off the question: F03's after repair, F04's (the peak price). W04 and W18 (Live, 2026-09-30): the same value appears twice among the observations, and W04's headline has "(UTC+1000)". (W18's inconsistency is now I-7) | P2 | **(a) F03's notice time without a zone: fixed offline** in PR `#23` (below), **Live unverified**. **(b) F01's number without its unit: verified offline; Live unverified** (PR `#24`, below). **(c) headlines that do not answer the question: verified offline; Live unverified** (PR `#25`, below). **(d) duplicated values: verified offline; Live unverified** (PR `#26`, below). **Second development check (2026-09-30, PR `#28`, one run per case):** (a) **held** on F03; (b) **held** on F01; (c) **held** on F03 and F04, failed on W18 (fell back); (d) **held** on W18 and W19 |
+| I-4 | **Internal details in user-facing text** | Tool names (W20: "API functions named get_actual_demand / get_forecast_runs"), controller notes ("Market notices were not searched…" on document questions, F01), and evidence IDs (F04: "ev0878 … is not a time-stamped observation"). W04 (Live, 2026-09-30): "Controller-computed dispatch TOTALDEMAND (5-minute) change … [ev0975]" | P2 | **Verified offline** (PR `#27`, below). **Second development check (2026-09-30, PR `#28`, one run per case):** **held** on W18, W19 and F04; not triggered on F01 and F03 (nothing to rewrite). Recorded, not fixed: "(threshold ev0878)" became "(threshold the listed observation)" on F04, and model wording such as "returned to the controller" (W19) is not rewritten |
+| I-6 | **A valid controller answer lost to a fallback** | W19 (Live, 2026-09-30): the controller's cancellation sentence was correct, but the model's own lines quoted notice titles in single quotes ('… Lack Of Reserve Level 2 (LOR2) …'). `NUMERIC_UNTRACKED` counted the "2", and one line failed `TIME_NOT_IN_EVIDENCE`. The scoped repair did not clear them, so the answer fell back and nothing was shown | P1 | **fixed offline** in PR `#21` (below). The frozen run's outcome for W19 stays failed. **Second development check (2026-09-30, PR `#28`, one run per case):** **held** on W19: the model named cited notices by their exact titles, and the answer was shown with the cancellation sentence |
+| I-7 | **An explanation kept open that the answer's own timing rules out** | W18 (Live, 2026-09-30): the opening says timing rules the Hazelwood bus-tie outage out. The notice gives 1100 hrs 20/08, after every high-price interval. A hedged hypothesis resting on that notice [c1] still offers it as a possible influence | P2 | **fixed offline** in PR `#22` (below), **Live unverified**. Offline, W18's actual saved repair now falls back, and only a scripted repair that deletes the hypothesis passes. W18's Live verdict (held) is unchanged. **Second development check (2026-09-30, PR `#28`, one run per case):** **failed** on W18: it fired on a hypothesis that doubted the post-event notice; the scoped repair turned that hypothesis into an unhedged statement (HYPOTHESIS_UNHEDGED), and the answer fell back. **Recorded, not fixed:** I-7 treats a hypothesis that cites a post-event notice to doubt it like one that rests on it |
 | I-5 | **Known safety-language limitations** | See the list below. Each is recorded with its risk. None is being worked on, to avoid an open-ended wording cycle | P3 | recorded; revisit only with a new concrete failure |
 
 ### I-1a: F04, the causal question not answered directly
@@ -1077,27 +1077,40 @@ checks are met, with one departure from check 2 (below).
 
 ## Next
 
-**Next:** no fix is in progress. The open items are:
+**Next:** fixes are paused. The open items are:
 - the I-3d repetitions and I-4 leftovers recorded above;
 - I-5 (recorded, not being fixed);
-- one grouped Live check of the fixes made since the 2026-09-30 check. That check needs approval and must fit the
-  USD 0.41 left.
+- **the second development-only Live check** (PR `#28`, **not merged; its results await review**):
+  - **Run:** once, 2026-09-30 22:45–22:52 UTC, as frozen. Coverage FULL: F01, F03, W18 and W19 all completed,
+    which is not the same as all passing. F04 ran, and W04 was held back by the start guard.
+  - **Verdicts:**
+    - required: W19 **held** (I-6, I-1b); F03 **held**; W18 **failed** (I-7 fired, then the answer fell back); F01
+      **not triggered** (the unit fix I-3b held, but I-4 was not exercised);
+    - control: F04 **held**.
+  - **Spend:** USD 0.168462. The ledger is at USD 4.760384, with USD 0.239616 left.
+  - **Review:** `artifacts/live/live-check-dev2/REVIEW.md`. Development evidence only.
+- **new items recorded from that check (not fixed):**
+  - I-7 over-triggers on a hypothesis that doubts a post-event notice;
+  - an I-4 marker label without a colon;
+  - "$845.0" shown without "/MWh";
+  - repeated finding titles.
 
-**I-4 (P2), internal details in displayed text:** verified offline, Live unverified (PR `#27`).
-
-**I-3 (P2), clear presentation:** only the repetitions recorded under I-3d remain. Verified offline, Live unverified:
-- F03's zone (I-3a, PR `#23`);
-- F01's unit (I-3b, PR `#24`);
-- headlines that answer the question (I-3c, PR `#25`);
-- one data point shown once (I-3d, PR `#26`).
-
-**Fixed offline, Live unverified:** I-7 (W18's kept-open explanation, P2) in PR `#22`, and I-6 (W19's fallback, P1) in
-PR `#21`. Both were found in the development-only Live check of 2026-09-30
-(`artifacts/live/live-check-p1-dev/REVIEW.md`).
-- **In that check,** I-1a, I-2a and I-2b held on their development cases, and I-1b failed on W19.
+**Status after the second development check** (PR `#28`; development cases only, one run each, so no
+generalisation):
+- **I-4 (P2):** verified offline (PR `#27`); held on W18, W19 and F04.
+- **I-3 (P2):** only the repetitions recorded under I-3d remain.
+  - F03's zone (I-3a, PR `#23`): held on F03.
+  - F01's unit (I-3b, PR `#24`): held on F01.
+  - Headlines that answer the question (I-3c, PR `#25`): held on F03 and F04; failed on W18, which fell back.
+  - One data point shown once (I-3d, PR `#26`): held on W18 and W19.
+- **I-6 (P1, PR `#21`):** held on W19.
+- **I-7 (P2, PR `#22`):** failed on W18. It fired, and the repair left an unhedged hypothesis, so the answer fell back.
+  Its over-triggering is recorded above.
+- **The first development check** (2026-09-30, `artifacts/live/live-check-p1-dev/REVIEW.md`): I-1a, I-2a and I-2b held
+  on their development cases, and I-1b failed on W19. That verdict is unchanged; I-1b held on W19 in the second check.
 - **This is development evidence,** not generalisation.
-- **A fresh, independent check** of the P1 fixes needs about USD 0.85–1.00. USD 0.41 is left under the USD 5.00 task
-  cap, so it is not funded.
+- **A fresh, independent check** needs about USD 0.85–1.00. USD 0.24 is left under the USD 5.00 task cap, so it is not
+  funded.
 
 ## Completed
 
@@ -1122,4 +1135,5 @@ PR `#21`. Both were found in the development-only Live check of 2026-09-30
 | I-3b: a quoted table row is shown with the unit its table header states in the cited passage | #24 | verified offline; **Live unverified** |
 | I-3c: the headline states the validated answer where the controller holds it (causal timing answer; the document statement the model's headline paraphrases) | #25 | verified offline; **Live unverified** |
 | I-3d: a row-backed data point returned under several evidence IDs is shown once, after validation | #26 | verified offline; **Live unverified** |
-| I-4: displayed text is put in plain words after validation (no evidence IDs, tool or field names; controller notes and disclosures in plain language; originals kept) | #27 | verified offline; **Live unverified** |
+| I-4: displayed text is put in plain words after validation (no evidence IDs, tool or field names; controller notes and disclosures in plain language; originals kept) | #27 | verified offline; Live, development cases only (PR #28): held on W18, W19, F04 |
+| Second development-only Live check (F01, F03, W18, W19; F04 control), frozen then run once; an evaluation-only record | #28 | Live, USD 0.168; required coverage full, 2 of 4 held (F03, W19), W18 failed, F01 not triggered; **awaiting review, not merged** |
