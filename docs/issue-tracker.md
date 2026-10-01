@@ -766,6 +766,64 @@ checks are met.
   observation"), as before.
 - **Live is unverified.**
 
+### I-4c: internal workflow wording in displayed answers ("returned to the controller")
+
+**What happened** (saved Live records, after the current display step):
+- **W19, second development check** (2026-09-30, `artifacts/live/live-check-dev2/W19.json`, trace
+  `tr-db875cab1129`), `summary[8]`: "Other reserve notices and cancellations for 29/07/2026 were published in the
+  retrieved set (see published findings); their published times (local and UTC) are before the price extreme as shown
+  in the notice timings returned to the controller."
+- **The same kind of wording in other current-format records:**
+  - "not present in the returned tool results" (v4 W18);
+  - "No tool output here shows …" and "these tool outputs" (W19, 2026-09-30);
+  - "No tool result in this report …" (v4 W04);
+  - "the tool reported that actuals … were not provably public" (v4 W05);
+  - "the measure data were not provided by the tools" (v4 W20);
+  - the controller's refusal note "The model judged the question out of scope or ambiguous." (v4 W17);
+  - the controller's fallback headline "… Observations below are tool values with source rows."
+- **Legitimate uses of the same words stay:** "generation output", "SCADA traces", "the forecast model", "frequency
+  controller" and any quoted source text.
+
+**Root cause.**
+- **The model echoes the system's vocabulary.** The prompts call the system "the controller" and its data sources
+  "tools", so the model's narrative and caveats use the same words.
+- **The controller writes two of these strings itself:** the refusal reason (`service.py`) and the fallback headline.
+- **The display step does not cover them.** I-4 puts tool names, field names, evidence IDs and controller notes in
+  plain words, but not references to the system's own workflow (the controller, tool output, the model).
+
+**Acceptance check** (offline, written before the code change):
+1. **When:** display only, after the complete answer has been validated (the answer or its fallback). Nothing in
+   validation, the model or the controller changes.
+2. **What changes,** outside quotations only. Each workflow phrase gets plain wording with the same meaning:
+   - "returned to the controller", or "computed (shown, provided …) by the controller", becomes "retrieved in this
+     investigation" or "computed (…) in this investigation";
+   - "tool output(s), result(s), response(s)" become "retrieved data", keeping the text's own determiner ("no
+     retrieved data", "these retrieved data");
+   - "tool values" becomes "retrieved values";
+   - "returned (provided …) by the tool(s)" becomes "retrieved in this investigation";
+   - "the tool reported (returned, showed …)" becomes "the retrieved data reported (…)";
+   - "the retrieved set" becomes "the retrieved documents";
+   - "The model judged the question …" becomes "The question was judged …".
+3. **Kept:**
+   - **Warnings, with their meaning:** missing evidence, blocked calls and search limits ("…not present in the
+     retrieved data", "…not retrieved in this investigation").
+   - **Unchanged text:** quotations, citations and numbers. No rewrite adds or removes a number.
+   - **The record:** each changed line keeps its original in `validation.display_rewrites`.
+   - **Legitimate wording,** left alone:
+     - domain uses ("generation output", "SCADA traces", "the forecast model", "the frequency controller");
+     - a bare "the controller" or "the tool" without a workflow verb;
+     - quoted source text containing these words.
+4. **Unchanged:**
+   - validation codes and outcomes in every saved replay;
+   - the earlier fixes (I-4, I-4b, I-3a–d, I-6, I-7, I-7b), except the expected change to the fallback headline's
+     wording;
+   - the Replay evaluation (or any change explained), and the safety suite.
+5. **Tests:**
+   - W19's saved sentence, replayed with its first draft and actual saved repair;
+   - the other saved examples;
+   - controls for legitimate wording in quotations and domain terms.
+   - **Live is unverified.**
+
 ### I-3a: F03, a notice time shown without its zone
 
 **What happened** (Live check 2026-09-29, `artifacts/live/live-check-2026-09-29/F03.json`, trace `tr-77c70c8d1482`):
@@ -1305,7 +1363,7 @@ checks are met, with one departure from check 2 (below).
     evidence only.
 - **Display issues from that check, queued after I-7b (not started):**
   - an I-4 marker label without a colon: **I-4b, verified offline; Live unverified** (PR `#31`, below);
-  - internal wording ("returned to the controller");
+  - internal wording ("returned to the controller"): **in progress** as I-4c in `fix/internal-wording` (below);
   - "$845.0" shown without "/MWh";
   - repeated finding titles;
   - raw passage IDs as citation markers;
