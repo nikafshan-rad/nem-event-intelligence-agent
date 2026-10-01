@@ -192,12 +192,47 @@ def plain_note(text: str) -> str | None:
     return plain_text(_CALL_AGAIN_RE.sub(".", text))
 
 
-def plain_display(report: InvestigationReport) -> tuple[InvestigationReport, list[dict[str, Any]]]:
-    """The report with plain display text, and the originals of every changed or unshown line."""
+# an amount written with a currency sign but no rate ("$845.0", I-3e, W19); already complete: "$845.0/MWh", "$845 per
+# MWh", "$300.0 ($/MWh)", "$1.5 million"
+_AMOUNT_RE = re.compile(r"(?<![\w.])([-+−]?)((?:A|AU)?\$)\s?([-+−]?)(\d[\d,]*(?:\.\d+)?)(?![\d,]*\.?\d)"
+                        r"(?!\s*\(?\s*(?:/|per\b|(?:A|AU)?\$/|\$|[kKmMbB]n?\b|thousand\b|million\b|billion\b|MWh\b))")
+_RATE_UNIT_RE = re.compile(r"\$/([A-Za-z]+)")
+
+
+def complete_rates(text: str, claims: list[tuple[float, float, str | None]]) -> str:
+    """``text`` with each currency amount that has no rate completed from its evidence's own unit ("$845.0" becomes
+    "$845.0/MWh"), outside quotations. ``claims`` are the validated answer's (value, tolerance, evidence unit): every
+    claim matching the amount must carry one and the same "$/…" unit, or the amount is left as written. No unit is
+    taken from the dollar sign, the question or another value."""
+    def fix(m: re.Match[str]) -> str:
+        before, _, after, number = m.groups()
+        value = float(number.replace(",", "")) * (-1 if {before, after} & {"-", "−"} else 1)
+        units = {u for v, tol, u in claims if abs(value - v) <= tol + 1e-9 or abs(abs(value) - abs(v)) <= tol + 1e-9}
+        rate = _RATE_UNIT_RE.fullmatch(next(iter(units)) or "") if len(units) == 1 else None
+        return f"{m.group(0)}/{rate.group(1)}" if rate else m.group(0)
+
+    out: list[str] = []
+    last = 0
+    for q in QUOTED_RE.finditer(text):
+        out += [_AMOUNT_RE.sub(fix, text[last:q.start()]), q.group(0)]
+        last = q.end()
+    return "".join([*out, _AMOUNT_RE.sub(fix, text[last:])])
+
+
+def plain_display(report: InvestigationReport, registry: Any = None) -> tuple[InvestigationReport, list[dict[str, Any]]]:
+    """The report with plain display text, and the originals of every changed or unshown line. With the evidence
+    ``registry`` of an answer that passed validation, currency amounts are completed with their evidence's rate unit."""
     changed: list[dict[str, Any]] = []
+    claims: list[tuple[float, float, str | None]] = []
+    if registry is not None and report.validation.get("final_passed"):
+        for c in report.numeric_claims:
+            ev = registry.get(c.evidence_id)
+            claims.append((float(c.value), c.rounding, ev.unit if ev is not None else None))
 
     def text(where: str, value: str) -> str:
         new = plain_text(value)
+        if claims:
+            new = complete_rates(new, claims)
         if new != value:
             changed.append({"where": where, "original": value})
         return new

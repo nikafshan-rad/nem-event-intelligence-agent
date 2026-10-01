@@ -866,6 +866,81 @@ checks are met.
   - the prompts' own vocabulary, unchanged, so the model may keep writing these phrases.
 - **Live is unverified.**
 
+### I-3e: a price shown as "$845.0", without "/MWh"
+
+**What happened** (Live, second development check, 2026-09-30, `artifacts/live/live-check-dev2/W19.json`, trace
+`tr-db875cab1129`): the shown answer reads "SA1 had a single five-minute RRP spike of $845.0 at 2026-07-29 17:25 ACST
+…", "The price extreme: Regional Reference Price $845.0 at interval ending …" and "… the analysis threshold of $300.0 in
+the window". The answer's validated claims give both as dollars per megawatt-hour: c1 = 845.0 `$/MWh` (evidence
+`ev0445`, the dispatch price) and c3 = 300.0 `$/MWh` (`ev0886`, the analysis threshold).
+
+**Root cause.**
+- **The validator checks units on claims, not in the text.**
+  - **The number check** links each number in the text to a numeric claim by its value.
+  - **The claim check** compares each claim's unit with its evidence's unit.
+  - **The gap:** nothing checks or completes the unit as the text writes it, so "$845.0" passes with only a dollar
+    sign.
+- **The display step adds no units.** The one unit note (I-3b) is for a quoted table row from a cited passage.
+
+**Acceptance check** (offline, written before the code change):
+1. **When:** display only, after the complete answer has been validated. Nothing in validation, the model or the
+   controller changes.
+2. **What changes:** outside quotations, an amount written with a currency sign but no rate ("$845.0", "−$504.6525") is
+   completed with the rest of its evidence's unit ("$845.0/MWh"). This happens only when the amount links unambiguously
+   to validated evidence carrying a "$/…" unit:
+   - **The link:** the answer passed validation, and every numeric claim matching the value (the validator's own
+     tolerance) cites evidence in the registry with one and the same unit.
+   - **The unit:** the evidence's own unit, not the claim's or the text's.
+3. **Unchanged:**
+   - **Complete forms:** "$845.0/MWh", "845.0 $/MWh", "$845 per MWh".
+   - **Other amounts:** a monetary amount that is not a rate ("$1.5 million"; an amount with no matching claim, or
+     whose evidence unit is not "$/…").
+   - **Ambiguity:** matching claims whose evidence carries different units, or evidence missing from the registry.
+   - **No inference:** a unit is never inferred from the dollar sign, the question or neighbouring values.
+   - **Quotations and citations;** no number added or removed; the original line kept in `display_rewrites`.
+4. **Validation first:** an unsupported "$999.0" is still NUMERIC_UNTRACKED, and the answer falls back without showing
+   it.
+5. **Tests and checks:**
+   - **The cases tested:** W19's saved example (replayed with its first draft and actual saved repair), complete units,
+     non-rate amounts, ambiguous evidence, quotations, citations and unsupported numbers.
+   - **Unchanged:** validation outcomes in every saved replay; the earlier fixes; the Replay evaluation (or any change
+     explained); and the safety suite.
+   - **Live is unverified.**
+
+**Result: verified offline; Live unverified** (PR `#33`; evidence in `artifacts/logs/price_units_*`). All five
+checks are met.
+1. **When:** display only (`display.complete_rates`), after validation. `plain_display` now receives the evidence
+   registry from `validate_and_finalize`.
+2. **What changes:**
+   - **W19 (second check):** its three lines now read "…RRP spike of $845.0/MWh at…", "Regional Reference Price
+     $845.0/MWh at…" and "…analysis threshold of $300.0/MWh in the window".
+   - **Held-out v4 W19:** two lines now read "$845.00/MWh".
+   - **Where the unit comes from:** the registry's evidence, only when every claim matching the amount cites evidence
+     with one and the same "$/…" unit. A negative amount is read with its sign on either side of the "$".
+3. **Unchanged:**
+   - **Complete forms:** "$845.0/MWh", "845.0 $/MWh", "$845 per MWh", and v4 W19's "$300.0 ($/MWh)", which the first
+     version of the fix doubled and the replay caught.
+   - **Other amounts:** money that is not a rate ("$1.5 million", "$4,500"), and amounts whose evidence is in MW or
+     intervals.
+   - **Ambiguity:** different units for the same value, or missing evidence.
+   - **Not linked:** a claim whose evidence disagrees with it, the question's own "$845/MWh", an answer that did not
+     pass validation, and an amount with no registry.
+   - **Text:** quotations and citations; no number added or removed; originals kept in `display_rewrites`.
+4. **Validation first:** an unsupported "$999.0" is still NUMERIC_UNTRACKED, and the answer falls back without showing
+   it.
+5. **Evidence:**
+   - **Replays:** in all 32 saved replays, validation, claims, observations and citations are identical to `main`. Five
+     displayed lines change (both W19 records), with no quote, citation or number changed.
+   - **Replay evaluation:** identical to `main`, and the displayed text of all 40 Replay answers is identical.
+   - **Safety suite:** PASS, with output identical to `main`.
+   - **Tests:** 875 pass. 23 are new; on `main` 21 fail, because the function does not exist there, and the record and
+     validation-first checks pass. The earlier display tests are unchanged.
+
+**Still open for I-3e:**
+- **Bare numbers without a currency sign or unit** ("RRP 845.0 at") are left as written. Adding a unit there would need
+  sentence-level links, and could clash with other words ("26 five-minute intervals").
+- **Live is unverified.**
+
 ### I-3a: F03, a notice time shown without its zone
 
 **What happened** (Live check 2026-09-29, `artifacts/live/live-check-2026-09-29/F03.json`, trace `tr-77c70c8d1482`):
@@ -1403,10 +1478,10 @@ checks are met, with one departure from check 2 (below).
   - **PR `#30`** carries those commits to `main`.
   - **The second check's W18 verdict stays failed.** Its passing replay with the actual saved repair is offline
     evidence only.
-- **Display issues from that check** (queued after I-7b; the last four are not started):
+- **Display issues from that check** (queued after I-7b; the last three are not started):
   - an I-4 marker label without a colon: **I-4b, verified offline; Live unverified** (PR `#31`, below);
   - internal wording ("returned to the controller"): **I-4c, verified offline; Live unverified** (PR `#32`, below);
-  - "$845.0" shown without "/MWh";
+  - "$845.0" shown without "/MWh": **I-3e, verified offline; Live unverified** (PR `#33`, below);
   - repeated finding titles;
   - raw passage IDs as citation markers;
   - an evidence-backed exclusion shown under "Possible explanations".
@@ -1452,6 +1527,7 @@ generalisation):
 | I-3c: the headline states the validated answer where the controller holds it (causal timing answer; the document statement the model's headline paraphrases) | #25 | verified offline; **Live unverified** |
 | I-3d: a row-backed data point returned under several evidence IDs is shown once, after validation | #26 | verified offline; **Live unverified** |
 | I-4: displayed text is put in plain words after validation (no evidence IDs, tool or field names; controller notes and disclosures in plain language; originals kept) | #27 | verified offline; Live, development cases only (PR #28): held on W18, W19, F04 |
+| I-3e: a currency amount shown without its rate ("$845.0") is completed from its validated evidence's own unit ("$845.0/MWh"), only when unambiguous | #33 | verified offline; **Live unverified** |
 | I-4c: the system's own workflow is described in plain words in displayed answers ("returned to the controller", "tool results", "The model judged the question"), outside quotations and without changing meaning | #32 | verified offline; **Live unverified** |
 | I-4b: a bracket of nothing but evidence references is removed whole, and an ID right after a label is removed with the label kept, instead of showing "the listed observation" | #31 | verified offline; **Live unverified** |
 | I-7b: a hypothesis that only doubts a post-event notice is not reliance; an exclusion backed by the validated notice timing needs no hedge word, but may assert no cause | #30 (#29 merged into the eval branch, not `main`) | verified offline; **Live unverified** |
