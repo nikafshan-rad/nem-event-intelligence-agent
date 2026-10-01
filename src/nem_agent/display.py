@@ -55,12 +55,22 @@ FIELD_NAMES = {
 }
 _EV_LIST = r"ev\d{4}(?:\s*(?:,|;|and|&)?\s*ev\d{4})*(?:,?\s*etc\.?)?"
 # a label naming the references: "evidence_id:", "threshold evidence:", "supporting evidence", "threshold and count:"
-_EV_LABEL = (r"(?:(?:[A-Za-z_]\w*\s+){0,2}evidence(?:[ _]ids?)?\s*:?\s*|see\s*:?\s*|(?:[A-Za-z_]\w*\s+){0,3}[A-Za-z_]\w*\s*:\s*)?")
-_EV_GROUP_RE = re.compile(r"\s*[\[(]\s*" + _EV_LABEL + _EV_LIST + r"\s*[\])]", re.I)  # "(evidence: ev0003)", "[ev0436]"
+_EV_LABELS = r"(?:[A-Za-z_]\w*\s+){0,2}evidence(?:[ _]ids?)?\s*:?\s*|see\s*:?\s*|(?:[A-Za-z_]\w*\s+){0,3}[A-Za-z_]\w*\s*:\s*"
+_EV_LABEL = f"(?:{_EV_LABELS})?"
+# a reference item: IDs, after one of those labels or a lower-case label of up to three words ("threshold ev0878");
+# a bracket of nothing but such items is a reference marker (I-4b, F04: "(ev0876; threshold ev0878)"), removed whole
+_EV_ITEM = rf"(?:{_EV_LABELS}|(?-i:(?:[a-z][a-z'’-]*\s+){{1,3}}))?{_EV_LIST}"
+_EV_GROUP_RE = re.compile(rf"\s*[\[(]\s*{_EV_ITEM}(?:\s*(?:[;,]|\band\b)\s*{_EV_ITEM})*\s*[\])]", re.I)
 _EV_PART_RE = (re.compile(r"\s*[;,]\s*" + _EV_LABEL + _EV_LIST + r"(?=\s*[;,)\]])", re.I),  # "(…; evidence_id: ev0626)"
                re.compile(r"(?<=[(\[])\s*" + _EV_LABEL + _EV_LIST + r"\s*[;,]\s*", re.I),  # "(evidence_id: ev0625; …"
                re.compile(r"(?:(?<=\d)|(?<=MW)|(?<=Wh)|(?<=%))\s*[;,]?\s*" + _EV_LIST + r"(?=\s*[;,.)\]]|\s*$)"),  # "−82.59 MW ev0438)"
                re.compile(r"\s*\(see [^()]*?" + _EV_LIST + r"\)", re.I))  # "(see SCADA change ev0940)"
+# IDs right after a label ("the net interchange value ev0438.", "YENDONWF ev0984,"): the IDs go and the label stays,
+# unless the word before them is one that makes them a noun ("compare those values to ev0538"; left to _EV_RE)
+_EV_AFTER_LABEL_RE = re.compile(rf"\b([\w'’-]+)\s+{_EV_LIST}(?=\s*(?:[;,.)\]]|$)|\s+(?:and|or|but)\b)")
+_NOUN_BEFORE = {"to", "than", "with", "between", "in", "into", "including", "include", "includes", "of", "for", "from",
+                "at", "by", "on", "as", "and", "or", "nor", "versus", "vs", "against", "like", "via", "per", "the", "a",
+                "an", "is", "are", "was", "were", "be", "been", "see", "compare", "compared", "relative", "matching"}
 _EV_WORD_RE = re.compile(r"\bevidence(?:[ _](?:ids?|references?))?\s*:?\s*(?=ev\d{4})", re.I)  # "with evidence ev0948"
 _EV_RE = re.compile(r"\b" + _EV_LIST)  # a reference used as a noun: "compare those values to ev0538"
 _TOOL_RE = re.compile(r"\b(?:([Tt]he) )?(" + "|".join(TOOL_NAMES) + r")(\s+search_scope)?\b")
@@ -110,6 +120,7 @@ def _plain(segment: str, first: bool) -> str:
         s = _EV_GROUP_RE.sub("", s)
         for part in _EV_PART_RE:
             s = part.sub("", s)
+        s = _EV_AFTER_LABEL_RE.sub(lambda m: m.group(0) if m.group(1).lower() in _NOUN_BEFORE else m.group(1), s)
     if first and not segment[:1].isspace():
         s = s.lstrip()
     s = _EV_RE.sub(lambda m: "the listed observation" + ("s" if len(re.findall(r"ev\d{4}", m.group(0))) > 1 else ""),
