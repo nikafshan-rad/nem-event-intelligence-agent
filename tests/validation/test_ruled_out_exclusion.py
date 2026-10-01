@@ -113,7 +113,8 @@ def test_the_actual_saved_repair_now_shows_the_answer():
     assert RULED_OUT not in set(v["pre_repair_codes"])  # the doubting first-draft hypothesis is not flagged
     assert v["repair_mode"] == "scoped" and v["final_passed"] and not v["fallback_applied"]
     assert rep.headline == RULES_OUT and rep.summary[0] == RULES_OUT
-    assert "so the notice's timing rules it out as an explanation for the price extreme" in rep.possible_explanations[0].statement
+    # since I-7c the validated exclusion is shown apart from the hypotheses that remain possible
+    assert "so the notice's timing rules it out as an explanation for the price extreme" in rep.ruled_out_explanations[0].statement
     assert not validate(rep, run.registry, records=run.records).critical
 
 

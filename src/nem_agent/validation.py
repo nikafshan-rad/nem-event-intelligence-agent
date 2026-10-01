@@ -82,6 +82,7 @@ class ValidationResult:
     numbers_checked: int = 0
     claims_checked: int = 0
     citations_checked: int = 0
+    ruled_out: list[int] = field(default_factory=list)  # possible_explanations the evidence rules out (I-7c)
 
     @property
     def critical(self) -> list[Violation]:
@@ -963,6 +964,9 @@ def validate(report: InvestigationReport, registry: EvidenceRegistry, *, as_of: 
             if RULED_OUT_RE.search(h.statement):
                 if after and not not_after:
                     ruled_out_by_timing.add(i)
+                    # I-7c: a pure exclusion (no hedge outside the rule-out wording) is a conclusion, not a hypothesis
+                    if not HEDGE_RE.search(RULED_OUT_RE.sub(" ", QUOTED_RE.sub(" ", h.statement))):
+                        res.ruled_out.append(i)
                 continue
             if doubts_bearing(h.statement):
                 continue
@@ -1232,6 +1236,8 @@ def validate_and_finalize(report: InvestigationReport, registry: EvidenceRegistr
         second = validate(final, registry, as_of=as_of, window=window, records=records, required_tools=req,
                           event_kind=kind)
         info.update(fallback_applied=True, after_fallback=second.as_dict())
+    if not first.critical and first.ruled_out:  # the answer is shown: its validated exclusions (I-7c)
+        info["ruled_out_explanations"] = first.ruled_out
     info["passed"] = not (first.critical and info.get("after_fallback", {}).get("n_critical", 1))
     info["final_passed"] = (not first.critical) or info.get("after_fallback", {}).get("n_critical", 1) == 0
     final = final.model_copy(update={"validation": {**report.validation, **info}})

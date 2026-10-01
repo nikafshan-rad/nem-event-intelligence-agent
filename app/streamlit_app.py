@@ -169,6 +169,10 @@ with right:
     st.markdown("#### Possible explanations (hypotheses, not findings)")
     for h in rep["possible_explanations"] or [{"statement": "none offered", "what_would_test_it": "-"}]:
         st.markdown(md(f"- *{h['statement']}*  \n  test: {h['what_would_test_it']}"))
+    if rep.get("ruled_out_explanations"):
+        st.markdown("#### Ruled out by the evidence (validated)")
+        for h in rep["ruled_out_explanations"]:
+            st.markdown(md(f"- {h['statement']}"))
     st.markdown("#### Published findings (event-specific AEMO notices)")
     for f in rep["published_findings"] or [{"statement": "No matching AEMO notice was retrieved for this region and window."}]:
         st.markdown(md(f"- {f['statement']}"))

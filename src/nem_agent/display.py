@@ -324,6 +324,23 @@ def plain_display(report: InvestigationReport, registry: Any = None) -> tuple[In
         "uncertainties": notes("uncertainties", report.uncertainties),
         "missing_evidence": notes("missing_evidence", report.missing_evidence),
     }
+    ruled_out = set(report.validation.get("ruled_out_explanations") or [])
+    if ruled_out and not report.validation.get("fallback_applied"):  # validated exclusions shown apart (I-7c)
+        kept: list[Any] = []
+        moved: list[Any] = []
+        recorded = {c["where"]: c for c in changed}
+        for i, h in enumerate(update["possible_explanations"]):
+            if i not in ruled_out:
+                kept.append(h)
+                continue
+            where = f"possible_explanations[{i}]"
+            entry = recorded.get(where) or {"where": where, "original": report.possible_explanations[i].statement}
+            entry["moved_to"] = f"ruled_out_explanations[{len(report.ruled_out_explanations) + len(moved)}]"
+            if where not in recorded:
+                changed.append(entry)
+            moved.append(h)
+        update["possible_explanations"] = kept
+        update["ruled_out_explanations"] = [*report.ruled_out_explanations, *moved]
     if labels:  # the citations list under the same labels; the mapping is kept with the validation record
         update["citations"] = [c.model_copy(update={"citation_id": labels.get(c.citation_id, c.citation_id)})
                                for c in report.citations]
