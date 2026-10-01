@@ -907,6 +907,40 @@ the window". The answer's validated claims give both as dollars per megawatt-hou
      explained); and the safety suite.
    - **Live is unverified.**
 
+**Result: verified offline; Live unverified** (PR `#33`; evidence in `artifacts/logs/price_units_*`). All five
+checks are met.
+1. **When:** display only (`display.complete_rates`), after validation. `plain_display` now receives the evidence
+   registry from `validate_and_finalize`.
+2. **What changes:**
+   - **W19 (second check):** its three lines now read "…RRP spike of $845.0/MWh at…", "Regional Reference Price
+     $845.0/MWh at…" and "…analysis threshold of $300.0/MWh in the window".
+   - **Held-out v4 W19:** two lines now read "$845.00/MWh".
+   - **Where the unit comes from:** the registry's evidence, only when every claim matching the amount cites evidence
+     with one and the same "$/…" unit. A negative amount is read with its sign on either side of the "$".
+3. **Unchanged:**
+   - **Complete forms:** "$845.0/MWh", "845.0 $/MWh", "$845 per MWh", and v4 W19's "$300.0 ($/MWh)", which the first
+     version of the fix doubled and the replay caught.
+   - **Other amounts:** money that is not a rate ("$1.5 million", "$4,500"), and amounts whose evidence is in MW or
+     intervals.
+   - **Ambiguity:** different units for the same value, or missing evidence.
+   - **Not linked:** a claim whose evidence disagrees with it, the question's own "$845/MWh", an answer that did not
+     pass validation, and an amount with no registry.
+   - **Text:** quotations and citations; no number added or removed; originals kept in `display_rewrites`.
+4. **Validation first:** an unsupported "$999.0" is still NUMERIC_UNTRACKED, and the answer falls back without showing
+   it.
+5. **Evidence:**
+   - **Replays:** in all 32 saved replays, validation, claims, observations and citations are identical to `main`. Five
+     displayed lines change (both W19 records), with no quote, citation or number changed.
+   - **Replay evaluation:** identical to `main`, and the displayed text of all 40 Replay answers is identical.
+   - **Safety suite:** PASS, with output identical to `main`.
+   - **Tests:** 875 pass. 23 are new; on `main` 21 fail, because the function does not exist there, and the record and
+     validation-first checks pass. The earlier display tests are unchanged.
+
+**Still open for I-3e:**
+- **Bare numbers without a currency sign or unit** ("RRP 845.0 at") are left as written. Adding a unit there would need
+  sentence-level links, and could clash with other words ("26 five-minute intervals").
+- **Live is unverified.**
+
 ### I-3a: F03, a notice time shown without its zone
 
 **What happened** (Live check 2026-09-29, `artifacts/live/live-check-2026-09-29/F03.json`, trace `tr-77c70c8d1482`):
@@ -1444,10 +1478,10 @@ checks are met, with one departure from check 2 (below).
   - **PR `#30`** carries those commits to `main`.
   - **The second check's W18 verdict stays failed.** Its passing replay with the actual saved repair is offline
     evidence only.
-- **Display issues from that check** (queued after I-7b; the last four are not started):
+- **Display issues from that check** (queued after I-7b; the last three are not started):
   - an I-4 marker label without a colon: **I-4b, verified offline; Live unverified** (PR `#31`, below);
   - internal wording ("returned to the controller"): **I-4c, verified offline; Live unverified** (PR `#32`, below);
-  - "$845.0" shown without "/MWh": **in progress** as I-3e in `fix/price-units` (below);
+  - "$845.0" shown without "/MWh": **I-3e, verified offline; Live unverified** (PR `#33`, below);
   - repeated finding titles;
   - raw passage IDs as citation markers;
   - an evidence-backed exclusion shown under "Possible explanations".
@@ -1493,6 +1527,7 @@ generalisation):
 | I-3c: the headline states the validated answer where the controller holds it (causal timing answer; the document statement the model's headline paraphrases) | #25 | verified offline; **Live unverified** |
 | I-3d: a row-backed data point returned under several evidence IDs is shown once, after validation | #26 | verified offline; **Live unverified** |
 | I-4: displayed text is put in plain words after validation (no evidence IDs, tool or field names; controller notes and disclosures in plain language; originals kept) | #27 | verified offline; Live, development cases only (PR #28): held on W18, W19, F04 |
+| I-3e: a currency amount shown without its rate ("$845.0") is completed from its validated evidence's own unit ("$845.0/MWh"), only when unambiguous | #33 | verified offline; **Live unverified** |
 | I-4c: the system's own workflow is described in plain words in displayed answers ("returned to the controller", "tool results", "The model judged the question"), outside quotations and without changing meaning | #32 | verified offline; **Live unverified** |
 | I-4b: a bracket of nothing but evidence references is removed whole, and an ID right after a label is removed with the label kept, instead of showing "the listed observation" | #31 | verified offline; **Live unverified** |
 | I-7b: a hypothesis that only doubts a post-event notice is not reliance; an exclusion backed by the validated notice timing needs no hedge word, but may assert no cause | #30 (#29 merged into the eval branch, not `main`) | verified offline; **Live unverified** |
