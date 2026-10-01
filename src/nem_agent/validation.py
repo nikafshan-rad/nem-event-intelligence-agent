@@ -401,6 +401,21 @@ HIGH_SET_RE = re.compile(r"\b(high[- ]price|at or above|spikes?)\b", re.I)
 HYPOTHETICAL_RE = re.compile(r"\b(whether|if)\b", re.I)
 # a hypothesis that itself says the timing excludes it ("timing rules this out", "could not have …")
 RULED_OUT_RE = re.compile(r"\brul(?:e|es|ed|ing)\b(?:\s+\w+){0,2}\s+out\b|\b(?:cannot|can't|could not|couldn't) have\b", re.I)
+# a bearing of an incident on the event, and wording that only denies or doubts it (I-7b): "might not correspond to the
+# price spike" and "is unrelated to it" offer no influence, while "might be a factor" and "did not affect the first
+# interval but could have influenced the peak" do
+_BEARING = (r"influenc\w*|affect\w*|contribut\w*|explain\w*|account\w*\s+for|caus\w*|drove|driv\w*|push\w*|le[ad]\w*\s+to|"
+            r"limit\w*|reduc\w*|constrain\w*|rais\w*|increas\w*|impact\w*|behind|correspond\w*|relat\w*|relevant|link\w*|"
+            r"connect\w*|match\w*|appl(?:y|ies|ied)|bear\w*\s+on|responsible|factor\w*|role")
+_BEARING_RE = re.compile(rf"\b(?:{_BEARING})\b", re.I)
+_NO_BEARING_RE = re.compile(rf"(?:\b(?:not|no(?!\s+doubt)|never|unlikely\s+to|nothing\s+to\s+do\s+with)\b|n[’']t)"
+                            rf"(?:\s+[\w’'-]+){{0,3}}?\s+(?:{_BEARING})\b|\b(?:unrelated|irrelevant)\b", re.I)
+
+
+def doubts_bearing(text: str) -> bool:
+    """Whether ``text`` only denies or doubts an incident's bearing on the event, suggesting none elsewhere."""
+    bare = QUOTED_RE.sub(" ", text)
+    return bool(_NO_BEARING_RE.search(bare)) and not _BEARING_RE.search(_NO_BEARING_RE.sub(" ", bare))
 _FIVE = timedelta(minutes=5)
 
 
@@ -916,6 +931,12 @@ def validate(report: InvestigationReport, registry: EvidenceRegistry, *, as_of: 
     #    20/08, after all six high-price intervals, and a hypothesis still offered it as a possible influence). Saying
     #    the timing rules it out is allowed. Only the unambiguous case counts: a notice with no stated time, a time before
     #    or within the event, or prices not registered up to that time are left alone.
+    #    I-7b (second development check, W18): a hypothesis that only denies or doubts the incident's bearing ("might not
+    #    correspond to the price spike") offers no influence and is not flagged. A statement that the timing rules the
+    #    incident out, where every market notice it cites meets this timing condition, is an exclusion the evidence
+    #    backs; the language check below does not require it to be hedged (the repair this rule asks for said exactly
+    #    that and was rejected as unhedged, so the answer fell back).
+    ruled_out_by_timing: set[int] = set()
     if report.intent == "market_event_review":
         res.checks_run.append("ruled_out_by_timing")
         et = _event_times(report, registry, window, event_kind)
@@ -923,21 +944,32 @@ def validate(report: InvestigationReport, registry: EvidenceRegistry, *, as_of: 
                        if report.event_window else None)
         spans = et.ends["high" if et.kind == "high_price" else "low"] if et is not None else []
         for i, h in enumerate(report.possible_explanations):
-            if et is None or w is None or not spans or RULED_OUT_RE.search(h.statement):
+            if et is None or w is None or not spans:
                 continue
+            after: list[tuple[str, Any, datetime]] = []  # cited notices of the region timed after every interval
+            not_after = False  # a cited market notice whose timing does not rule the incident out
             for ref in dict.fromkeys(CITE_RE.findall(h.statement)):
                 rested = cites.get(ref)
                 notice = registry.chunks.get(rested.chunk_id) if rested is not None else None
-                if notice is None or notice.doc_type != "market_notice" or notice.event_region not in (None, report.region):
+                if notice is None or notice.doc_type != "market_notice":
                     continue
                 stated_at = _notice_instants(notice.text, notice.event_date)
                 earliest = min(stated_at) if stated_at else None
-                if earliest is None or earliest <= spans[-1] or not et.complete or et.last is None or \
-                        et.last < min(earliest, w[1]):
+                if notice.event_region not in (None, report.region) or earliest is None or earliest <= spans[-1] or \
+                        not et.complete or et.last is None or et.last < min(earliest, w[1]):
+                    not_after = True
                     continue
+                after.append((ref, notice, earliest))
+            if RULED_OUT_RE.search(h.statement):
+                if after and not not_after:
+                    ruled_out_by_timing.add(i)
+                continue
+            if doubts_bearing(h.statement):
+                continue
+            for later_ref, later, first_time in after:
                 V.append(Violation("EXPLANATION_RULED_OUT_BY_TIMING", "critical",
-                                   f"possible_explanations[{i}]: rests on {notice.chunk_id} [{ref}], whose earliest stated "
-                                   f"time ({iso_utc(earliest)}) is after every interval of the event (the last ends "
+                                   f"possible_explanations[{i}]: rests on {later.chunk_id} [{later_ref}], whose earliest "
+                                   f"stated time ({iso_utc(first_time)}) is after every interval of the event (the last ends "
                                    f"{iso_utc(spans[-1])}), so its timing rules this out; drop it, or say that the "
                                    "timing rules it out"))
 
@@ -1066,10 +1098,16 @@ def validate(report: InvestigationReport, registry: EvidenceRegistry, *, as_of: 
     for where, text in _narratives(report):
         bare = QUOTED_RE.sub(" ", text)
         if where.startswith("possible_explanations"):
-            if CAUSAL_RE.search(bare) and not HEDGE_RE.search(bare):
-                V.append(Violation("HYPOTHESIS_UNHEDGED", "critical", f"{where}: causal wording without hedging"))
-            if not HEDGE_RE.search(bare):
-                V.append(Violation("HYPOTHESIS_UNHEDGED", "critical", f"{where}: a hypothesis must be hedged"))
+            if int(where[len("possible_explanations["):-1]) in ruled_out_by_timing:
+                # an exclusion the validated notice timing backs (I-7b): no hedge word needed, and no cause asserted
+                if (asserted := caveat_causal_claim(bare)) is not None:
+                    V.append(Violation("HYPOTHESIS_UNHEDGED", "critical", f"{where}: asserts '{asserted}' without "
+                                       "hedging"))
+            else:
+                if CAUSAL_RE.search(bare) and not HEDGE_RE.search(bare):
+                    V.append(Violation("HYPOTHESIS_UNHEDGED", "critical", f"{where}: causal wording without hedging"))
+                if not HEDGE_RE.search(bare):
+                    V.append(Violation("HYPOTHESIS_UNHEDGED", "critical", f"{where}: a hypothesis must be hedged"))
             if OVERCONFIDENT_RE.search(bare):
                 V.append(Violation("HYPOTHESIS_OVERCONFIDENT", "critical", f"{where}: overconfident wording"))
         elif (m_causal := CAUSAL_RE.search(bare)) is not None:
