@@ -109,8 +109,12 @@ def test_f01_shows_the_row_with_its_unit_and_its_other_statements_unchanged():
     res = _replay("F01")
     v = res.report.validation
     assert v["final_passed"] and not v["fallback_applied"], v
-    assert res.report.summary[1] == f"“{F01_ROW}” [{F01_CHUNK}] {MW_NOTE}"
-    assert res.report.summary[0].endswith(f"[{F01_CHUNK}]") and res.report.summary[2].endswith("[aemo_so_op_3704#p9c25]")
+    label = res.report.validation.get("citation_labels", {}).get(F01_CHUNK, F01_CHUNK)  # I-3g: shown as [c1]
+    assert res.report.summary[1] == f"“{F01_ROW}” [{label}] {MW_NOTE}"
+    assert next(c.chunk_id for c in res.report.citations if c.citation_id == label) == F01_CHUNK
+    labels = res.report.validation.get("citation_labels", {})  # I-3g: raw passage IDs are shown as [cN]
+    assert res.report.summary[0].endswith(f"[{labels.get(F01_CHUNK, F01_CHUNK)}]")
+    assert res.report.summary[2].endswith(f"[{labels.get('aemo_so_op_3704#p9c25', 'aemo_so_op_3704#p9c25')}]")
 
 
 def test_f03s_time_zone_notes_are_intact():

@@ -1028,6 +1028,111 @@ checks are met.
 - **Not covered:** findings that repeat a summary quote, recorded under I-3d.
 - **Live is unverified.**
 
+### I-3g: raw passage IDs shown as citation markers
+
+**What happened** (Live, second development check, 2026-09-30, `artifacts/live/live-check-dev2/`):
+- **F01:** "“New South Wales 150” [aemo_so_op_3710#p7c12] (in MW, …)". Its citations list holds that passage twice,
+  under one ID, with two quotes.
+- **F03:** "“At 1630 hrs 30/07/2026 …” [market_notice_144693#0] (NEM market time, …)". The finding reads "An AEMO market
+  notice for SA1 [market_notice_144693#0] says: …".
+- **F04:** "… a planned outage of Directlink (market_notice_144695#0).", "… [market_notice_144695#0] might have …" and
+  "… [aemo_so_op_3705#p40c132]."
+- **How widespread:**
+  - **By record:** 29 of the 123 saved records with citations label them only by raw IDs, and 94 use `[c1]`-style
+    labels.
+  - **Where raw IDs appear in shown text:** in brackets (125 times), in parentheses (3), after "see" (4), and in lists
+    (4).
+  - **Mixed formats:** in 4 older answers, the text cites a passage ID while that passage's citation is labelled `cN`
+    (once beside its own `[c3]`).
+
+**Root cause.**
+- **The model chooses each citation's ID,** and the prompts tell it to cite retrieved passages by their passage ID.
+- **The controller renders whatever ID it is given:** statements and findings as "[{citation_id}]", and the citations
+  list under the same ID.
+- **The display step keeps source identifiers on purpose (I-4),** so nothing gives these citations short labels.
+
+**Acceptance check** (offline, written before the code change):
+1. **When:** display only, after the complete answer has been validated. Nothing in validation, the model or the
+   controller changes.
+2. **The mapping** is deterministic and comes only from the answer's own citations list:
+   - **Existing labels stay:** a citation already labelled `c<number>` keeps it.
+   - **New labels:** every other citation ID gets the next unused `cN`, in the citations list's order.
+   - **One label per ID:** the same ID always gets the same label.
+   - **A passage ID used in the text** maps to its citation's label only when exactly one label cites that passage.
+   - **Nothing is invented:** an unknown ID, or a passage cited under several labels, is left as written.
+3. **What changes,** outside quotations only:
+   - **The text:** each mapped ID in displayed text, bracketed, in parentheses, after "see" or in a list, becomes
+     "[cN]". A label repeated side by side is shown once.
+   - **The structured lists:** the citations list's `citation_id` and the findings' `citation_ids` take the same labels.
+   - **The result:** every displayed label resolves to its entry in the citations list.
+4. **Kept:**
+   - each citation's passage ID (`chunk_id`), document ID, title, URL, quote and publication date;
+   - quotations, including any source ID inside one;
+   - numbers;
+   - the evidence links;
+   - the mapping, recorded in `validation.citation_labels`;
+   - each changed line's original, in `display_rewrites`;
+   - evaluation scoring, which reads `doc_id`, `chunk_id` and consistent `citation_ids`.
+5. **Unchanged:**
+   - validation outcomes in every saved replay;
+   - the displayed answer, which still validates;
+   - the earlier fixes;
+   - the Replay evaluation (or any change explained), and the safety suite.
+6. **Tests:**
+   - F01, F03 and F04, replayed;
+   - repeated references, and several passages from one document;
+   - mixed formats;
+   - unknown IDs;
+   - source IDs inside quotations.
+   - **Live is unverified.**
+
+**Result: verified offline; Live unverified** (PR `#35`; evidence in `artifacts/logs/citation_labels_*`). All six
+checks are met, with one departure from check 2 (below).
+1. **When:** display only (`display.citation_labels`, `relabel`), after validation.
+2. **The mapping:**
+   - **What is relabelled:** a citation whose ID is a raw source ID (its passage ID, its document ID, or a passage ID
+     with a suffix) gets the next unused `cN`, in list order. The same ID always gets the same label.
+   - **What stays:** `c1`-style labels, and the Replay controller's `s01` labels.
+   - **The mixed case:** a passage ID used in the text maps to its citation's label only when exactly one label cites
+     that passage (held-out v4 W09: "referenced by aemo_demand_terms#p24c54" becomes "referenced by [c3]").
+   - **Not mapped:** unknown IDs, and passages cited under several labels, are left as written.
+   - **Departure from check 2 as written:** check 2 said every ID other than `c<number>` would be relabelled. The first
+     version did that, and the Replay comparison showed it also relabelled the Replay controller's `[s01]`. Every score
+     was identical, but the evaluation rows' recorded headline text changed. Since `s01` is already a short label, the
+     rule now relabels only raw source IDs, and the evaluation records are identical.
+3. **What changes:**
+   - **F01:** "“New South Wales 150” [c1] (in MW, …)".
+   - **F03:** "[c1]" throughout, and "An AEMO market notice for SA1 [c1] says: …".
+   - **F04:** "… a planned outage of Directlink [c1].", "… market notice [c1] might have …", "… constraints [c2]."
+   - **The structured lists:** the citations list and the findings' citation IDs take the same labels.
+   - **Recorded:** the mapping, in `validation.citation_labels`; each changed line's original, in `display_rewrites`.
+4. **Kept:** passage IDs, document IDs, titles, URLs, quotes, quotations (with any source ID inside them) and numbers.
+   Numbers are read as the validator reads them, with IDs not counted.
+5. **Evidence:**
+   - **Live replays:** in all 32, validation, claims and observations are identical to `main`, and so are the citations
+     apart from their labels. No displayed marker stops resolving. Thirteen answers now show readable labels.
+   - **Replay evaluation:** identical to `main` in every section, rows included. All 40 Replay answers, their 98 `s01`
+     citations and their findings are identical.
+   - **Safety suite:** PASS, with output identical to `main`.
+   - **Every displayed answer still validates** (tested on F01, F03 and F04).
+6. **Tests:** 897 pass. 15 are new; on `main` 11 fail and the 4 controls pass.
+   - **The new tests cover:**
+     - repeated references;
+     - several passages from one document;
+     - mixed formats;
+     - lists and "see";
+     - unknown and ambiguous IDs;
+     - source IDs inside quotations;
+     - short labels kept;
+     - numbers;
+     - scoring.
+   - **Two earlier tests now read the label through `citation_labels`:** the F01 unit test (I-3b) and the W10 citation
+     test (#8). They still check the same passages.
+
+**Still open for I-3g:**
+- **F01's duplicate:** its citations list holds one passage twice, under one ID, so both entries show as [c1].
+- **Live is unverified.**
+
 ### I-3a: F03, a notice time shown without its zone
 
 **What happened** (Live check 2026-09-29, `artifacts/live/live-check-2026-09-29/F03.json`, trace `tr-77c70c8d1482`):
@@ -1565,12 +1670,12 @@ checks are met, with one departure from check 2 (below).
   - **PR `#30`** carries those commits to `main`.
   - **The second check's W18 verdict stays failed.** Its passing replay with the actual saved repair is offline
     evidence only.
-- **Display issues from that check** (queued after I-7b; the last two are not started):
+- **Display issues from that check** (queued after I-7b; the last one is not started):
   - an I-4 marker label without a colon: **I-4b, verified offline; Live unverified** (PR `#31`, below);
   - internal wording ("returned to the controller"): **I-4c, verified offline; Live unverified** (PR `#32`, below);
   - "$845.0" shown without "/MWh": **I-3e, verified offline; Live unverified** (PR `#33`, below);
   - repeated finding titles: **I-3f, verified offline; Live unverified** (PR `#34`, below);
-  - raw passage IDs as citation markers;
+  - raw passage IDs as citation markers: **I-3g, verified offline; Live unverified** (PR `#35`, below);
   - an evidence-backed exclusion shown under "Possible explanations".
 
 **Status after the second development check** (PR `#28`; development cases only, one run each, so no
@@ -1614,6 +1719,7 @@ generalisation):
 | I-3c: the headline states the validated answer where the controller holds it (causal timing answer; the document statement the model's headline paraphrases) | #25 | verified offline; **Live unverified** |
 | I-3d: a row-backed data point returned under several evidence IDs is shown once, after validation | #26 | verified offline; **Live unverified** |
 | I-4: displayed text is put in plain words after validation (no evidence IDs, tool or field names; controller notes and disclosures in plain language; originals kept) | #27 | verified offline; Live, development cases only (PR #28): held on W18, W19, F04 |
+| I-3g: raw source IDs used as citation labels are shown as [c1], [c2], … mapped deterministically from the answer's own citations; existing short labels kept | #35 | verified offline; **Live unverified** |
 | I-3f: separate findings with the same wording are kept and marked as separate notices; only one finding repeated (same passage, same quote) is shown once | #34 | verified offline; **Live unverified** |
 | I-3e: a currency amount shown without its rate ("$845.0") is completed from its validated evidence's own unit ("$845.0/MWh"), only when unambiguous | #33 | verified offline; **Live unverified** |
 | I-4c: the system's own workflow is described in plain words in displayed answers ("returned to the controller", "tool results", "The model judged the question"), outside quotations and without changing meaning | #32 | verified offline; **Live unverified** |

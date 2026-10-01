@@ -69,8 +69,14 @@ def test_w10_first_draft_is_shown_after_the_fix():
     rep = res.report
     assert _first_codes(res) == set() and not rep.validation["fallback_applied"], rep.validation
     assert rep.status == "answered" and not rep.validation.get("repair_attempted")
-    assert any(GOLD in s and "[aemo_demand_terms#p12c20]" in s for s in rep.summary)
-    assert f"[{PASSAGE}:supply]" in rep.summary[6] and f"[{PASSAGE}:dt]" in rep.summary[7]
+    shown = rep.validation.get("citation_labels", {})  # I-3g: raw passage IDs are shown as [cN]
+
+    def marker(raw: str) -> str:
+        return f"[{shown.get(raw, raw)}]"
+    assert any(GOLD in s and marker("aemo_demand_terms#p12c20") in s for s in rep.summary)
+    assert marker(f"{PASSAGE}:supply") in rep.summary[6] and marker(f"{PASSAGE}:dt") in rep.summary[7]
+    by_label = {c.citation_id: c.chunk_id for c in rep.citations}
+    assert by_label[shown.get(f"{PASSAGE}:supply", f"{PASSAGE}:supply")] == PASSAGE  # each label names its passage
 
 
 # ------------------------------------------------------------------------------------------------ marker pattern
