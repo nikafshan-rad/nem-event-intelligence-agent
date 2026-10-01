@@ -731,6 +731,41 @@ the label. The PR #27 review said this happened only in older-format answers; it
      safety suite, and the earlier display tests.
    - **Live is unverified.**
 
+**Result: verified offline; Live unverified** (PR `#31`; evidence in `artifacts/logs/reference_labels_*`). All five
+checks are met.
+1. **When:** display only (`display.py`), after validation, unchanged.
+2. **What changes:**
+   - **A bracket of nothing but references is removed whole.** It may hold bare IDs, IDs after a colon or "evidence"
+     label, or IDs after a lower-case label of up to three words. F04 and W18 (second check) now read "… analysis
+     threshold of 300.0 $/MWh in the window." and "… at-or-above the $300.0 $/MWh analysis threshold.".
+   - **An ID right after a label is removed, and the label kept.** For example, "the net interchange value.",
+     "YENDONWF,", "(excluding Tasmania)", "(dispatch TOTALDEMAND)", "the … run and the … run".
+   - **In a bracket that also holds substance,** a colon-less label may itself be substance, so only its IDs go:
+     "(examples: wind ev0978, solar ev0981)" becomes "(examples: wind, solar)".
+   - **Unchanged:** an ID after a preposition or conjunction keeps "the listed observation(s)".
+3. **Kept:** quotations, citation markers, source identifiers, every number and threshold value, the originals in
+   `display_rewrites`, and the evidence IDs in claims and observations. The tests show that no number is added or
+   removed other than evidence IDs.
+4. **Validation first:** both unsupported numbers are still rejected before cleanup, and the answer falls back without
+   showing them:
+   - a threshold of 350.0 $/MWh beside "(ev0876; threshold ev0878)";
+   - "(threshold 999.0 $/MWh ev0878)".
+5. **Evidence:**
+   - **Replays:** in all 32 saved replays, validation, claims, observations and citations are identical to `main`.
+     Exactly two displayed lines change (F04 and W18, second check). "The listed observation" no longer appears in them.
+   - **Replay evaluation:** identical to `main` in every section, and the displayed text of all 40 Replay answers is
+     identical.
+   - **Safety suite:** PASS, with output identical to `main`.
+   - **Tests:** 827 pass. 28 are new; on `main` the 14 that expect the new behaviour fail and the 14 controls pass. The
+     earlier display tests are unchanged.
+
+**Still open for I-4b:**
+- **A leftover label:** in a mixed bracket, a colon-less label that only named a reference stays ("(percentage error
+  −4.68%, threshold)"). It is kept because the same form can be substance.
+- **Number agreement:** an ID used as a noun after a list separator can read in the singular ("in the listed
+  observation"), as before.
+- **Live is unverified.**
+
 ### I-3a: F03, a notice time shown without its zone
 
 **What happened** (Live check 2026-09-29, `artifacts/live/live-check-2026-09-29/F03.json`, trace `tr-77c70c8d1482`):
@@ -1269,7 +1304,7 @@ checks are met, with one departure from check 2 (below).
   - **The second check's W18 verdict stays failed.** Its passing replay with the actual saved repair is offline
     evidence only.
 - **Display issues from that check, queued after I-7b (not started):**
-  - an I-4 marker label without a colon: **in progress** as I-4b in `fix/reference-labels` (below);
+  - an I-4 marker label without a colon: **I-4b, verified offline; Live unverified** (PR `#31`, below);
   - internal wording ("returned to the controller");
   - "$845.0" shown without "/MWh";
   - repeated finding titles;
@@ -1317,5 +1352,6 @@ generalisation):
 | I-3c: the headline states the validated answer where the controller holds it (causal timing answer; the document statement the model's headline paraphrases) | #25 | verified offline; **Live unverified** |
 | I-3d: a row-backed data point returned under several evidence IDs is shown once, after validation | #26 | verified offline; **Live unverified** |
 | I-4: displayed text is put in plain words after validation (no evidence IDs, tool or field names; controller notes and disclosures in plain language; originals kept) | #27 | verified offline; Live, development cases only (PR #28): held on W18, W19, F04 |
+| I-4b: a bracket of nothing but evidence references is removed whole, and an ID right after a label is removed with the label kept, instead of showing "the listed observation" | #31 | verified offline; **Live unverified** |
 | I-7b: a hypothesis that only doubts a post-event notice is not reliance; an exclusion backed by the validated notice timing needs no hedge word, but may assert no cause | #30 (#29 merged into the eval branch, not `main`) | verified offline; **Live unverified** |
 | Second development-only Live check (F01, F03, W18, W19; F04 control), frozen then run once; an evaluation-only record | #28 | Live, USD 0.168; required coverage full, 2 of 4 held (F03, W19), W18 failed, F01 not triggered; **awaiting review, not merged** |
