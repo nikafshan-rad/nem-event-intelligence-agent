@@ -1086,6 +1086,53 @@ checks are met.
    - source IDs inside quotations.
    - **Live is unverified.**
 
+**Result: verified offline; Live unverified** (PR `#35`; evidence in `artifacts/logs/citation_labels_*`). All six
+checks are met, with one departure from check 2 (below).
+1. **When:** display only (`display.citation_labels`, `relabel`), after validation.
+2. **The mapping:**
+   - **What is relabelled:** a citation whose ID is a raw source ID (its passage ID, its document ID, or a passage ID
+     with a suffix) gets the next unused `cN`, in list order. The same ID always gets the same label.
+   - **What stays:** `c1`-style labels, and the Replay controller's `s01` labels.
+   - **The mixed case:** a passage ID used in the text maps to its citation's label only when exactly one label cites
+     that passage (held-out v4 W09: "referenced by aemo_demand_terms#p24c54" becomes "referenced by [c3]").
+   - **Not mapped:** unknown IDs, and passages cited under several labels, are left as written.
+   - **Departure from check 2 as written:** check 2 said every ID other than `c<number>` would be relabelled. The first
+     version did that, and the Replay comparison showed it also relabelled the Replay controller's `[s01]`. Every score
+     was identical, but the evaluation rows' recorded headline text changed. Since `s01` is already a short label, the
+     rule now relabels only raw source IDs, and the evaluation records are identical.
+3. **What changes:**
+   - **F01:** "“New South Wales 150” [c1] (in MW, …)".
+   - **F03:** "[c1]" throughout, and "An AEMO market notice for SA1 [c1] says: …".
+   - **F04:** "… a planned outage of Directlink [c1].", "… market notice [c1] might have …", "… constraints [c2]."
+   - **The structured lists:** the citations list and the findings' citation IDs take the same labels.
+   - **Recorded:** the mapping, in `validation.citation_labels`; each changed line's original, in `display_rewrites`.
+4. **Kept:** passage IDs, document IDs, titles, URLs, quotes, quotations (with any source ID inside them) and numbers.
+   Numbers are read as the validator reads them, with IDs not counted.
+5. **Evidence:**
+   - **Live replays:** in all 32, validation, claims and observations are identical to `main`, and so are the citations
+     apart from their labels. No displayed marker stops resolving. Thirteen answers now show readable labels.
+   - **Replay evaluation:** identical to `main` in every section, rows included. All 40 Replay answers, their 98 `s01`
+     citations and their findings are identical.
+   - **Safety suite:** PASS, with output identical to `main`.
+   - **Every displayed answer still validates** (tested on F01, F03 and F04).
+6. **Tests:** 897 pass. 15 are new; on `main` 11 fail and the 4 controls pass.
+   - **The new tests cover:**
+     - repeated references;
+     - several passages from one document;
+     - mixed formats;
+     - lists and "see";
+     - unknown and ambiguous IDs;
+     - source IDs inside quotations;
+     - short labels kept;
+     - numbers;
+     - scoring.
+   - **Two earlier tests now read the label through `citation_labels`:** the F01 unit test (I-3b) and the W10 citation
+     test (#8). They still check the same passages.
+
+**Still open for I-3g:**
+- **F01's duplicate:** its citations list holds one passage twice, under one ID, so both entries show as [c1].
+- **Live is unverified.**
+
 ### I-3a: F03, a notice time shown without its zone
 
 **What happened** (Live check 2026-09-29, `artifacts/live/live-check-2026-09-29/F03.json`, trace `tr-77c70c8d1482`):
@@ -1623,12 +1670,12 @@ checks are met, with one departure from check 2 (below).
   - **PR `#30`** carries those commits to `main`.
   - **The second check's W18 verdict stays failed.** Its passing replay with the actual saved repair is offline
     evidence only.
-- **Display issues from that check** (queued after I-7b; the last two are not started):
+- **Display issues from that check** (queued after I-7b; the last one is not started):
   - an I-4 marker label without a colon: **I-4b, verified offline; Live unverified** (PR `#31`, below);
   - internal wording ("returned to the controller"): **I-4c, verified offline; Live unverified** (PR `#32`, below);
   - "$845.0" shown without "/MWh": **I-3e, verified offline; Live unverified** (PR `#33`, below);
   - repeated finding titles: **I-3f, verified offline; Live unverified** (PR `#34`, below);
-  - raw passage IDs as citation markers: **in progress** as I-3g in `fix/citation-labels` (below);
+  - raw passage IDs as citation markers: **I-3g, verified offline; Live unverified** (PR `#35`, below);
   - an evidence-backed exclusion shown under "Possible explanations".
 
 **Status after the second development check** (PR `#28`; development cases only, one run each, so no
@@ -1672,6 +1719,7 @@ generalisation):
 | I-3c: the headline states the validated answer where the controller holds it (causal timing answer; the document statement the model's headline paraphrases) | #25 | verified offline; **Live unverified** |
 | I-3d: a row-backed data point returned under several evidence IDs is shown once, after validation | #26 | verified offline; **Live unverified** |
 | I-4: displayed text is put in plain words after validation (no evidence IDs, tool or field names; controller notes and disclosures in plain language; originals kept) | #27 | verified offline; Live, development cases only (PR #28): held on W18, W19, F04 |
+| I-3g: raw source IDs used as citation labels are shown as [c1], [c2], … mapped deterministically from the answer's own citations; existing short labels kept | #35 | verified offline; **Live unverified** |
 | I-3f: separate findings with the same wording are kept and marked as separate notices; only one finding repeated (same passage, same quote) is shown once | #34 | verified offline; **Live unverified** |
 | I-3e: a currency amount shown without its rate ("$845.0") is completed from its validated evidence's own unit ("$845.0/MWh"), only when unambiguous | #33 | verified offline; **Live unverified** |
 | I-4c: the system's own workflow is described in plain words in displayed answers ("returned to the controller", "tool results", "The model judged the question"), outside quotations and without changing meaning | #32 | verified offline; **Live unverified** |
