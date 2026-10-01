@@ -992,6 +992,42 @@ checks are met.
    - an exact repeat.
    - **Live is unverified.**
 
+**Result: verified offline; Live unverified** (PR `#34`; evidence in `artifacts/logs/finding_titles_*`). All five
+checks are met.
+1. **When:** display only (`display.distinct_findings`), after validation.
+2. **What changes:**
+   - **W19 (second check):** all eight findings are kept, each with its own citation and quote. [c3] now ends "(A
+     separate notice, with the same wording as [c2].)"; [c7] and [c8] end "(… as [c4].)".
+   - **Held-out v4 W19:** its second LOR2 finding is marked the same way.
+   - **No merging:** no findings are merged in any saved record. An exact repeat (same passage, same quote) is shown
+     once with all its citation markers and IDs; this is tested only, because no saved record has one.
+3. **Kept:**
+   - citation IDs and source passages, unchanged;
+   - quotes and numbers, unchanged;
+   - originals in `display_rewrites`;
+   - the scoring text (the causal count over finding statements, and citation IDs for region scoring), unchanged for
+     W19;
+   - the displayed answer, which still validates.
+4. **Unchanged:**
+   - **Saved replays:** in all 32, validation, claims, observations and citations are identical to `main`. Only the
+     four findings above change.
+   - **Replay evaluation:** identical to `main`. All 40 Replay answers' displayed text and their 29 published findings
+     are identical.
+   - **Safety suite:** PASS, with output identical to `main`.
+   - **Earlier display tests:** unchanged.
+5. **Tests:** 882 pass. 7 are new; on `main` the 4 that expect the new behaviour fail and the 3 controls pass.
+   - **The controls:**
+     - identical wording with different evidence and times;
+     - identical wording with a different region;
+     - one passage quoted twice with different words;
+     - different wording.
+
+**Still open for I-3f:**
+- **Not yet told apart by date.** The note names the earlier finding but does not show the notices' own publication
+  times; the citations list and the cancellation sentence do.
+- **Not covered:** findings that repeat a summary quote, recorded under I-3d.
+- **Live is unverified.**
+
 ### I-3a: F03, a notice time shown without its zone
 
 **What happened** (Live check 2026-09-29, `artifacts/live/live-check-2026-09-29/F03.json`, trace `tr-77c70c8d1482`):
@@ -1529,11 +1565,11 @@ checks are met, with one departure from check 2 (below).
   - **PR `#30`** carries those commits to `main`.
   - **The second check's W18 verdict stays failed.** Its passing replay with the actual saved repair is offline
     evidence only.
-- **Display issues from that check** (queued after I-7b; the last three are not started):
+- **Display issues from that check** (queued after I-7b; the last two are not started):
   - an I-4 marker label without a colon: **I-4b, verified offline; Live unverified** (PR `#31`, below);
   - internal wording ("returned to the controller"): **I-4c, verified offline; Live unverified** (PR `#32`, below);
   - "$845.0" shown without "/MWh": **I-3e, verified offline; Live unverified** (PR `#33`, below);
-  - repeated finding titles: **in progress** as I-3f in `fix/finding-titles` (below);
+  - repeated finding titles: **I-3f, verified offline; Live unverified** (PR `#34`, below);
   - raw passage IDs as citation markers;
   - an evidence-backed exclusion shown under "Possible explanations".
 
@@ -1578,6 +1614,7 @@ generalisation):
 | I-3c: the headline states the validated answer where the controller holds it (causal timing answer; the document statement the model's headline paraphrases) | #25 | verified offline; **Live unverified** |
 | I-3d: a row-backed data point returned under several evidence IDs is shown once, after validation | #26 | verified offline; **Live unverified** |
 | I-4: displayed text is put in plain words after validation (no evidence IDs, tool or field names; controller notes and disclosures in plain language; originals kept) | #27 | verified offline; Live, development cases only (PR #28): held on W18, W19, F04 |
+| I-3f: separate findings with the same wording are kept and marked as separate notices; only one finding repeated (same passage, same quote) is shown once | #34 | verified offline; **Live unverified** |
 | I-3e: a currency amount shown without its rate ("$845.0") is completed from its validated evidence's own unit ("$845.0/MWh"), only when unambiguous | #33 | verified offline; **Live unverified** |
 | I-4c: the system's own workflow is described in plain words in displayed answers ("returned to the controller", "tool results", "The model judged the question"), outside quotations and without changing meaning | #32 | verified offline; **Live unverified** |
 | I-4b: a bracket of nothing but evidence references is removed whole, and an ID right after a label is removed with the label kept, instead of showing "the listed observation" | #31 | verified offline; **Live unverified** |
