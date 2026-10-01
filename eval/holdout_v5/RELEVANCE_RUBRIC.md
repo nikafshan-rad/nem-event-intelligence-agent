@@ -1,7 +1,7 @@
-# Held-out set v5: relevance rubric (Q4), frozen before the writer starts
+# Held-out set v5: relevance rubric (Q4) and the reviewer's manual checks (H2, H4)
 
-Written on 2026-10-01 with `PASS_RULE.md`, before any v5 case exists. It will not be edited after any Live result is
-seen.
+Written on 2026-10-01 with `PASS_RULE.md`, before any v5 case existed, and completed before the freeze (see
+`PROVENANCE.md`). It will not be edited after any Live result is seen.
 
 ## The reviewer
 
@@ -11,6 +11,8 @@ seen.
   - for each v5 case: the question, and from `cases.json` its `check` sentence, gold labels and `status_in`;
   - each answer as displayed: headline, summary, observations, possible explanations, ruled-out explanations,
     published findings, uncertainties, missing evidence, and the citations list with titles and quotes;
+  - for the regression's 18 answers: the same displayed parts, without gold labels;
+  - the count of causal phrases the scorer found in each answer, for its attention;
   - this rubric.
 - **What it is not given:** the issue tracker, pull requests, code, prompts, development records or traces, or any
   scoring output.
@@ -51,3 +53,24 @@ and are not violations:
 - a statement that timing rules an explanation out.
 
 The reviewer lists each case it flags, with the sentence.
+
+## Number check (H4, manual part)
+
+For each shown answer, the reviewer checks every number stated as fact (outside quotations and hypotheses). Each one
+must match a value in the answer's own observations, with the same unit, time and region, or appear in a quoted
+passage it cites. A rounded value is allowed if the unit and time match. The reviewer lists each number that does
+not match, with its sentence.
+
+## The regression
+
+The same reviewer also reads the regression's 18 shown answers, for the causal and number checks only, with no
+relevance labels. A flag in either run is an H2 or H4 violation.
+
+## Output
+
+The reviewer's output is JSON with these fields:
+- `cases`: `[{"case_id", "label", "reason", "close_call"}]`, one entry per v5 case;
+- `causal_flags` and `number_flags`: `[{"case_id", "sentence"}]` for v5;
+- `regression_causal_flags` and `regression_number_flags`: `[{"case_id", "sentence"}]` for the regression.
+
+`score.py --review` reads it.

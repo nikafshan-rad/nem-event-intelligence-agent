@@ -8,6 +8,8 @@
 > - **Earlier sets:** held-out v2 and v3 failed.
 > - **After v1.0 (2026-09-29):** a small frozen Live check ran: the development case W20 and 4 fresh questions, for
 >   USD 0.106. It is not an L3 result. See "Live check 2026-09-29" at the end.
+> - **Held-out v5 and regression (2026-10-01):** frozen, **not run**; they await approval and a task-budget increase.
+>   See the last section.
 >
 > The log below is chronological, so earlier sections record the status as it was then. See "Results: held-out set
 > v4" at the end.
@@ -2333,3 +2335,45 @@ Only F02 fully answered its question.
 
 **Status unchanged.** Live is experimental, and the full L3 rule remains unverified (its regression condition was not
 run). Four fresh questions are an indication, not a measured rate.
+
+## Held-out set v5 and regression: frozen, not run (awaiting approval and a task-budget increase)
+
+Prepared with approval for preparation only, with **no Live call**. Files: `eval/holdout_v5/`.
+
+**What this round can assess.** The current code (main `42f6fe5`, src tree `95b30253…`, prompts v11, gpt-5-mini)
+against the full L3 rule, which was pre-registered with v2 and applied unchanged to v3 and v4:
+- the new, independently written v5 set completes;
+- v5 meets H1–H5 and Q1–Q4 at the original bars;
+- the 18-case development regression has no H1–H5 violation;
+- both runs use the same frozen code.
+
+It does **not** change v4's status. v4's criteria were met on v1.0 code, and its full L3 rule stays unverified.
+
+| Item | Value |
+| --- | --- |
+| Pass rule and rubric | `PASS_RULE.md`, `RELEVANCE_RUBRIC.md`: first pushed in `dd7422e` **before the writer started**, completed before the freeze without reading any case (changes listed in `PROVENANCE.md`) |
+| Cases | **20** (Y01–Y20: 4 event, 4 forecast of which 2 as-of, 4 document, 3 notice, 2 ambiguous/unavailable, 2 causal-bait, 1 injection); `cases.json` `c33a06a3…` |
+| Writer | independent agent, kit only: no repository, analyses, tracker, prompts, code, Live outputs or the 98 earlier questions (hashed overlap checker only) |
+| Gold verification | independent agent, own queries: **20/20 PASS**, no revision |
+| Blind check | 18/18 rows and 8/8 snippets resolve; all cases build a request; no overlap with the 98 earlier questions or prompts v11 |
+| Q3 bar | G = 18, so ≥ 15 |
+| Q4 | an independent reviewer, frozen rubric; the rubric-based count (R + G) gates at ≥ 16; the strict count (R) is reported separately |
+| Regression | `REGRESSION.json`: H01–H14, ADV02, ADV04, DOC04, EV09 (the v3 round's 18), development data, gates only H1–H5 |
+| Caps (ledger, before every call) | USD 0.15 per case; USD 1.00 for v5; USD 0.80 for the regression |
+| Runner | `run_eval.py`: interruption, error, budget-stop and incomplete-coverage rules fixed in `PASS_RULE.md`; offline tests in `tests/eval/test_holdout_v5.py` |
+| Expected spend | about USD 0.68 (v5) + 0.61 (regression); the highest per-case peak committed in the ledger's 180 real case segments is 0.0974 |
+
+**Overlap (unavoidable).**
+- **Shared material:** v5 uses the same pinned data and corpus as every earlier set: 7 of the 8 events, and 6 gold
+  documents, all of them gold in earlier sets.
+- **Development material:** 9 of its 14 event-based cases are on events the development checks of this cycle used,
+  and 4 of its 8 gold citations come from documents those checks cited.
+- **What it tests:** new questions about data that development has seen, not new events or documents.
+
+**Budget.**
+- The ledger stands at USD 4.760384 of the USD 5.00 task cap.
+- Both runs need an approved task cap of at least **USD 6.560384**; v5 alone needs at least **USD 5.760384**.
+- `run_eval.py` refuses to start without it.
+- `config.LIVE_TOTAL_BUDGET_USD` is not changed.
+
+**The paid runs have not been started and await separate approval.** Live remains experimental.
