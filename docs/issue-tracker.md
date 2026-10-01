@@ -941,6 +941,57 @@ checks are met.
   sentence-level links, and could clash with other words ("26 five-minute intervals").
 - **Live is unverified.**
 
+### I-3f: separate findings shown with the same wording, as if repeated
+
+**What happened** (Live, second development check, 2026-09-30, `artifacts/live/live-check-dev2/W19.json`, trace
+`tr-db875cab1129`): the answer shows eight published findings, each "An AEMO market notice for SA1 [cN] says: “…”".
+- **Two show the same text:** “STPASA - Forecast Lack Of Reserve Level 2 (LOR2) in the SA Region on 29/07/2026.”
+  ([c2], [c3]).
+- **Three show the same text:** “STPASA - Cancellation of the Forecast Lack Of Reserve Level 2 (LOR2) …” ([c4], [c7],
+  [c8]).
+- **They are not repeats.** Each cites a different notice: 144627 and 144624; 144628, 144626 and 144623. They have
+  different publication times, and the cancellation sentence pairs them up. Read in the answer, they look like the
+  same finding repeated.
+- **Elsewhere:** separate notices sharing a quote appear in 7 saved records (9 findings).
+- **No exact repeat:** no saved record shows one finding twice (the same passage and the same quote). In the two
+  records where findings share a passage (2026-09-29 F03, held-out v3 V14), each quotes a different sentence.
+
+**Root cause.**
+- **Each finding is rendered from its own quote.** The controller renders each finding from its citation's verbatim
+  quote.
+- **AEMO reuses titles.** Successive forecasts, and their cancellations, of one reserve condition carry identical
+  titles, and the model quoted each notice's title line.
+- **Nothing in the display tells them apart.** Separate notices therefore render as identical sentences apart from the
+  citation marker, and nothing says they are separate notices.
+
+**Acceptance check** (offline, written before the code change):
+1. **When:** display only, after the complete answer has been validated. Nothing in validation, the model or the
+   controller changes.
+2. **What changes:**
+   - **Separate findings sharing wording:** when a finding's quote is identical to an earlier finding's, but it cites a
+     different passage, it is kept, with its citation and quote unchanged. A plain note is added: "(A separate
+     notice, with the same wording as [c2].)", or "document" for other document types.
+     - Findings with identical quotes are never merged, whatever their titles.
+     - Neither are findings with different passages, times or regions.
+   - **One finding repeated:** when a finding cites the same passage(s) with the same quote as an earlier one, it is
+     shown once, with all its citation markers and citation IDs, and its other fields unchanged.
+3. **Kept:**
+   - the source passages, citations and citation IDs;
+   - quotations, numbers and meaning; the note adds no number and no source text;
+   - each changed or merged line's original in `display_rewrites`;
+   - the text used in evaluation scoring: findings' citation IDs (region scoring), and the statements' wording outside
+     quotes (causal and injection scoring).
+4. **Unchanged:**
+   - validation outcomes in every saved replay;
+   - the earlier fixes;
+   - the Replay evaluation (or any change explained), and the safety suite.
+5. **Tests:**
+   - W19's saved findings, replayed with its first draft and actual saved repair;
+   - controls with identical quotes but different evidence, times or regions;
+   - two findings from the same passage with different quotes;
+   - an exact repeat.
+   - **Live is unverified.**
+
 ### I-3a: F03, a notice time shown without its zone
 
 **What happened** (Live check 2026-09-29, `artifacts/live/live-check-2026-09-29/F03.json`, trace `tr-77c70c8d1482`):
@@ -1482,7 +1533,7 @@ checks are met, with one departure from check 2 (below).
   - an I-4 marker label without a colon: **I-4b, verified offline; Live unverified** (PR `#31`, below);
   - internal wording ("returned to the controller"): **I-4c, verified offline; Live unverified** (PR `#32`, below);
   - "$845.0" shown without "/MWh": **I-3e, verified offline; Live unverified** (PR `#33`, below);
-  - repeated finding titles;
+  - repeated finding titles: **in progress** as I-3f in `fix/finding-titles` (below);
   - raw passage IDs as citation markers;
   - an evidence-backed exclusion shown under "Possible explanations".
 
