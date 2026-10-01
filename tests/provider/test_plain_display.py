@@ -284,7 +284,7 @@ def test_a_fallback_answer_loses_its_code_list_and_keeps_its_disclosure(path, kw
     rep, v = res.report, res.report.validation
     assert v["fallback_applied"] and v["final_passed"]
     assert rep.headline == ("Validated facts only: the generated narrative failed independent validation. "
-                            "Observations below are tool values with source rows.")
+                            "Observations below are retrieved values with source rows.")  # I-4c: no "tool values"
     assert "Narrative withheld because it failed validation." in rep.uncertainties
     assert v["pre_repair_codes"] and any(r["where"] == "headline" and "(" in r["original"] for r in v["display_rewrites"])
 

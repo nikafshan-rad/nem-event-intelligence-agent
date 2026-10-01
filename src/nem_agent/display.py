@@ -78,6 +78,28 @@ _TOOL_RE = re.compile(r"\b(?:([Tt]he) )?(" + "|".join(TOOL_NAMES) + r")(\s+searc
 # source document contains one); every other quotation is left exactly as written
 _QUOTED_TOOL_RE = re.compile(r"[“\"]\s*(" + "|".join(TOOL_NAMES) + r")\s*[”\"]")
 _FIELD_RE = re.compile(r"\b(" + "|".join(sorted(FIELD_NAMES, key=len, reverse=True)) + r")\b")
+# the system's own workflow in plain words (I-4c, W19: "as shown in the notice timings returned to the controller"). Only
+# phrases with a workflow verb or noun: "generation output", "SCADA traces", "the forecast model" or a bare "the
+# controller" are left alone, as is quoted text.
+_DETERMINER = r"(?:\b(the|these|those|this|any|no|its|their)\s+)?"
+_WORKFLOW: tuple[tuple[re.Pattern[str], Any], ...] = (
+    (re.compile(r"\b(?:returned|given|passed|sent|provided|supplied) to the controller\b", re.I),
+     "retrieved in this investigation"),
+    (re.compile(r"\b(computed|calculated|derived|produced|returned|provided|supplied|given|written|shown) by the "
+                r"controller\b", re.I), r"\1 in this investigation"),
+    (re.compile(r"\bfrom the controller\b", re.I), "from this investigation"),
+    (re.compile(r"\b(?:returned|provided|supplied|given|reported)\s+by\s+the\s+tools?\b", re.I),
+     "retrieved in this investigation"),
+    (re.compile(_DETERMINER + r"(?:(?:returned|current|available)\s+)?tool[- ](?:outputs?|results?|responses?)\b", re.I),
+     lambda m: f"{m.group(1) or 'the'} retrieved data"),
+    (re.compile(r"\btool values\b", re.I), "retrieved values"),
+    (re.compile(r"\b([Tt])he tools?(?=\s+(?:reported|reports|returned|returns|showed|shows|indicated|indicates|found|"
+                r"gave|gives)\b)"), r"\1he retrieved data"),
+    (re.compile(r"\bin the (?:retrieved|returned) set\b", re.I), "among the retrieved documents"),
+    (re.compile(r"\bthe (?:retrieved|returned) set\b", re.I), "the retrieved documents"),
+    (re.compile(r"\b([Tt])he model judged the question\b"), r"\1he question was judged"),  # the routing refusal
+    (re.compile(r"\b([Tt])he routing model returned invalid output\b"), r"\1he question could not be interpreted"),
+)
 _COMPUTED_RE = re.compile(r"\b([Cc])ontroller[- ]computed\b")
 _FALLBACK_HEADLINE_RE = re.compile(r"^(Validated facts only: the generated narrative failed independent validation) "
                                    r"\([A-Z_, ]+\)")
@@ -127,6 +149,10 @@ def _plain(segment: str, first: bool) -> str:
                    _EV_WORD_RE.sub("", s))
     s = _TOOL_RE.sub(lambda m: _tool(m, first), s)
     s = _FIELD_RE.sub(lambda m: FIELD_NAMES[m.group(1)], s)
+    for pattern, plain in _WORKFLOW:
+        s = pattern.sub(plain, s)
+    if first and s[:1].islower() and s[:1] != segment[:1]:  # a rewrite at the start of the text
+        s = s[0].upper() + s[1:]
     return _COMPUTED_RE.sub(lambda m: "Computed" if m.group(1) == "C" else "computed", s)
 
 
