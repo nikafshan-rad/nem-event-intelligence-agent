@@ -267,4 +267,54 @@ def plain_display(report: InvestigationReport, registry: Any = None) -> tuple[In
         "uncertainties": notes("uncertainties", report.uncertainties),
         "missing_evidence": notes("missing_evidence", report.missing_evidence),
     }
+    update["published_findings"] = distinct_findings(report, update["published_findings"], changed)
     return (report.model_copy(update=update), changed) if changed else (report, [])
+
+
+def distinct_findings(report: InvestigationReport, findings: list[Any], changed: list[dict[str, Any]]) -> list[Any]:
+    """Findings that read the same, told apart (I-3f, W19: five notices shown as two identical sentences).
+
+    A finding quoting the same words as an earlier one but citing a different passage is a separate finding: it is
+    kept, with a note naming the earlier one. Findings are never merged because their wording matches. Only a finding
+    citing the same passage(s) with the same quote as an earlier one is that finding repeated: it is shown once, with
+    all its citation markers and IDs. Each changed or merged line's original goes to ``changed``."""
+    chunk_of = {c.citation_id: c.chunk_id for c in report.citations}
+    recorded = {c["where"]: c for c in changed}
+
+    def note(i: int, **extra: Any) -> None:
+        entry = recorded.get(f"published_findings[{i}]")
+        if entry is None:
+            entry = {"where": f"published_findings[{i}]", "original": report.published_findings[i].statement}
+            changed.append(entry)
+            recorded[entry["where"]] = entry
+        entry.update(extra)
+
+    out: list[Any] = []
+    at: dict[tuple[frozenset[str], str], tuple[int, int]] = {}  # (passages, quote) -> (index in out, original index)
+    first: dict[str, tuple[frozenset[str], str]] = {}  # quote -> (passages, citation ID) of its first finding
+    for i, f in enumerate(findings):
+        q = QUOTED_RE.search(f.statement)
+        if q is None or not f.citation_ids:
+            out.append(f)
+            continue
+        quote, passages = q.group(0), frozenset(chunk_of.get(c, c) for c in f.citation_ids)
+        if (passages, quote) in at:  # the same finding again: shown once, with every citation
+            j, oi = at[(passages, quote)]
+            kept = out[j]
+            extra = [c for c in f.citation_ids if c not in kept.citation_ids]
+            last = f"[{kept.citation_ids[-1]}]"
+            out[j] = kept.model_copy(update={
+                "statement": kept.statement.replace(last, last + "".join(f" [{c}]" for c in extra), 1),
+                "citation_ids": [*kept.citation_ids, *extra], "applies_to_event": kept.applies_to_event or f.applies_to_event})
+            note(oi)
+            note(i, shown=False, shown_with=kept.citation_ids[0])
+            continue
+        if quote in first and first[quote][0] != passages:  # a separate finding with the same wording
+            noun = "notice" if f.doc_type == "market_notice" else "document"
+            f = f.model_copy(update={"statement": f"{f.statement} (A separate {noun}, with the same wording as "
+                                                  f"[{first[quote][1]}].)"})
+            note(i)
+        first.setdefault(quote, (passages, f.citation_ids[0]))
+        at[(passages, quote)] = (len(out), i)
+        out.append(f)
+    return out
