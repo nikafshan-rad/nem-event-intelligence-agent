@@ -803,7 +803,9 @@ checks are met.
    - "returned (provided …) by the tool(s)" becomes "retrieved in this investigation";
    - "the tool reported (returned, showed …)" becomes "the retrieved data reported (…)";
    - "the retrieved set" becomes "the retrieved documents";
-   - "The model judged the question …" becomes "The question was judged …".
+   - "The model judged the question …" becomes "The question was judged …";
+   - the routing step's other note, "The routing model returned invalid output", becomes "The question could not be
+     interpreted".
 3. **Kept:**
    - **Warnings, with their meaning:** missing evidence, blocked calls and search limits ("…not present in the
      retrieved data", "…not retrieved in this investigation").
@@ -823,6 +825,46 @@ checks are met.
    - the other saved examples;
    - controls for legitimate wording in quotations and domain terms.
    - **Live is unverified.**
+
+**Result: verified offline; Live unverified** (PR `#32`; evidence in `artifacts/logs/internal_wording_*`). All five
+checks are met.
+- **Added to check 2 before the tests were written:** the routing step's other note, "The routing model returned
+  invalid output", becomes "The question could not be interpreted".
+1. **When:** display only (`display.py`, `_WORKFLOW`), after validation, outside quotations.
+2. **What changes:** each workflow phrase gets plain wording with the same meaning:
+   - **W19 (second check):** "…published among the retrieved documents … as shown in the notice timings retrieved in
+     this investigation".
+   - **Other records:**
+     - "not present in the retrieved data";
+     - "No retrieved data here shows …";
+     - "the retrieved data reported that …";
+     - "the measure data were not retrieved in this investigation";
+     - "Refused: The question was judged out of scope or ambiguous.";
+     - the fallback headline's "Observations below are retrieved values with source rows."
+3. **Kept:**
+   - **Warnings, with their meaning:** missing evidence, blocked calls and search limits.
+   - **Unchanged text:** quotations, citation markers and every number, checked in each changed line and tested.
+   - **The record:** each line's original in `display_rewrites`.
+   - **Domain wording and quoted source text:** "generation output", "SCADA traces", "the forecast model", "frequency
+     controller", "AEMO's MT PASA tool", a bare "the controller". All are unchanged (tested).
+4. **Unchanged:**
+   - **Saved replays:** in all 32, validation, claims, observations and citations are identical to `main`. Eleven
+     displayed lines change, in 8 replays.
+   - **Replay evaluation:** identical to `main`, and the displayed text of all 40 Replay answers is identical.
+   - **Safety suite:** PASS, with output identical to `main`.
+   - **Earlier fixes:** their tests pass. The one expected change is the fallback headline in
+     `test_plain_display.py` ("tool values" became "retrieved values").
+5. **Tests:** 852 pass. 25 are new; on `main` the 15 that expect the new wording fail and the 10 controls pass.
+   - **What the new tests cover:** W19's saved sentence and replay; the other saved examples; W17's refusal, replayed
+     from its route; warnings; numbers; legitimate wording; an unsupported number beside workflow wording, still
+     rejected before display.
+
+**Still open for I-4c:**
+- **Not covered:**
+  - a bare "the controller" or "the tool" without a workflow verb;
+  - older-format jargon such as "evidence references" or "tool" in older records;
+  - the prompts' own vocabulary, unchanged, so the model may keep writing these phrases.
+- **Live is unverified.**
 
 ### I-3a: F03, a notice time shown without its zone
 
@@ -1361,9 +1403,9 @@ checks are met, with one departure from check 2 (below).
   - **PR `#30`** carries those commits to `main`.
   - **The second check's W18 verdict stays failed.** Its passing replay with the actual saved repair is offline
     evidence only.
-- **Display issues from that check, queued after I-7b (not started):**
+- **Display issues from that check** (queued after I-7b; the last four are not started):
   - an I-4 marker label without a colon: **I-4b, verified offline; Live unverified** (PR `#31`, below);
-  - internal wording ("returned to the controller"): **in progress** as I-4c in `fix/internal-wording` (below);
+  - internal wording ("returned to the controller"): **I-4c, verified offline; Live unverified** (PR `#32`, below);
   - "$845.0" shown without "/MWh";
   - repeated finding titles;
   - raw passage IDs as citation markers;
@@ -1410,6 +1452,7 @@ generalisation):
 | I-3c: the headline states the validated answer where the controller holds it (causal timing answer; the document statement the model's headline paraphrases) | #25 | verified offline; **Live unverified** |
 | I-3d: a row-backed data point returned under several evidence IDs is shown once, after validation | #26 | verified offline; **Live unverified** |
 | I-4: displayed text is put in plain words after validation (no evidence IDs, tool or field names; controller notes and disclosures in plain language; originals kept) | #27 | verified offline; Live, development cases only (PR #28): held on W18, W19, F04 |
+| I-4c: the system's own workflow is described in plain words in displayed answers ("returned to the controller", "tool results", "The model judged the question"), outside quotations and without changing meaning | #32 | verified offline; **Live unverified** |
 | I-4b: a bracket of nothing but evidence references is removed whole, and an ID right after a label is removed with the label kept, instead of showing "the listed observation" | #31 | verified offline; **Live unverified** |
 | I-7b: a hypothesis that only doubts a post-event notice is not reliance; an exclusion backed by the validated notice timing needs no hedge word, but may assert no cause | #30 (#29 merged into the eval branch, not `main`) | verified offline; **Live unverified** |
 | Second development-only Live check (F01, F03, W18, W19; F04 control), frozen then run once; an evaluation-only record | #28 | Live, USD 0.168; required coverage full, 2 of 4 held (F03, W19), W18 failed, F01 not triggered; **awaiting review, not merged** |
