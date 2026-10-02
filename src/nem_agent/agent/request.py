@@ -211,7 +211,26 @@ _ZONE = r"(UTC|AEST|AEDT|ACST|ACDT|NEM time|market time)"
 _HALF_HOUR_RANGE_RE = re.compile(rf"(?<![\d:T])([01]?\d|2[0-3]):([0-5]\d)\s*{_ZONE}?\s*(?:to|-|–|—|until)\s*"
                                  rf"([01]?\d|2[0-3]):([0-5]\d)\s*{_ZONE}?", re.I)
 _HALF_HOUR_ENDING_RE = re.compile(rf"\b(?:ending|ends)\s+(?:at\s+)?([01]?\d|2[0-3]):([0-5]\d)\s*{_ZONE}", re.I)
-_HALF_HOUR_ENDING_ISO_RE = re.compile(r"\b(?:ending|ends)\s+(?:at\s+)?(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?Z)", re.I)
+_END_WORD = r"(?:ending|ends|ended|finishing|finishes|finished)"
+_ISO_Z = r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?Z"
+_HALF_HOUR_ENDING_ISO_RE = re.compile(rf"\b{_END_WORD}\s+(?:at\s+)?({_ISO_Z})", re.I)
+# "the half-hour finishing at 07:30 on 31 July in market time (UTC 2026-07-30T21:30:00Z)" (held-out v6 Z05): a clock
+# that ends the half-hour, its own date and zone written after it in either order, and an ISO instant in brackets right
+# after that restates it (alone, or labelled only "UTC", "=" or "i.e."; a bracketed time labelled anything else, such as
+# a publication or issue time, is another time)
+_MONTH = (r"(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|"
+          r"oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b\.?")
+_DATE_WORDS = (rf"(?:20\d\d-\d\d-\d\d(?!T)|\d{{1,2}}(?:st|nd|rd|th)?\s+{_MONTH}(?:,?\s+20\d\d)?|"
+               rf"{_MONTH}\s+\d{{1,2}}(?:st|nd|rd|th)?\b(?:,?\s+20\d\d)?)")
+_HALF_HOUR_END_CLOCK_RE = re.compile(
+    rf"\b{_END_WORD}\s+(?:at\s+)?([01]?\d|2[0-3]):([0-5]\d)(?![\d:])"
+    rf"((?:\s*,?\s*(?:(?:on\s+)?{_DATE_WORDS}|(?:in\s+)?(?:UTC|AEST|AEDT|ACST|ACDT|NEM time|market time)\b))*)"
+    rf"(?:\s*\(\s*(?:(?:UTC|=|i\.e\.,?)\s*)?({_ISO_Z})\s*\))?", re.I)
+_ZONE_WORD_RE = re.compile(r"\b(UTC|AEST|AEDT|ACST|ACDT|NEM time|market time)\b", re.I)
+# alternatives after one ending word ("finishing at 07:30 or 08:00 AEST"): more than one half-hour
+_END_CLOCK_LIST_RE = re.compile(rf"\b{_END_WORD}\s+(?:at\s+)?\d{{1,2}}:\d\d(?![\d:])[^.;:?()]{{0,40}}?\b(?:or|and)\s+"
+                                r"(?:at\s+)?\d{1,2}:\d\d", re.I)
+_DAY_MONTH_RE = re.compile(rf"\b(\d{{1,2}})(?:st|nd|rd|th)?\s+({_MONTH})|\b({_MONTH})\s+(\d{{1,2}})(?:st|nd|rd|th)?\b", re.I)
 
 
 @dataclass(frozen=True)
@@ -225,11 +244,17 @@ class ForecastRequest:
 
 def half_hour_asked(question: str) -> tuple[datetime, datetime] | None:
     """The one half-hour a question asks about (start, end UTC): a clock range with its zone on one date ("from 21:00
-    to 21:30 UTC on 2026-07-30"), "the half-hour ending HH:MM <zone> on <date>", or an ISO end time ("ends at
-    2026-07-30T21:30:00Z"). None when it is not pinned down: no zone, not one date, not 30 minutes, or several."""
+    to 21:30 UTC on 2026-07-30"), a clock that ends it with its zone and date ("the half-hour ending HH:MM <zone> on
+    <date>", "finishing at 07:30 on 31 July 2026 in market time"), or an ISO end time ("ends at 2026-07-30T21:30:00Z",
+    or in brackets right after the clock it restates). Nothing is guessed: a date without its year, or a clock without
+    its zone, only checks the ISO time that restates it. None when it is not pinned down: no zone, no date, not 30
+    minutes, several half-hours (also "ending 07:30 or 08:00"), an ending clock that cannot be dated or zoned, or a
+    clock and its restatement that disagree."""
     issued = ISSUED_AT_RE.search(question)
     text = question if issued is None else question[:issued.start()] + " " * (issued.end() - issued.start()) + \
         question[issued.end():]
+    if _END_CLOCK_LIST_RE.search(text):
+        return None
     days = extract_dates(text)
     found: set[tuple[datetime, datetime]] = set()
 
@@ -246,8 +271,27 @@ def half_hour_asked(question: str) -> tuple[datetime, datetime] | None:
             if zone:
                 a, b = at(days[0], m.group(1), m.group(2), zone), at(days[0], m.group(4), m.group(5), zone)
                 found.add((a, b if b > a else b + timedelta(days=1)))
-        for m in _HALF_HOUR_ENDING_RE.finditer(text):
-            end = at(days[0], m.group(1), m.group(2), m.group(3))
+    for m in _HALF_HOUR_END_CLOCK_RE.finditer(text):
+        hh, mm, quals, iso = int(m.group(1)), int(m.group(2)), m.group(3), m.group(4)
+        offsets = {_CLOCK_ZONE_MIN[z.lower()] for z in _ZONE_WORD_RE.findall(quals)}
+        own = extract_dates(quals)  # a full date written with the clock
+        md = {(MONTHS[(g[1] or g[2])[:3].lower()], int(g[0] or g[3])) for g in _DAY_MONTH_RE.findall(quals)}
+        if len(offsets) > 1 or len(own) > 1 or len(md) > 1:
+            return None  # two zones or two dates for one clock
+        day = own[0] if own else (next(iter(d for d in days if (d.month, d.day) in md), None) if md
+                                  else days[0] if len(days) == 1 else None)
+        if not iso and not (offsets and day is not None):
+            return None  # a half-hour named by a clock that is not pinned down: not skipped in favour of another
+        if offsets and day is not None:
+            off = next(iter(offsets))
+            end = datetime.combine(day, time(hh, mm), tzinfo=timezone(timedelta(minutes=off))).astimezone(UTC)
+            found.add((end - timedelta(minutes=30), end))
+        if iso:
+            end = parse_iso(iso)
+            local = [end + timedelta(minutes=o) for o in (offsets or set(_CLOCK_ZONE_MIN.values()))]
+            if not any((t.hour, t.minute) == (hh, mm) and (day is None or t.date() == day)
+                       and (not md or (t.month, t.day) in md) for t in local):
+                return None  # the restatement is not the clock's instant
             found.add((end - timedelta(minutes=30), end))
     found = {(a, b) for a, b in found if b - a == timedelta(minutes=30) and b.minute in (0, 30) and b.second == 0}
     return next(iter(found)) if len(found) == 1 else None
@@ -279,6 +323,12 @@ def half_hour_after_cutoff(question: str, as_of: datetime) -> tuple[datetime, da
         return None
     a, b = next(iter(found))
     return (a, b) if a >= as_of else None
+
+
+HALF_HOUR_CLARIFICATION = (
+    "Which half-hour is the forecast asked about? The question asks for the last forecast run issued before a "
+    "half-hour, but does not pin that half-hour down, so no run can be chosen. Give the half-hour's date with its "
+    "year, its end time, and the time zone (for example AEST, market time or UTC).")
 
 
 def requested_forecast(question: str) -> ForecastRequest | None:
@@ -446,6 +496,11 @@ def resolve(req: InvestigateRequest, sel: Selection) -> Resolution:
         if window is None and not dates and as_of is not None:
             reasons.append("Which date is the half-hour (or period) asked about? The as-of cutoff says what was public "
                            "by then, not which day the forecast is for.")
+    wanted = requested_forecast(q) if intent == "forecast_review" else None
+    if wanted is not None and wanted.run == "last_issued_before" and wanted.half_hour is None:
+        # the run is named relative to a half-hour that is not pinned down: no run can be chosen without a guess, and
+        # any run the answer used would stand in for the one asked for (held-out v6 Z05, I-16)
+        reasons.append(HALF_HOUR_CLARIFICATION)
     needs_data = intent in ("market_event_review", "forecast_review")
     if needs_data and region is None and not reasons:
         reasons.append("Which NEM region (NSW1, QLD1, SA1, TAS1 or VIC1)?")

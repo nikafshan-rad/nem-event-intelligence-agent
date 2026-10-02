@@ -1,0 +1,175 @@
+# I-16: the forecast run asked for, bound only to a half-hour the question pins down (held-out v6 Z05). Offline only:
+# saved Live records replayed through the SYNTHETIC fake transport (no network, no key; scratch ledger), on main
+# 8752b3d and on fix/forecast-half-hour-binding. Live is unverified.
+
+## The store's runs for NSW1, half-hour 21:00-21:30 UTC (= 07:00-07:30 AEST, 31 July), issued before it starts,
+## latest issued first: issue, publication and availability times are distinct (available = published + 166 min)
+   issued 20:56:59  published 21:01:29  available 07-30 23:47:29  POE50  11082.0  <- last issued before the half-hour (asked for)
+   issued 20:26:59  published 20:31:28  available 07-30 23:17:28  POE50  11049.0
+   issued 19:57:01  published 20:01:28  available 07-30 22:47:28  POE50  11090.0
+   issued 19:27:01  published 19:31:27  available 07-30 22:17:27  POE50  11063.0
+   issued 18:56:59  published 19:01:35  available 07-30 21:47:35  POE50  11030.0
+   issued 18:27:01  published 18:31:26  available 07-30 21:17:26  POE50  10954.0  <- latest available by the half-hour's END, 21:30Z (latest_available_as_of 21:30Z; shown in Z05)
+   issued 17:56:59  published 18:01:40  available 07-30 20:47:40  POE50  10972.0
+
+
+## Probe, the same script on main and on the branch (Z05's saved route, tool calls, synthesis draft, saved repair)
+### main 8752b3d
+## Z05's question (saved route, tool calls, synthesis draft and saved repair)
+   run named: last_issued_before | half-hour read: not read
+   status: answered_with_caveats
+   fallback: False
+   bound: nothing bound
+   controller: []
+   codes: ['NUMERIC_UNTRACKED', 'TIME_OF_DAY_UNVERIFIED']
+   forecast_values_shown: [('opdemand_forecast_poe50', 10954.0, 'PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607310500_20260731043126'), ('forecast_error_mw', -224.0, 'PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607310500_20260731043126'), ('forecast_error_pct', -2.0, 'PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607310500_20260731043126')]
+   headline: POE50 10954.0 MW vs actual 11178.0 MW at 2026-07-31 07:30 AEST (UTC+1000): forecast −224.0 MW.
+## Z05's question with a request-level as-of cutoff 2026-07-30T21:10:00Z (the run asked for is public 23:47:29Z)
+   status: abstained
+   fallback: True
+   bound: nothing bound
+   controller: []
+   codes: ['CLAIM_EVIDENCE_MISSING', 'HYPOTHESIS_EVIDENCE_MISSING', 'NUMERIC_UNTRACKED', 'TIME_NOT_IN_EVIDENCE', 'TIME_OF_DAY_UNVERIFIED']
+   forecast_values_shown: []
+   headline: Validated facts only: the generated narrative failed independent validation. Observations below are retrieved values with source rows.
+## Z05's wording without the bracketed UTC restatement (a date without its year; nothing else pins it down)
+   half-hour read: not read
+   status: answered_with_caveats
+   fallback: False
+   bound: nothing bound
+   controller: []
+   codes: ['NUMERIC_UNTRACKED', 'TIME_OF_DAY_UNVERIFIED']
+   forecast_values_shown: [('opdemand_forecast_poe50', 10954.0, 'PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607310500_20260731043126'), ('forecast_error_mw', -224.0, 'PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607310500_20260731043126'), ('forecast_error_pct', -2.0, 'PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607310500_20260731043126')]
+   headline: POE50 10954.0 MW vs actual 11178.0 MW at 2026-07-31 07:30 AEST (UTC+1000): forecast −224.0 MW.
+## The half-hour as read, for wording variants (question: 'NSW1, the half-hour <phrase>: ...')
+   not read                     finishing at 07:30 on 31 July in market time (UTC 2026-07-30T21:30:00Z)
+   not read                     finishing at 07:30 on 31 July 2026 in market time
+   not read                     finishing at 07:30 market time on 31 July 2026
+   not read                     that finished at 07:30 AEST on 2026-07-31
+   not read                     finishing at 07:30 (2026-07-30T21:30:00Z)
+   not read                     finishing at 2026-07-30T21:30:00Z
+   2026-07-30T21:00Z-21:30Z     ending 07:30 AEST on 31 July 2026
+   not read                     finishing at 08:00 on 31 July in market time (UTC 2026-07-30T21:30:00Z)
+   not read                     finishing at 07:30 on 30 July in market time (UTC 2026-07-30T21:30:00Z)
+   not read                     finishing at 07:30 on 31 July UTC (2026-07-30T21:30:00Z)
+   not read                     finishing at 07:30 on 31 July 2026 in market time (2026-07-30T22:00:00Z)
+   not read                     finishing at 07:30 on 31 July in market time
+   not read                     finishing at 07:30 on 31 July 2026
+   not read                     finishing at 07:30 on 31 July in market time (published 2026-07-30T21:01:29Z)
+   not read                     finishing at 07:30 or 08:00 AEST on 31 July 2026, or the one finishing at 08:30 AEST on 31 July 2026
+   not read                     finishing at 07:30 AEST or 08:00 AEST on 31 July 2026
+   not read                     finishing at 07:30 AEST on 31 July 2026 UTC
+   not read                     finishing at 07:45 AEST on 31 July 2026
+### branch fix/forecast-half-hour-binding
+## Z05's question (saved route, tool calls, synthesis draft and saved repair)
+   run named: last_issued_before | half-hour read: 2026-07-30T21:00Z-21:30Z
+   status: answered_with_caveats
+   fallback: True
+   bound: {'half_hour_end_utc': '2026-07-30T21:30:00Z', 'run_id': 'PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607310730_20260731070129', 'issued_at_utc': '2026-07-30T20:56:59Z'}
+   controller: ['ok']
+   codes: ['FORECAST_RUN_SUBSTITUTED', 'NUMERIC_UNTRACKED', 'TIME_OF_DAY_UNVERIFIED']
+   forecast_values_shown: []
+   headline: Validated facts only: the generated narrative failed independent validation. Observations below are retrieved values with source rows.
+## Z05's question with a request-level as-of cutoff 2026-07-30T21:10:00Z (the run asked for is public 23:47:29Z)
+   status: abstained
+   fallback: True
+   bound: {'half_hour_end_utc': '2026-07-30T21:30:00Z', 'run_id': None, 'issued_at_utc': None}
+   controller: []
+   codes: ['CLAIM_EVIDENCE_MISSING', 'HYPOTHESIS_EVIDENCE_MISSING', 'NUMERIC_UNTRACKED', 'TIME_NOT_IN_EVIDENCE', 'TIME_OF_DAY_UNVERIFIED']
+   forecast_values_shown: []
+   headline: Validated facts only: the generated narrative failed independent validation. Observations below are retrieved values with source rows.
+## Z05's wording without the bracketed UTC restatement (a date without its year; nothing else pins it down)
+   half-hour read: not read
+   status: needs_clarification
+   fallback: False
+   bound: nothing bound
+   controller: []
+   codes: []
+   forecast_values_shown: []
+   headline: Clarification needed: Which half-hour is the forecast asked about? The question asks for the last forecast run issued before a half-hour, bu
+## The half-hour as read, for wording variants (question: 'NSW1, the half-hour <phrase>: ...')
+   2026-07-30T21:00Z-21:30Z     finishing at 07:30 on 31 July in market time (UTC 2026-07-30T21:30:00Z)
+   2026-07-30T21:00Z-21:30Z     finishing at 07:30 on 31 July 2026 in market time
+   2026-07-30T21:00Z-21:30Z     finishing at 07:30 market time on 31 July 2026
+   2026-07-30T21:00Z-21:30Z     that finished at 07:30 AEST on 2026-07-31
+   2026-07-30T21:00Z-21:30Z     finishing at 07:30 (2026-07-30T21:30:00Z)
+   2026-07-30T21:00Z-21:30Z     finishing at 2026-07-30T21:30:00Z
+   2026-07-30T21:00Z-21:30Z     ending 07:30 AEST on 31 July 2026
+   not read                     finishing at 08:00 on 31 July in market time (UTC 2026-07-30T21:30:00Z)
+   not read                     finishing at 07:30 on 30 July in market time (UTC 2026-07-30T21:30:00Z)
+   not read                     finishing at 07:30 on 31 July UTC (2026-07-30T21:30:00Z)
+   not read                     finishing at 07:30 on 31 July 2026 in market time (2026-07-30T22:00:00Z)
+   not read                     finishing at 07:30 on 31 July in market time
+   not read                     finishing at 07:30 on 31 July 2026
+   not read                     finishing at 07:30 on 31 July in market time (published 2026-07-30T21:01:29Z)
+   not read                     finishing at 07:30 or 08:00 AEST on 31 July 2026, or the one finishing at 08:30 AEST on 31 July 2026
+   not read                     finishing at 07:30 AEST or 08:00 AEST on 31 July 2026
+   not read                     finishing at 07:30 AEST on 31 July 2026 UTC
+   not read                     finishing at 07:45 AEST on 31 July 2026
+
+## Alternatives after one ending word, in main's own wording ('ending'): main took one half-hour, so one run
+### main 8752b3d
+   2026-07-30T22:00Z-22:30Z     ending 07:30 or 08:00 AEST on 31 July 2026, or the one ending 08:30 AEST on 31 July 2026
+   2026-07-30T21:00Z-21:30Z     ending 07:30 AEST or 08:00 AEST on 31 July 2026
+   2026-07-30T21:30Z-22:00Z     ending 07:30 on 31 July 2026, or the one ending 08:00 AEST on 31 July 2026
+### branch
+   not read                     ending 07:30 or 08:00 AEST on 31 July 2026, or the one ending 08:30 AEST on 31 July 2026
+   not read                     ending 07:30 AEST or 08:00 AEST on 31 July 2026
+   not read                     ending 07:30 on 31 July 2026, or the one ending 08:00 AEST on 31 July 2026
+
+   status answered_with_caveats, final_passed True, fallback False
+   opdemand_forecast_poe50      11082.0 MW  valid_at 2026-07-30T21:30:00Z (30-min interval)  source rows ['OPDEM_FORECAST_HH:PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607310730_20260731070129:L3']
+   opdemand_actual              11178.0 MW  valid_at 2026-07-30T21:30:00Z (30-min interval)  source rows ['OPDEM_ACTUAL_DAILY:PUBLIC_ACTUAL_OPERATIONAL_DEMAND_DAILY_20260731_20260801044001:L9']
+   controller comparison: compare_forecast_actual(run_id, run_id=PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607310730_20260731070129, 2026-07-30T21:00:00Z..2026-07-30T21:30:00Z) -> ok
+
+## Every question in the repository (frozen eval sets and saved Live records, 138): the run named and the half-hour read
+   main: 8 name a run, 12 half-hours read; branch: 8 name a run, 13 half-hours read
+   read differently: 1, held-out v6 Z05 (half-hour: not read -> 2026-07-30T21:00Z-21:30Z); the other 137 are read as on main
+
+## Saved Live records replayed, main vs branch (222 records each)
+   with each record's synthesis draft and saved repair: shown answer differs on 1 (Z05), validation codes differ on 1 (Z05)
+   with each record's final (repaired) draft as the only draft: shown answer differs on 1 (Z05), codes differ on 1 (Z05)
+     Z05 main:   answered_with_caveats, no fallback, the 18:27:01Z run's POE50 10954.0, error -224.0 and -2.0% shown
+     Z05 branch: FORECAST_RUN_SUBSTITUTED (each naming the run issued 20:56:59Z), facts-only fallback, no forecast value shown
+
+## Replay evaluation: EVAL: PASS on both, identical (latencies, trace ids, timestamps, version stripped)
+## Safety suite: SAFETY-SUITE: PASS on both, log identical
+
+## New tests (tests/provider/test_forecast_half_hour.py), run on main's code (two new names stubbed)
+   (on main, Replay mode sends the unpinned question back with the generic "Which date (or UTC window) should be investigated?"; Live mode answers it with whatever run the model used)
+PASSED test_a_half_hour_not_pinned_down_is_not_read[finishing at 08:00 on 31 July in market time (UTC 2026-07-30T21:30:00Z)]
+PASSED test_a_half_hour_not_pinned_down_is_not_read[finishing at 07:30 on 30 July in market time (UTC 2026-07-30T21:30:00Z)]
+PASSED test_a_half_hour_not_pinned_down_is_not_read[finishing at 07:30 on 31 July UTC (2026-07-30T21:30:00Z)]
+PASSED test_a_half_hour_not_pinned_down_is_not_read[finishing at 07:30 on 31 July 2026 in market time (2026-07-30T22:00:00Z)]
+PASSED test_a_half_hour_not_pinned_down_is_not_read[finishing at 07:30 on 31 July in market time]
+PASSED test_a_half_hour_not_pinned_down_is_not_read[finishing at 07:30 on 31 July 2026]
+PASSED test_a_half_hour_not_pinned_down_is_not_read[finishing at 07:30 on 31 July in market time (published 2026-07-30T21:01:29Z)]
+PASSED test_a_half_hour_not_pinned_down_is_not_read[finishing at 07:30 or 08:00 AEST on 31 July 2026, or the one finishing at 08:30 AEST on 31 July 2026]
+PASSED test_a_half_hour_not_pinned_down_is_not_read[finishing at 07:30 AEST or 08:00 AEST on 31 July 2026]
+PASSED test_a_half_hour_not_pinned_down_is_not_read[finishing at 07:30 on 31 July 2026, or the one finishing at 08:00 AEST on 31 July 2026]
+PASSED test_a_half_hour_not_pinned_down_is_not_read[finishing at 07:30 AEST on 31 July 2026 UTC]
+PASSED test_a_half_hour_not_pinned_down_is_not_read[finishing at 07:45 AEST on 31 July 2026]
+PASSED test_other_forecast_questions_are_not_sent_back_for_the_half_hour[How did NSW1's operational demand forecasts for the half-hour finishing at 07:30 on 31 July 2026 compare?]
+PASSED test_other_forecast_questions_are_not_sent_back_for_the_half_hour[What did the NSW1 forecast issued at 2026-07-30T20:56:59Z say for the half-hour finishing at 07:30 on 31 July?]
+PASSED test_other_forecast_questions_are_not_sent_back_for_the_half_hour[As of 2026-07-30T21:10:00Z, what was the newest NSW1 forecast for the half-hour finishing at 07:30 on 31 July?]
+FAILED test_z05s_half_hour_and_run_are_read
+FAILED test_an_ending_clock_with_its_own_date_and_zone_or_an_equivalent_is_read[finishing at 07:30 on 31 July 2026 in market time-2026-07-30T21:30:00Z]
+FAILED test_an_ending_clock_with_its_own_date_and_zone_or_an_equivalent_is_read[finishing at 07:30 market time on 31 July 2026-2026-07-30T21:30:00Z]
+FAILED test_an_ending_clock_with_its_own_date_and_zone_or_an_equivalent_is_read[that finished at 07:30 AEST on 2026-07-31-2026-07-30T21:30:00Z]
+FAILED test_an_ending_clock_with_its_own_date_and_zone_or_an_equivalent_is_read[finishing at 07:30 on July 31 in NEM time (i.e. 2026-07-30T21:30:00Z)-2026-07-30T21:30:00Z]
+FAILED test_an_ending_clock_with_its_own_date_and_zone_or_an_equivalent_is_read[finishing at 21:30 UTC on 30 July (= 2026-07-30T21:30:00Z)-2026-07-30T21:30:00Z]
+FAILED test_an_ending_clock_with_its_own_date_and_zone_or_an_equivalent_is_read[finishing at 07:30 (2026-07-30T21:30:00Z)-2026-07-30T21:30:00Z]
+FAILED test_an_ending_clock_with_its_own_date_and_zone_or_an_equivalent_is_read[finishing at 2026-07-30T21:30:00Z-2026-07-30T21:30:00Z]
+FAILED test_an_ending_clock_with_its_own_date_and_zone_or_an_equivalent_is_read[finishing at 17:30 ACST on 29 July 2026-2026-07-29T08:00:00Z]
+FAILED test_a_half_hour_not_pinned_down_is_not_read[ending 07:30 AEST or 08:00 AEST on 31 July 2026]
+FAILED test_a_half_hour_not_pinned_down_is_not_read[ending 07:30 on 31 July 2026, or the one ending 08:00 AEST on 31 July 2026]
+FAILED test_issue_and_publication_times_are_not_the_half_hour
+FAILED test_z05s_saved_answer_is_rejected_and_the_other_run_not_shown
+FAILED test_an_answer_citing_the_run_asked_for_passes_with_its_run_and_half_hour_traceable
+FAILED test_a_run_named_relative_to_an_unread_half_hour_is_sent_back_in_live_mode
+FAILED test_a_run_named_relative_to_an_unread_half_hour_is_sent_back_in_replay_mode
+FAILED test_a_cutoff_with_the_request_keeps_the_run_chosen_by_issue_time_and_says_it_cannot_be_supplied
+FAILED test_two_runs_that_fit_the_rule_equally_are_not_chosen_between[wanted0-rows0]
+FAILED test_two_runs_that_fit_the_rule_equally_are_not_chosen_between[wanted1-rows1]
+19 failed, 15 passed in 3.07s
+## Full test suite on the branch: 1358 passed (scratch ledger); ruff and mypy clean
