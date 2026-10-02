@@ -1,0 +1,24 @@
+# I-10: an as-of forecast question dated by its explicit cutoff. Offline only: saved Live records replayed through the
+# SYNTHETIC fake transport (no network, no key; scratch ledger), on main 0f0b5c9 and on fix/as-of-date-clarification.
+# Live is unverified.
+
+## Y07 from its saved routing decision (needs_clarification, missing_region_or_date)
+### main 0f0b5c9
+Y07 replayed (saved route decision): needs_clarification | Clarification needed: Which date (or UTC window) should be investigated?
+  policy notes: [] | resolver: needs_clarification ['Which date (or UTC window) should be investigated?'] | window: None | as_of: 2026-08-19T20:00:00+00:00
+  resolver alone (intent, region and cutoff given): needs_clarification ['Which date (or UTC window) should be investigated?'] | dates found: []
+  route_policy alone: override = needs_clarification | notes: []
+### fix/as-of-date-clarification
+Y07 replayed (saved route decision): abstained | Abstained: the live model did not produce a valid report.
+  policy notes: ['clarification not applied: the explicit as-of cutoff gives the date (its local date in the region)'] | resolver: ok [] | window: ['2026-08-19T11:00:00+00:00', '2026-08-20T11:30:00+00:00'] | as_of: 2026-08-19T20:00:00+00:00
+  resolver alone (intent, region and cutoff given): ok [] | dates found: []
+  route_policy alone: override = None | notes: ['clarification not applied: the explicit as-of cutoff gives the date (its local date in the region)']
+  (the 'abstained' above is only the reproduction's empty model; with tool calls and an answer from the run public by the
+   cutoff, the answer passes: tests/provider/test_as_of_date.py)
+
+## Every saved Live question with a saved routing decision, through route_policy and resolve
+questions: 198; outcomes on main: {'ok': 181, 'needs_clarification': 11, 'refused': 6}
+  L3-holdout-v5/Y07: needs_clarification -> ok; window None -> ['2026-08-19T11:00:00+00:00', '2026-08-20T11:30:00+00:00']
+same as main: 197 of 198
+
+## Saved drafts replayed with their saved repairs: 181, all identical to main (Y07 has no draft)

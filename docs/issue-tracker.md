@@ -22,7 +22,7 @@ One list of known defects, so that each fix is weighed against the whole. Eviden
 | I-7 | **An explanation kept open that the answer's own timing rules out** | W18 (Live, 2026-09-30): the opening says timing rules the Hazelwood bus-tie outage out. The notice gives 1100 hrs 20/08, after every high-price interval. A hedged hypothesis resting on that notice [c1] still offers it as a possible influence | P2 | **fixed offline** in PR `#22` (below); Live-unverified when merged. Offline, W18's actual saved repair now falls back, and only a scripted repair that deletes the hypothesis passes. W18's Live verdict (held) is unchanged. **Second development check (2026-09-30, PR `#28`, one run per case):** **failed** on W18: it fired on a hypothesis that doubted the post-event notice; the scoped repair turned that hypothesis into an unhedged statement (HYPOTHESIS_UNHEDGED), and the answer fell back. **I-7b** (a doubting hypothesis flagged; the repair's evidence-backed exclusion rejected as unhedged): **verified offline; Live unverified** (PR `#30`, below). The second check's W18 verdict stays failed; its passing offline replay does not replace it. **I-7c** (a validated exclusion shown apart from hypotheses): **verified offline; Live unverified** (PR `#36`, below) |
 | I-8 | **A definition shown with its meaning reversed** | Y20 (held-out v5, Live, 2026-10-02): asked whether operational demand counts scheduled loads, the answer said it *includes* "local demand of scheduled loads and scheduled bidirectional units" [c1], citing figure text that subtracts them; the definition excludes them. It passed validation and was shown | P1 | **verified offline; Live unverified** (PR `#40`, below). v5's FAIL verdict and Y20's scores are unchanged |
 | I-9 | **The forecast run asked for, replaced by another** | Y05, Y06 (held-out v5, Live, 2026-10-02): asked for the last forecast issued before a named half-hour, both answers gave a run issued about three hours earlier (Y05 POE50 10,972 MW from the 17:56:59Z run instead of 11,082 from the 20:56:59Z run; Y06 2,017 from 04:27:00Z instead of 1,816 from 07:26:58Z), presented as the run asked for | P1 | **verified offline; Live unverified** (PR `#41`, merged as `0f0b5c9`; below). v5's FAIL verdict and Y05/Y06's scores are unchanged |
-| I-10 | **An as-of forecast question sent back for a date it already gives** | Y07 (held-out v5, Live, 2026-10-02): "As of 2026-08-19T20:00:00Z, … what was the newest Victorian operational demand forecast for the 23:00 to 23:30 UTC half-hour …?" was answered with "Which date (or UTC window) should be investigated?". The explicit cutoff dates the question | P2 | **in progress** (below); v5's FAIL verdict and Y07's scores are unchanged |
+| I-10 | **An as-of forecast question sent back for a date it already gives** | Y07 (held-out v5, Live, 2026-10-02): "As of 2026-08-19T20:00:00Z, … what was the newest Victorian operational demand forecast for the 23:00 to 23:30 UTC half-hour …?" was answered with "Which date (or UTC window) should be investigated?". The explicit cutoff dates the question | P2 | **verified offline; Live unverified** (below). v5's FAIL verdict and Y07's scores are unchanged |
 | I-5 | **Known safety-language limitations** | See the list below. Each is recorded with its risk. None is being worked on, to avoid an open-ended wording cycle | P3 | recorded; revisit only with a new concrete failure |
 
 ### I-1a: F04, the causal question not answered directly
@@ -1641,6 +1641,41 @@ date: the cutoff's date in the region's local time.
    - frozen evaluation material, scores and verdicts.
    - **Live is unverified.**
 
+**Result: verified offline; Live unverified** (evidence in `artifacts/logs/as_of_date.log`). All three checks are met.
+1. **Y07, from its saved routing decision:**
+   - **Not sent back:** the routing policy notes that the explicit cutoff gives the date, and the resolver returns ok.
+   - **The window:** the day is 2026-08-20 in VIC1. That day's tracked event window (11:00Z on 19 August to 11:30Z
+     on 20 August) contains 23:00–23:30Z on 19 August.
+   - **The cutoff:** it is kept, and it is still injected into the tool calls.
+   - **A scripted answer from the run public by the cutoff** (issued 16:56:58Z: POE10/50/90 6,689 / 6,447 / 6,204 MW)
+     passes, with no actual shown.
+2. **Controls, each tested.** These are still sent back:
+   - no region;
+   - several regions;
+   - several dates;
+   - a cutoff without a date ("as of 20:00");
+   - no cutoff and no date;
+   - a clarification given for another reason (`unclear_question`);
+   - a market-event question with only a cutoff.
+
+   A cutoff given with the request (not in the question) dates the question too.
+3. **Unchanged:**
+   - **Saved routing decisions:** of the 198 saved Live questions, replayed through the routing policy and resolver,
+     only Y07's outcome changes (`needs_clarification` to ok). The other 11 clarifications and 6 refusals are
+     unchanged.
+   - **Saved drafts:** all 181 replays are identical to `main`.
+   - **Replay evaluation and safety suite:** identical to `main`.
+   - **Tests:** the full suite passes (1,111, of which 10 are new).
+   - **Frozen evaluation material:** untouched.
+
+**Still open for I-10:**
+- **Only forecast questions.** A market-event question dated only by an as-of cutoff is still sent back.
+- **The day is the cutoff's local date.** A half-hour asked about that falls on another local day (for example
+  01:00 local after a 23:00 local cutoff) is outside the reviewed window, although the model can still name its
+  times in the tool calls.
+- **A cutoff without its date** ("as of 20:00") is still sent back, by design.
+- **Live is unverified;** no paid run was made.
+
 ### I-3a: F03, a notice time shown without its zone
 
 **What happened** (Live check 2026-09-29, `artifacts/live/live-check-2026-09-29/F03.json`, trace `tr-77c70c8d1482`):
@@ -2197,7 +2232,8 @@ progress.
 - **Observed in v5** (recorded, not being fixed):
   - **Y02:** a repair cut off at `max_output_tokens`, then a fallback.
   - **Y05, Y06:** a 12-hour comparison used one forecast run, not the run the question named.
-  - **Y07:** an as-of half-hour without a date was sent for clarification. Now I-10 (in progress).
+  - **Y07:** an as-of half-hour without a date was sent for clarification. Now I-10: verified offline, Live
+    unverified.
   - **Y17:** out of scope and needing clarification at once, shown as a clarification, not a refusal.
   - **Y18:** "forecast lack of reserve" routed as a forecast question.
   - **Y20:** operational demand's composition inverted (it says scheduled loads are included). Now I-8: verified

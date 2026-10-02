@@ -377,6 +377,18 @@ def resolve(req: InvestigateRequest, sel: Selection) -> Resolution:
         else:
             window = local_day_window(day, region)
     as_of = parse_iso(req.as_of_utc) if req.as_of_utc else extract_as_of(q, region, day)
+    if intent == "forecast_review" and region and not dates and window is None and as_of is not None:
+        # an explicit as-of cutoff (a point in time, with its zone) dates a forecast question that names no date: the
+        # day reviewed is the cutoff's date in the region's local calendar (held-out v5 Y07 was sent back for a date
+        # its cutoff gives). A cutoff without a date ("as of 20:00") is not explicit and gives none.
+        day = as_of.astimezone(region_zone(region)).date()
+        event = _event_for(sel, region, day)
+        if event:
+            window = (parse_iso(event.window_start_utc), parse_iso(event.window_end_utc))
+            kind = event.kind
+        else:
+            window = local_day_window(day, region)
+        diag["date_from_as_of"] = str(day)
     needs_data = intent in ("market_event_review", "forecast_review")
     if needs_data and region is None and not reasons:
         reasons.append("Which NEM region (NSW1, QLD1, SA1, TAS1 or VIC1)?")
