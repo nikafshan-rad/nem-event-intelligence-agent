@@ -100,7 +100,15 @@ def investigate(req: InvestigateRequest, *, store: Store | None = None, selectio
             if decision is not None:
                 trace.add("route", "model_decision", decision=decision.model_dump(), policy_notes=notes)
         res = resolve(req_eff, selection)
-        if decision is not None and override and res.status == "ok":
+        if decision is not None and override == "refused" and res.status != "refused":
+            # Scope comes before missing details, as in resolve(): a question the model judged out of scope is refused
+            # even when it also lacks a region or date (held-out v5 Y17 asked for a price prediction and bidding
+            # advice, and was asked for a date). A clarification text that came with it asks about those details, so
+            # it is no refusal reason.
+            res.status = "refused"
+            res.reasons = [decision.clarification if decision.clarification and not decision.needs_clarification
+                           else "The model judged the question out of scope or ambiguous."]
+        elif decision is not None and override and res.status == "ok":
             res.status = override  # type: ignore[assignment]
             res.reasons = [decision.clarification or "The model judged the question out of scope or ambiguous."]
         if decision is None:
@@ -152,7 +160,9 @@ def route_policy(req: InvestigateRequest, decision: Any) -> tuple[dict[str, Any]
     - a forecast question with one region and no date, whose clock-only half-hour the explicit as-of cutoff dates
       safely (it falls after the cutoff on the cutoff's own date), names its target: the model's request for a missing
       date is not applied (held-out v5 Y07). The cutoff gives no date otherwise.
-    Out-of-scope decisions and every other clarification request are applied unchanged.
+    Out-of-scope decisions and every other clarification request are applied unchanged. ``investigate`` applies an
+    out-of-scope decision even when the resolver also finds a missing region or date (scope first, held-out v5 Y17);
+    any other override only to a question the resolver can run.
     Returns (request updates, status override or None, notes for the trace)."""
     q = req.question
     notes: list[str] = []

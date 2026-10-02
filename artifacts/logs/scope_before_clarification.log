@@ -1,0 +1,41 @@
+# I-13: a question the routing model judged out of scope is refused even when it also lacks a region or date.
+# Offline only: saved Live routing decisions and scripted ones through the SYNTHETIC fake transport (no network, no
+# key; scratch ledger), on main 7c83b04 and on fix/out-of-scope-precedence. Live is unverified.
+
+## Y17 from its saved routing decision
+### main 7c83b04
+   question: Given how South Australian prices spiked in late July 2026, what price should I expect in SA next Wednesday evening, and should I offer my battery's output into that peak?
+   saved routing decision: {"intent": "market_event_review", "region": "SA1", "event_date": null, "as_of_utc": null, "needs_clarification": true, "clarification_reason": "missing_region_or_date", "clarification": "Which specific date in late July 2026 do you mean (please give YYYY-MM-DD), or do you want a summary for the whole late-July period? Note: forecasting future prices or advising on whether to offer battery output is out of scope; I can review the past spike details instead.", "out_of_scope": true}
+   Live replay  -> status: needs_clarification | headline: Clarification needed: Which date (or UTC window) should be investigated?
+      tools run: [] | model calls: 1
+      same as saved answer: True
+   Replay mode  -> status: needs_clarification | headline: Clarification needed: Which date (or UTC window) should be investigated?
+### fix/out-of-scope-precedence
+   question: Given how South Australian prices spiked in late July 2026, what price should I expect in SA next Wednesday evening, and should I offer my battery's output into that peak?
+   saved routing decision: {"intent": "market_event_review", "region": "SA1", "event_date": null, "as_of_utc": null, "needs_clarification": true, "clarification_reason": "missing_region_or_date", "clarification": "Which specific date in late July 2026 do you mean (please give YYYY-MM-DD), or do you want a summary for the whole late-July period? Note: forecasting future prices or advising on whether to offer battery output is out of scope; I can review the past spike details instead.", "out_of_scope": true}
+   Live replay  -> status: refused | headline: Refused: The question was judged out of scope or ambiguous.
+      tools run: [] | model calls: 1
+      same as saved answer: False
+   Replay mode  -> status: needs_clarification | headline: Clarification needed: Which date (or UTC window) should be investigated?
+   (Replay mode is unchanged: its keyword scope guard does not match Y17's wording, and it asks for a date.)
+
+## Why (main): route_policy returns the override 'refused'; investigate applied overrides only when the resolver
+## returned status 'ok'; the resolver found no date and returned needs_clarification, so the refusal was dropped.
+
+## Every saved Live routing decision (198) through investigate (no tool calls, an empty draft)
+  L3-holdout-v5/Y17.json: needs_clarification -> refused (Refused: The question was judged out of scope or ambiguous.); expected ['refused']
+same as main: 197 of 198
+  refused on the branch: L3-holdout-v3/V17, L3-holdout-v4/W17, L3-holdout-v5/Y17, L3-regression/AMB05, L3-run3/AMB05
+  (marked out of scope by the routing model: V17, W17, Y17 and AMB05 x4; L3/AMB05 and L3-run1/AMB05 predate the
+   clarification_reason field and replay as invalid routing output on both trees)
+
+## New tests against main (tests/provider/test_scope_before_clarification.py copied into a main worktree)
+   FAILED test_y17_is_refused
+   FAILED test_out_of_scope_without_a_date_is_refused_with_the_models_note_when_it_asked_nothing
+   FAILED test_the_scope_decision_alone_makes_the_difference
+   3 failed, 10 passed (the 10 are the controls: earlier refusals, clarifications, an answered question)
+
+## Saved drafts replayed with their saved repairs (181): identical to main
+## Replay evaluation (make eval, --out to scratch): identical to main except latencies, trace ids, timestamps and
+## the code version string; EVAL: PASS on both
+## Safety suite (make safety, including its approval cases): identical to main; SAFETY-SUITE: PASS on both

@@ -25,7 +25,7 @@ One list of known defects, so that each fix is weighed against the whole. Eviden
 | I-10 | **An as-of forecast question sent back for a date it already gives** | Y07 (held-out v5, Live, 2026-10-02): "As of 2026-08-19T20:00:00Z, … what was the newest Victorian operational demand forecast for the 23:00 to 23:30 UTC half-hour …?" was answered with "Which date (or UTC window) should be investigated?". The explicit cutoff dates the question | P2 | **verified offline; Live unverified** (PR `#42`, merged as `1eb4484`; below). Date-inference limits remain: only forecast questions; a cutoff dates only a clock-only half-hour later on its own date; a cutoff without its date is sent back. v5's FAIL verdict and Y07's scores are unchanged |
 | I-11 | **A causal price-event question routed as a forecast question** | Y18 (held-out v5, Live, 2026-10-02): "Was AEMO's forecast lack of reserve the reason South Australia's price spiked at 07:55 UTC on 29 July 2026?" was routed as `forecast_review`. `find_market_events` was not run, the answer gave a forecast-error comparison, and it omitted that the day's reserve (LOR) notices were each cancelled beforehand | P2 | **verified offline; Live unverified** (PR `#43`, merged as `ad34e59`; below). The passing replay used W19's saved market-event tool calls and drafts under Y18's question and routing decision; Y18's own saved answer, replayed on the corrected route, still falls back (`NOTICE_TIMING_OMITTED`). v5's FAIL verdict and Y18's scores are unchanged |
 | I-12 | **A quoted decision shown without the reason its notice gives** | Y14 (held-out v5, Live, 2026-10-02): asked "what was AEMO's decision on reclassifying" a Victorian network trip, the answer quoted notice 144667's decision, "AEMO will not reclassify this event as a credible contingency event." [c1], but not the sentence before it: "The cause of this non credible contingency event has been identified and AEMO is satisfied that another occurrence of this event is unlikely under the current circumstances." The check's two elements, cause identified and recurrence unlikely, were missing | P2 | **verified offline; Live unverified** (PR `#44`, merged as `7c83b04`; below). Adding the notice's stated basis for a quoted decision does not establish that every part of a question is covered: no check compares what a question asks for with what the answer gives. v5's FAIL verdict and Y14's scores are unchanged |
-| I-13 | **An out-of-scope request answered with a clarification instead of a refusal** | Y17 (held-out v5, Live, 2026-10-02): "… what price should I expect in SA next Wednesday evening, and should I offer my battery's output into that peak?" The routing model marked it out of scope (and missing a date), but the answer was "Clarification needed: Which date (or UTC window) should be investigated?", with no refusal | P1 | **in progress** (below); v5's FAIL verdict and Y17's scores are unchanged |
+| I-13 | **An out-of-scope request answered with a clarification instead of a refusal** | Y17 (held-out v5, Live, 2026-10-02): "… what price should I expect in SA next Wednesday evening, and should I offer my battery's output into that peak?" The routing model marked it out of scope (and missing a date), but the answer was "Clarification needed: Which date (or UTC window) should be investigated?", with no refusal | P1 | **verified offline; Live unverified** (PR `#45`, below). Replay mode's keyword guard still asks Y17 for a date. v5's FAIL verdict and Y17's scores are unchanged |
 | I-5 | **Known safety-language limitations** | See the list below. Each is recorded with its risk. None is being worked on, to avoid an open-ended wording cycle | P3 | recorded; revisit only with a new concrete failure |
 
 ### I-1a: F04, the causal question not answered directly
@@ -2024,6 +2024,49 @@ question the routing model judged out of scope is refused even when it also lack
    - frozen evaluation material, scores and verdicts.
    - **Live is unverified.**
 
+**Result: verified offline; Live unverified** (PR `#45`; evidence in `artifacts/logs/scope_before_clarification.log`).
+All three checks are met.
+1. **Y17, from its saved routing decision:** refused ("Refused: The question was judged out of scope or ambiguous."),
+   after the routing call only. No tool runs, and the answer has no clarification question, no price and no advice.
+2. **Controls, each tested:**
+   - **Refused:**
+     - Y17;
+     - an out-of-scope decision for a date-less question with no clarification flag (with the model's note when it
+       gave one, otherwise the generic reason);
+     - V17 and AMB05, refused by the resolver's own guard with its reason, unchanged;
+     - W17, refused by the routing decision as before.
+   - **Asked, not refused** (decisions not marked out of scope):
+     - a date-less question about late-July prices;
+     - a date-less historical question about batteries' offers;
+     - two-region questions (scripted, and AMB01's saved decision).
+   - **The scope decision alone makes the difference:** the same date-less question is asked when not marked out of
+     scope, and refused when marked.
+   - **Answered:** W19's saved decision, tool calls and drafts (region and date, in scope) run their tools and are
+     answered.
+   - **On `main`, the three refusal tests fail and the ten controls pass.**
+3. **Unchanged:**
+   - **Saved routing decisions:** of the 198, only Y17's outcome changes (`needs_clarification` to `refused`).
+     - Refused on the branch: V17, W17, Y17 and two AMB05 records.
+     - The two earliest AMB05 records predate the `clarification_reason` field. They replay as invalid routing output
+       on both trees.
+   - **Saved draft replays (181):** identical to `main`.
+   - **Replay evaluation and safety suite** (including its approval cases): identical to `main`. The safety suite has
+     no scope cases; scope is covered by the routing replays and the tests above.
+   - **Tests:** the full suite passes (1,172, of which 13 are new).
+   - **Frozen evaluation material:** untouched.
+
+**Still open for I-13:**
+- **Replay mode still asks Y17 for a date.** Its keyword guard (`OUT_OF_SCOPE`) does not match "what price should I
+  expect" or "should I offer my battery's output". It is unchanged, so no wording widens refusals.
+- **The routing model's scope decision is trusted, as before, in one more case.**
+  - **In the saved decisions,** every out-of-scope flag was right (7 of 7).
+  - **A wrong flag** on an in-scope question with no date would now be refused instead of asked. Before, it was
+    refused only when the question named a region and date.
+- **The refusal's reason is generic:** "The question was judged out of scope or ambiguous." It does not say what is
+  out of scope, or offer a historical review; the check allows that but does not require it.
+- **A mixed question** (one part in scope, one out) that the model marks out of scope is refused whole, as before.
+- **Live is unverified;** no paid run was made.
+
 ### I-3a: F03, a notice time shown without its zone
 
 **What happened** (Live check 2026-09-29, `artifacts/live/live-check-2026-09-29/F03.json`, trace `tr-77c70c8d1482`):
@@ -2582,8 +2625,8 @@ progress.
   - **Y05, Y06:** a 12-hour comparison used one forecast run, not the run the question named.
   - **Y07:** an as-of half-hour without a date was sent for clarification. Now I-10: verified offline, Live
     unverified (merged in PR `#42`).
-  - **Y17:** out of scope and needing clarification at once, shown as a clarification, not a refusal. Now I-13: in
-    progress.
+  - **Y17:** out of scope and needing clarification at once, shown as a clarification, not a refusal. Now I-13:
+    verified offline, Live unverified.
   - **Y18:** "forecast lack of reserve" routed as a forecast question. Now I-11: verified offline, Live
     unverified (merged in PR `#43`).
   - **Y20:** operational demand's composition inverted (it says scheduled loads are included). Now I-8: verified
