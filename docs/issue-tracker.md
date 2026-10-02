@@ -27,7 +27,8 @@ One list of known defects, so that each fix is weighed against the whole. Eviden
 | I-12 | **A quoted decision shown without the reason its notice gives** | Y14 (held-out v5, Live, 2026-10-02): asked "what was AEMO's decision on reclassifying" a Victorian network trip, the answer quoted notice 144667's decision, "AEMO will not reclassify this event as a credible contingency event." [c1], but not the sentence before it: "The cause of this non credible contingency event has been identified and AEMO is satisfied that another occurrence of this event is unlikely under the current circumstances." The check's two elements, cause identified and recurrence unlikely, were missing | P2 | **verified offline; Live unverified** (PR `#44`, merged as `7c83b04`; below). Adding the notice's stated basis for a quoted decision does not establish that every part of a question is covered: no check compares what a question asks for with what the answer gives. v5's FAIL verdict and Y14's scores are unchanged. **Run A (2026-10-02, development case, one run, code `6413076`):** **held** on Y14 |
 | I-13 | **An out-of-scope request answered with a clarification instead of a refusal** | Y17 (held-out v5, Live, 2026-10-02): "… what price should I expect in SA next Wednesday evening, and should I offer my battery's output into that peak?" The routing model marked it out of scope (and missing a date), but the answer was "Clarification needed: Which date (or UTC window) should be investigated?", with no refusal | P1 | **verified offline; Live unverified** (PR `#45`, merged as `0ded19f`; below). The refusal depends on the routing model's out-of-scope flag; Replay mode is unchanged and still asks Y17 for a date (its keyword guard does not match the wording). v5's FAIL verdict and Y17's scores are unchanged. **Run A (2026-10-02, development case, one run, code `6413076`):** **held** on Y17: refused, with the generic reason |
 | I-14 | **A cut-off model response accepted as finished** | Y02 (held-out v5, Live, 2026-10-02): the first draft quoted the retrieval tool's status text "no notice held for this region and window" as if it were source text (`QUOTE_NOT_IN_SOURCE`); the scoped repair then ran to `max_output_tokens` (16,000 output tokens, 384 of them reasoning, the rest whitespace) and the answer fell back. The controller ignores a response's `incomplete` status and parses its text: Y02's failed to parse, but a response cut off after its JSON closed is used as finished | P2 | **verified offline; Live unverified** (PR `#46`, merged as `6413076`; below). I-14 fixes the acceptance of incomplete responses: a response that did not finish is rejected. It does not make Y02 answer successfully; Y02 still falls back, because only a finished repair can correct its first draft. v5's FAIL verdict and Y02's scores are unchanged. **Run A (2026-10-02, development case, one run, code `6413076`):** **not exercised**: no response was cut off. Y02 answered without a fallback, but missed two requested prices |
-| I-15 | **A number shown with another interval's time** | Z03 (held-out v6, Live, 2026-10-02): "… (half-hour ending 2026-08-06T03:00:00Z / 2026-08-06 13:00 AEST) was 1204.0 MW …". 1204.0 MW is the half-hour ending 13:00Z (`ev0917`, the evidence the claim cites); the source value at 03:00Z is 1147.0 MW (`ev0897`, returned in the same series). The answer passed validation and was shown | P1 | **verified offline; Live unverified** (PR `#51`, below). Each traced number's stated time is now bound to the evidence supporting it; Z03's saved answer is rejected and falls back. Pairing a time with its number is lexical (limits below). v6's FAIL verdict and Z03's scores are unchanged |
+| I-15 | **A number shown with another interval's time** | Z03 (held-out v6, Live, 2026-10-02): "… (half-hour ending 2026-08-06T03:00:00Z / 2026-08-06 13:00 AEST) was 1204.0 MW …". 1204.0 MW is the half-hour ending 13:00Z (`ev0917`, the evidence the claim cites); the source value at 03:00Z is 1147.0 MW (`ev0897`, returned in the same series). The answer passed validation and was shown | P1 | **verified offline; Live unverified** (PR `#51`, merged as `8752b3d`; below). Each traced number's stated time is now bound to the evidence supporting it; Z03's saved answer is rejected and falls back. Pairing a time with its number is lexical (limits below). v6's FAIL verdict and Z03's scores are unchanged |
+| I-16 | **The forecast run asked for, not bound because its half-hour was not read** | Z05 (held-out v6, Live, 2026-10-02): "the half-hour finishing at 07:30 on 31 July in market time (UTC 2026-07-30T21:30:00Z) … the last forecast run issued ahead of that half-hour". The answer gave the run issued 18:27:01Z (POE50 10,954 MW, −224 MW), the latest available by the half-hour's end, as that run; the run asked for, issued 20:56:59Z, gave 11,082 MW against 11,178 | P1 | **fix proposed** (below; root cause, fix and acceptance recorded before the code change). v6's FAIL verdict and Z05's scores are unchanged |
 | I-5 | **Known safety-language limitations** | See the list below. Each is recorded with its risk. None is being worked on, to avoid an open-ended wording cycle | P3 | recorded; revisit only with a new concrete failure |
 
 ### I-1a: F04, the causal question not answered directly
@@ -2272,7 +2273,7 @@ and require that time to be the time of the evidence supporting that number.
    - frozen evaluation material, scores and verdicts.
    - **Live is unverified.**
 
-**Result: verified offline; Live unverified** (PR `#51`; evidence in `artifacts/logs/claim_times.log`). All six checks
+**Result: verified offline; Live unverified** (PR `#51`, merged as `8752b3d`; evidence in `artifacts/logs/claim_times.log`). All six checks
 are met.
 1. **Z03, from its saved records:**
    - **On `main`:** the answer passes, with 1204.0 MW stated for 03:00Z.
@@ -2357,6 +2358,114 @@ are met.
   "during" …, and `*_end`/`*_start` fields). A time with no such word is read as an instant in the interval, so a
   value's interval can still be named by any instant inside it.
 - **Live is unverified;** no paid run was made. v6's FAIL verdict and Z03's scores are unchanged.
+
+### I-16: Z05, the forecast run asked for not bound, because its half-hour was not read
+
+**What happened** (held-out v6, Live, 2026-10-02, code `6413076`, `artifacts/live/L3-holdout-v6/Z05.json`, trace
+`tr-02b3ff661b86`; reproduced offline on `main` `8752b3d` from the saved question, routing decision, tool calls,
+synthesis draft and saved scoped repair through the SYNTHETIC fake transport, with the same shown answer and no
+violation):
+- **The question:** "NSW1, the half-hour finishing at 07:30 on 31 July in market time (UTC 2026-07-30T21:30:00Z): set
+  the POE50 operational demand from the last forecast run issued ahead of that half-hour against what operational
+  demand actually turned out to be. How far apart were they?"
+- **The run asked for:** the last run issued before the half-hour starts (21:00Z). It was issued 20:56:59Z
+  (`…_202607310730_20260731070129`), with POE50 11,082 MW against an actual of 11,178 MW (−96 MW). It is the same
+  half-hour and run as Y05 (I-9).
+- **The run shown:** "Forecast run used: `…_202607310500_20260731043126` (issued 18:27:01Z, available 21:17:26Z)",
+  with POE50 10,954 MW, an error of −224.0 MW, and that run's 12-hour MAE of 317.17 MW. It is the latest run
+  *available* by the half-hour's end, presented as the run the question asks for.
+- **Found by** the independent reviewer: relevance N, "contradicts the gold labels".
+
+**Root cause: the half-hour was not read, so the I-9 binding never engaged.**
+- **The run was recognised:** "the last forecast run issued ahead of that half-hour" matches the I-9 wording
+  (`requested_forecast` gives `last_issued_before`).
+- **The half-hour was not:** `half_hour_asked` returned None. It reads three forms:
+  - a zoned clock range on the question's one full date;
+  - "ending/ends HH:MM <zone>", with the zone right after the clock, on the question's one full date;
+  - "ending/ends <ISO>".
+
+  Z05's wording fits none of them:
+  - "finishing" is not read as an ending word;
+  - the zone ("in market time") comes after the date, not after the clock;
+  - "31 July" has no year, so the question has no full date, and the date inside the ISO timestamp is not read as
+    one;
+  - the ISO end time is an equivalent in brackets, not written after "ending".
+- **With the run named but the half-hour unread, nothing was bound.**
+  - The controller only added a context note asking the answer to say which run it used.
+  - No run was looked up, and the controller made no comparison.
+  - The validator had no `forecast_run` to hold the answer to.
+- **What the model did:** it compared the window with `run_selector="latest_available_as_of"` and an as-of cutoff of
+  21:30Z (the half-hour's end used as a cutoff), which selects by availability. The answer presented that run. Every
+  value traces to its own rows, so validation passed.
+
+**Proposed fix (one; no prompt change).**
+1. **Read the half-hour from the question's own words, without guessing** (`half_hour_asked`):
+   - **Ending words:** "ending", "ends", "ended", "finishing", "finishes", "finished".
+   - **The clock's own date and zone,** written after it in either order ("07:30 on 31 July 2026 in market time",
+     "07:30 AEST on 2026-07-31").
+   - **An equivalent:** an ISO instant in brackets right after the clock is the same instant, when it stands alone or
+     is labelled only "UTC", "=" or "i.e." ("(UTC 2026-07-30T21:30:00Z)"). A bracketed time with any other label
+     (published, issued, available, as of …) is not.
+   - **No guessing:**
+     - a date without its year is not completed; it only checks an equivalent, whose day, month and clock in the
+       clock's zone must match;
+     - a clock without a zone is read only through an equivalent it matches.
+   - **One half-hour or none:** every reading must agree. A clock and an equivalent that differ, or two half-hours,
+     leave it unread.
+2. **A run named relative to a half-hour that is not pinned down is sent back** (`resolve`, both modes).
+   - **When:** a forecast review whose run is "the last issued before the half-hour" and whose half-hour is unread.
+   - **What happens:** the status is `needs_clarification`, asking for the half-hour's date, end time and zone. No
+     tools run, and no run is chosen.
+   - This replaces I-9's note asking the answer to name its run.
+3. **The run must be unique.**
+   - **When:** two runs share the latest issue time before the half-hour, or, for a named issue time, are equally
+     near it.
+   - **What happens:** none is chosen. The context says the run asked for cannot be told apart, and any forecast value
+     for the half-hour is rejected, as for a run that is not held.
+4. **Unchanged:**
+   - **The I-9 binding once the half-hour is read:** lookup by issue time, never by availability; the controller's
+     comparison; `FORECAST_RUN_SUBSTITUTED`; the fallback.
+   - **As-of questions:** availability selection (I-10).
+   - **A request-level cutoff:** a run not public by then cannot be supplied.
+   - **Also unchanged:** a named issue time without a half-hour; the tool's selectors; the prompts; I-15's value/time
+     checks; the safety checks.
+
+**Acceptance check** (offline, written before the code change):
+1. **Z05, from its saved records:**
+   - its half-hour is read as 21:00–21:30Z, and the run bound is the one issued 20:56:59Z;
+   - the saved answer (draft and saved repair) is rejected with `FORECAST_RUN_SUBSTITUTED`, naming that run, and the
+     18:27:01Z run's values are not shown;
+   - a scripted answer citing the controller's comparison passes and shows POE50 11,082 MW against 11,178 MW. The run
+     ID and the half-hour are traceable from its evidence (source rows and interval end).
+2. **Controls, each tested:**
+   - **Wording:** Z05's form and its variants are read.
+     - **Adversarial, all left unread:**
+       - a bracketed equivalent that disagrees with the clock, in time or date;
+       - a date without its year and no equivalent;
+       - a clock with no zone and no equivalent;
+       - a bracketed publication or issue time;
+       - two half-hours.
+   - **Ambiguous:** a question naming the run relative to an unread half-hour gets a clarification asking for the
+     date, end time and zone. No tool is called and no run is chosen.
+   - **Missing run:** if no run issued before the half-hour holds it, the answer says so, and any forecast value for it
+     is rejected (I-9, unchanged).
+   - **Not unique:** if two runs share the latest issue time, none is chosen, the answer says so, and the values are
+     rejected.
+   - **As-of:**
+     - an as-of question keeps availability selection;
+     - a request-level cutoff with Z05's wording binds the run by issue time, and says it cannot be supplied when it
+       was not public by then.
+   - **Y05, Y06 and the I-9 and I-10 controls** keep their results.
+3. **No case-specific code:** no case ID, run ID or expected value.
+4. **Unchanged:**
+   - how every other question in the repository (frozen sets and saved records) is read: the run named and the
+     half-hour (138 questions);
+   - every saved Live record's replay, except where the change applies (each firing is reviewed);
+   - the Replay evaluation;
+   - the safety suite;
+   - PR `#51`'s value/time checks and their tests;
+   - frozen evaluation material, scores and verdicts.
+   - **Live is unverified.**
 
 ### I-3a: F03, a notice time shown without its zone
 
