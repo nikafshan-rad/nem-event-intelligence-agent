@@ -141,6 +141,53 @@ def table_unit_note(quote: str, passage: str) -> str | None:
     return f"(in {units.pop()}, as the table header in the cited passage states)" if len(units) == 1 else None
 
 
+# where a notice states AEMO's assessment ("The cause of this non credible contingency event has been identified and
+# AEMO is satisfied …", "Based on advice from the participant, AEMO considers …"), and a link marking a sentence as
+# following from it ("Accordingly AEMO has reclassified it …", "AEMO has therefore cancelled the reclassification …")
+_ASSESSMENT_RE = re.compile(r"\b(?:The cause of (?:this|the)|Based on|AEMO (?:is|was|remains) (?:not )?satisfied|"
+                            r"AEMO considers|AEMO has (?:assessed|determined|concluded))\b")
+_CONSEQUENCE_RE = re.compile(r"\b(?:accordingly|therefore|consequently|as a result|hence|thus)\b", re.I)
+_SENTENCE_GAP_RE = re.compile(r"(?<=[.!?])\s+(?=[A-Z(\"'“])")
+
+
+def decision_basis(quote: str, passage: str, quoted: list[str]) -> str | None:
+    """The assessment a market notice states for the sentence a verbatim quote is taken from, as an exact span of the
+    passage (normalised as the quote check normalises it), to show with the quote; otherwise None. Held-out v5 Y14
+    quoted notice 144667's decision, "AEMO will not reclassify this event as a credible contingency event.", but not
+    the sentence before it: "The cause of this non credible contingency event has been identified and AEMO is
+    satisfied that another occurrence of this event is unlikely under the current circumstances."
+
+    A sentence follows from an assessment when the sentence directly before it states one, or, when it has a
+    consequence link ("Accordingly", "therefore" …), when one of the two sentences before it does. The basis runs from
+    the assessment's first phrase to the end of the sentence before the quoted one. Only a complete sentence (ending in
+    . ! or ?) follows from anything, not a title or a sign-off. None when no assessment is stated there, or when one of
+    ``quoted`` (the answer's other quotes) already quotes any part of it: nothing is written or inferred."""
+    from ..validation import _norm
+
+    text, q = _norm(passage), _norm(quote)
+    at = text.find(q) if q else -1
+    if at < 0:
+        return None
+    gaps = list(_SENTENCE_GAP_RE.finditer(text))
+    spans = list(zip([0] + [g.end() for g in gaps], [g.start() for g in gaps] + [len(text)], strict=True))
+    d = max(i for i, (s, _) in enumerate(spans) if s <= at)
+    sentence = text[spans[d][0]:spans[d][1]]
+    if d == 0 or not sentence.endswith((".", "!", "?")):
+        return None
+    reach = 2 if _CONSEQUENCE_RE.search(sentence) else 1
+    for i in range(d - 1, max(d - 1 - reach, -1), -1):
+        m = _ASSESSMENT_RE.search(text, spans[i][0], spans[i][1])
+        if m is None:
+            continue
+        start, end = m.start(), spans[d - 1][1]
+        for other in quoted:
+            o = text.find(_norm(other)) if other.strip() else -1
+            if o >= 0 and o < end and start < o + len(_norm(other)):
+                return None
+        return text[start:end]
+    return None
+
+
 # capitalised words that locate or phrase a question rather than name an incident (for _timing_answer)
 _NOT_NAMES = {
     "was", "were", "is", "are", "did", "does", "do", "could", "would", "can", "has", "had", "how", "what", "why", "when",
@@ -1402,6 +1449,7 @@ class LiveController:
         if m is not None:
             from ..validation import _norm
 
+            quoted = [(s.quote or "").strip().strip('“”"') for s in m.document_statements if s.quote]
             for j, s in enumerate(m.document_statements):
                 q = (s.quote or "").strip().strip('“”"')
                 cit, how = resolve_statement_citation(s.citation_id, q, cites)
@@ -1414,6 +1462,15 @@ class LiveController:
                 if q and ch is not None and _norm(q) in _norm(ch.text):
                     text = (f"“{q}” [{ref}]" + self._quote_time_note(q, ch.chunk_id, ch.doc_type)
                             + self._quote_unit_note(q, ch.chunk_id))
+                    # a quoted decision is shown with the assessment its notice gives for it, quoted from the same
+                    # notice, just before it (held-out v5 Y14; see decision_basis)
+                    basis = decision_basis(q, ch.text, quoted) if ch.doc_type == "market_notice" else None
+                    if basis is not None:
+                        quoted.append(basis)
+                        summary.append(f"“{basis}” [{ref}]" + self._quote_time_note(basis, ch.chunk_id, ch.doc_type))
+                        self._summary_origin.append(("controller", 0))
+                        if self.d is not None:
+                            self.d.trace.add("model", "decision_basis", statement=j, citation_id=ref, text=basis)
                 elif s.paraphrase or q:
                     if q and cit is not None:
                         not_verbatim.append(ref)
@@ -1459,7 +1516,8 @@ class LiveController:
             # - a causal question's timing answer: its first sentence keeps "Timing rules this out" apart from "The
             #   records cannot settle this";
             # - a document answer: the statement the model's own headline paraphrases (most of its content words;
-            #   the earlier on a tie), shown as rendered, with its citation and any zone or unit note.
+            #   the earlier on a tie), shown as rendered, with its citation and any zone or unit note; one of the
+            #   model's statements, not a line the controller added.
             # Every other answer keeps the model's headline. A replaced one is kept on the report, unshown, and
             # validated like the shown one, so the answer is repaired or withheld exactly as before (a headline
             # claiming an approval still fails closed; PR #13).
@@ -1468,7 +1526,8 @@ class LiveController:
             if answer is not None:
                 headline = re.split(r"(?<=\.)\s+(?=[A-Z])", answer, maxsplit=1)[0]
             elif res.intent == "source_explanation" and summary:
-                headline = summary[max(range(len(summary)), key=lambda i: (support(m.headline, summary[i]), -i))]
+                own = [i for i, o in enumerate(self._summary_origin) if o[0] != "controller"] or list(range(len(summary)))
+                headline = summary[max(own, key=lambda i: (support(m.headline, summary[i]), -i))]
             if headline != m.headline and self.d is not None:
                 self.d.trace.add("model", "headline_from_answer", text=headline, model_headline=m.headline)
         if not_verbatim and self.d is not None:

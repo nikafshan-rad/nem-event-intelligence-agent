@@ -1,0 +1,71 @@
+# I-12: a quoted decision shown with the assessment its notice gives for it. Offline only: saved Live records and
+# scripted drafts replayed through the SYNTHETIC fake transport (no network, no key; scratch ledger), on main ad34e59
+# and on fix/notice-decision-basis. Live is unverified.
+
+## Y14 from its saved records (routing decision, tool calls, synthesis draft, scoped repair)
+### main ad34e59
+   question: Was there an AEMO market notice about an unplanned Victorian network trip dated 2026-07-28, and what was AEMO's decision on reclassifying it?
+   status: answered | final_passed: True | fallback: False
+   headline: “AEMO will not reclassify this event as a credible contingency event.” [c1]
+   summary[0]: “At 1729 hrs the Moorabool No. 2 220 kV Bus tripped.” [c1] (Notice times are NEM market time, UTC+10.)
+   summary[1]: “AEMO did not instruct load shedding.” [c1]
+   summary[2]: “AEMO will not reclassify this event as a credible contingency event.” [c1]
+     element 'trip at 1729 hrs': present
+     element 'cause identified': MISSING
+     element 'recurrence unlikely': MISSING
+     element 'not reclassified': present
+   same as saved report: True
+### fix/notice-decision-basis
+   question: Was there an AEMO market notice about an unplanned Victorian network trip dated 2026-07-28, and what was AEMO's decision on reclassifying it?
+   status: answered | final_passed: True | fallback: False
+   headline: “AEMO will not reclassify this event as a credible contingency event.” [c1]
+   summary[0]: “At 1729 hrs the Moorabool No. 2 220 kV Bus tripped.” [c1] (Notice times are NEM market time, UTC+10.)
+   summary[1]: “AEMO did not instruct load shedding.” [c1]
+   summary[2]: “The cause of this non credible contingency event has been identified and AEMO is satisfied that another occurrence of this event is unlikely under the current circumstances.” [c1]
+   summary[3]: “AEMO will not reclassify this event as a credible contingency event.” [c1]
+     element 'trip at 1729 hrs': present
+     element 'cause identified': present
+     element 'recurrence unlikely': present
+     element 'not reclassified': present
+   same as saved report: False
+   ("same as saved report: False": the answer now has the assessment line; nothing else differs)
+
+## Where it was lost (Y14's saved trace tr-0b7886fa2007)
+   retrieval: market_notice_144667#0 ranked first in controller_question_retrieval and in the model's own search;
+              its passage holds the assessment sentence
+   synthesis: document_statements = the trip, "AEMO did not instruct load shedding.", the decision (no assessment)
+   repair:    scoped to the headline only (NUMERIC_UNTRACKED: 2, 220); statements unchanged
+   display:   all three statements shown; headline = the quoted decision
+
+## Every sentence of every market notice in the corpus (198 notices), quoted alone: where a basis is found
+   market_notice_144651#0: 'AEMO has therefore cancelled the reclassification of this event as a credible co'
+      basis: 'Based on the information provided by the participant, AEMO is satisfied that this non credible event is unlikely to re-occur.'
+   market_notice_144667#0: 'AEMO will not reclassify this event as a credible contingency event.'
+      basis: 'The cause of this non credible contingency event has been identified and AEMO is satisfied that another occurrence of this event is unlikely under the current circumstances.'
+   market_notice_144775#0: 'Accordingly AEMO has reclassified it as a credible contingency event.'
+      basis: 'Based on advice from the participant, AEMO considers the simultaneous trip of the following elements to now be more likely and reasonably possible.'
+   market_notice_144784#0: 'Accordingly AEMO has reclassified it as a credible contingency event.'
+      basis: 'AEMO considers the simultaneous trip of the following circuits to now be more likely and reasonably possible.'
+   market_notice_144813#0: 'AEMO will not reclassify this event as a credible contingency event.'
+      basis: 'The cause of this non-credible contingency event has been identified and AEMO is satisfied that another occurrence of this event is unlikely under the current circumstances.'
+   market_notice_144891#0: 'Accordingly AEMO has reclassified it as a credible contingency event.'
+      basis: 'AEMO considers the simultaneous trip of the following circuits to now be more likely and reasonably possible.'
+   market_notice_144892#0: 'There is no longer any lightning activity in the vicinity of the following lines'
+      basis: 'AEMO considers the simultaneous trip of the following circuits is no longer reasonably possible.'
+   market_notice_144892#0: 'Accordingly its classification has reverted to a non-credible contingency event.'
+      basis: 'AEMO considers the simultaneous trip of the following circuits is no longer reasonably possible. There is no longer any lightning activity in the vicinity of the following lines.'
+   sentences with a basis: 8 (7 notices; 144892 twice: its decision, and the supporting sentence between its assessment and its decision)
+
+## Saved drafts replayed with their saved repairs (181)
+  L3-holdout-v4/W14.json: status answered -> answered; passed True -> True; fallback False -> False; lines 2 -> 3; headline unchanged: True
+     added: ['“The cause of this non credible contingency event has been identified and AEMO is satisfied that another occurrence of this event is unlikely under the current circumstances.” [c2]']
+  L3-holdout-v5/Y14.json: status answered -> answered; passed True -> True; fallback False -> False; lines 3 -> 4; headline unchanged: True
+     added: ['“The cause of this non credible contingency event has been identified and AEMO is satisfied that another occurrence of this event is unlikely under the current circumstances.” [c1]']
+same as main: 179 of 181; errors: 0
+  (W14, held-out v4, asked about the same notice; its frozen check also names the cause being identified and a
+   recurrence being unlikely. Its saved Live verdict, a fallback, is unchanged.)
+
+## Replay evaluation (make eval, --out to scratch): identical to main except latencies, trace ids, timestamps and
+## the code version string; EVAL: PASS on both
+## Safety suite (make safety): identical to main (summary JSON identical; log identical except trace ids and
+## timings); SAFETY-SUITE: PASS on both

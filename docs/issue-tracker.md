@@ -24,7 +24,7 @@ One list of known defects, so that each fix is weighed against the whole. Eviden
 | I-9 | **The forecast run asked for, replaced by another** | Y05, Y06 (held-out v5, Live, 2026-10-02): asked for the last forecast issued before a named half-hour, both answers gave a run issued about three hours earlier (Y05 POE50 10,972 MW from the 17:56:59Z run instead of 11,082 from the 20:56:59Z run; Y06 2,017 from 04:27:00Z instead of 1,816 from 07:26:58Z), presented as the run asked for | P1 | **verified offline; Live unverified** (PR `#41`, merged as `0f0b5c9`; below). v5's FAIL verdict and Y05/Y06's scores are unchanged |
 | I-10 | **An as-of forecast question sent back for a date it already gives** | Y07 (held-out v5, Live, 2026-10-02): "As of 2026-08-19T20:00:00Z, … what was the newest Victorian operational demand forecast for the 23:00 to 23:30 UTC half-hour …?" was answered with "Which date (or UTC window) should be investigated?". The explicit cutoff dates the question | P2 | **verified offline; Live unverified** (PR `#42`, merged as `1eb4484`; below). Date-inference limits remain: only forecast questions; a cutoff dates only a clock-only half-hour later on its own date; a cutoff without its date is sent back. v5's FAIL verdict and Y07's scores are unchanged |
 | I-11 | **A causal price-event question routed as a forecast question** | Y18 (held-out v5, Live, 2026-10-02): "Was AEMO's forecast lack of reserve the reason South Australia's price spiked at 07:55 UTC on 29 July 2026?" was routed as `forecast_review`. `find_market_events` was not run, the answer gave a forecast-error comparison, and it omitted that the day's reserve (LOR) notices were each cancelled beforehand | P2 | **verified offline; Live unverified** (PR `#43`, merged as `ad34e59`; below). The passing replay used W19's saved market-event tool calls and drafts under Y18's question and routing decision; Y18's own saved answer, replayed on the corrected route, still falls back (`NOTICE_TIMING_OMITTED`). v5's FAIL verdict and Y18's scores are unchanged |
-| I-12 | **A quoted decision shown without the reason its notice gives** | Y14 (held-out v5, Live, 2026-10-02): asked "what was AEMO's decision on reclassifying" a Victorian network trip, the answer quoted notice 144667's decision, "AEMO will not reclassify this event as a credible contingency event." [c1], but not the sentence before it: "The cause of this non credible contingency event has been identified and AEMO is satisfied that another occurrence of this event is unlikely under the current circumstances." The check's two elements, cause identified and recurrence unlikely, were missing | P2 | **in progress** (below); v5's FAIL verdict and Y14's scores are unchanged |
+| I-12 | **A quoted decision shown without the reason its notice gives** | Y14 (held-out v5, Live, 2026-10-02): asked "what was AEMO's decision on reclassifying" a Victorian network trip, the answer quoted notice 144667's decision, "AEMO will not reclassify this event as a credible contingency event." [c1], but not the sentence before it: "The cause of this non credible contingency event has been identified and AEMO is satisfied that another occurrence of this event is unlikely under the current circumstances." The check's two elements, cause identified and recurrence unlikely, were missing | P2 | **verified offline; Live unverified** (PR `#44`, below). v5's FAIL verdict and Y14's scores are unchanged |
 | I-5 | **Known safety-language limitations** | See the list below. Each is recorded with its risk. None is being worked on, to avoid an open-ended wording cycle | P3 | recorded; revisit only with a new concrete failure |
 
 ### I-1a: F04, the causal question not answered directly
@@ -1899,6 +1899,51 @@ verbatim from the same notice, with the same citation, directly before the decis
    - frozen evaluation material, scores and verdicts.
    - **Live is unverified.**
 
+**Result: verified offline; Live unverified** (PR `#44`; evidence in `artifacts/logs/decision_basis.log`). All three
+checks are met.
+1. **Y14, from its saved records:** the answer shows the assessment, quoted with [c1], directly before the decision.
+   - **All five check elements are present:** the notice, the trip at 1729 hrs with its NEM-time note, the cause
+     identified, a recurrence unlikely, and no reclassification.
+   - **Validation passes** with no fallback, and the headline is still the quoted decision.
+2. **Controls, each tested:**
+   - **A complete answer** (the assessment quoted before or after the decision): unchanged; nothing is repeated.
+   - **A multi-part question:**
+     - the trip, load shedding, bulk load and the decision are all shown, and the assessment is added once, before
+       the decision;
+     - across two notices (Braemar, 144812 and its update 144813): the assessment comes from the update and is cited
+       to it. The first notice's "The cause … is not known at this stage." is shown as quoted, with nothing added.
+   - **A notice without the requested information:**
+     - City West (144692): nothing is added and no decision is shown. The status (`answered_with_caveats`) and the
+       caveat stand.
+     - A forecast LOR1 declaration (144652): nothing is added.
+   - **An event review** (W19's saved replay): nothing is added.
+   - **The headline:** a model headline in the assessment's own words still gets one of the model's statements (the
+     decision), not the added line.
+3. **Unchanged:**
+   - **The rule on the corpus:** quoted alone, the sentences of the 198 market notices give a basis only in the seven
+     notices that state a decision after an assessment.
+   - **Saved drafts:** of the 181 replays, two change: Y14, and W14 (held-out v4, the same notice; its frozen check
+     also names the cause identified and a recurrence unlikely). Both still pass with the same headline, and gain
+     only the assessment line. W14's saved Live verdict (a fallback) is unchanged.
+   - **Replay evaluation and safety suite:** identical to `main`.
+   - **Tests:** the full suite passes (1,159, of which 24 are new).
+   - **Frozen evaluation material:** untouched.
+
+**Still open for I-12:**
+- **Lexical recognition of the assessment.** An assessment is recognised by its opening phrase ("The cause of this
+  …", "Based on …", "AEMO is satisfied …", "AEMO considers …", "AEMO has assessed / determined / concluded …"). A
+  decision whose notice words its assessment otherwise gets nothing added.
+- **Only verbatim quotes.** A paraphrased decision gets nothing added. W14's saved Live answer paraphrased it (and
+  fell back for another reason).
+- **A partly quoted assessment is not completed.** When the answer quotes part of it (only "… has been identified",
+  say), nothing is added, so a recurrence being unlikely can still be missing.
+- **Only a decision's stated basis.** No check compares what the question asks for with what the answer covers. Y14
+  also leaves out "AEMO has not been advised of any disconnection of bulk electrical load.", which its check does not
+  name.
+- **Only market notices, in document answers.**
+- **The synthesis prompt is unchanged.** The model can still leave the assessment out; the controller adds it.
+- **Live is unverified;** no paid run was made.
+
 ### I-3a: F03, a notice time shown without its zone
 
 **What happened** (Live check 2026-09-29, `artifacts/live/live-check-2026-09-29/F03.json`, trace `tr-77c70c8d1482`):
@@ -2462,7 +2507,8 @@ progress.
     unverified (merged in PR `#43`).
   - **Y20:** operational demand's composition inverted (it says scheduled loads are included). Now I-8: verified
     offline, Live unverified; Y20's scores and v5's verdict are unchanged.
-  - **Y14:** two check elements omitted (the reason the notice gives for AEMO's decision). Now I-12: in progress.
+  - **Y14:** two check elements omitted (the reason the notice gives for AEMO's decision). Now I-12: verified offline,
+    Live unverified.
   - **Wording leftovers:** internal names, repeated fragments, "[c1]. [c1]".
 - **Ledger:** USD 5.704473 committed.
   - **v5 and regression:** USD 0.944089, spent under the owner-approved cap of USD 6.560384 for those runs only.
