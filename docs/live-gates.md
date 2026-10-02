@@ -2616,3 +2616,17 @@ cutoff.
 - **Unpaid preparation, after approval:**
   - a protocol PR (case lists, rules, caps, freeze hashes; nothing under `src/`);
   - the run-B writer, verifier and freeze.
+
+## Runs A, B and C: frozen, not run (awaiting the owner's paid-run approval)
+
+Prepared with approval for unpaid preparation only, with **no Live call**. Files: `eval/holdout_v6/`.
+- **The code under test:** `main` `6413076`, src tree `7a70b0b4…`, prompts v11, `gpt-5-mini`.
+- **The rule:** `PASS_RULE.md` and `RELEVANCE_RUBRIC.md`, pushed before the writer started (`3bf5baa`, amended in
+  `6fb0151`, also before the writer started).
+- **Run B's set:** `cases.json` `1c3467b4…`, 20 cases Z01–Z20.
+  - **Strata:** 6 unused (Z04, Z11–Z15) and 14 familiar.
+  - **G = 18,** so the Q3 bar is 15.
+  - **Writing and checks:** written by an independent writer with the kit only, and verified 20/20 PASS by an
+    independent verifier. The blind check and the provenance check both found no problem.
+- **Caps:** USD 0.15 per case; A 0.60, B 1.00, C 0.80. The approved task cap needed for all three is USD **8.104473**.
+- **The runs:** A, then B, then C, as fixed in `PASS_RULE.md`. Nothing has been run. Live remains experimental.
