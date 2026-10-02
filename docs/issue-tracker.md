@@ -29,7 +29,7 @@ One list of known defects, so that each fix is weighed against the whole. Eviden
 | I-14 | **A cut-off model response accepted as finished** | Y02 (held-out v5, Live, 2026-10-02): the first draft quoted the retrieval tool's status text "no notice held for this region and window" as if it were source text (`QUOTE_NOT_IN_SOURCE`); the scoped repair then ran to `max_output_tokens` (16,000 output tokens, 384 of them reasoning, the rest whitespace) and the answer fell back. The controller ignores a response's `incomplete` status and parses its text: Y02's failed to parse, but a response cut off after its JSON closed is used as finished | P2 | **verified offline; Live unverified** (PR `#46`, merged as `6413076`; below). I-14 fixes the acceptance of incomplete responses: a response that did not finish is rejected. It does not make Y02 answer successfully; Y02 still falls back, because only a finished repair can correct its first draft. v5's FAIL verdict and Y02's scores are unchanged. **Run A (2026-10-02, development case, one run, code `6413076`):** **not exercised**: no response was cut off. Y02 answered without a fallback, but missed two requested prices |
 | I-15 | **A number shown with another interval's time** | Z03 (held-out v6, Live, 2026-10-02): "… (half-hour ending 2026-08-06T03:00:00Z / 2026-08-06 13:00 AEST) was 1204.0 MW …". 1204.0 MW is the half-hour ending 13:00Z (`ev0917`, the evidence the claim cites); the source value at 03:00Z is 1147.0 MW (`ev0897`, returned in the same series). The answer passed validation and was shown | P1 | **verified offline; Live unverified** (PR `#51`, merged as `8752b3d`; below). Each traced number's stated time is now bound to the evidence supporting it; Z03's saved answer is rejected and falls back. Pairing a time with its number is lexical (limits below). v6's FAIL verdict and Z03's scores are unchanged |
 | I-16 | **The forecast run asked for, not bound because its half-hour was not read** | Z05 (held-out v6, Live, 2026-10-02): "the half-hour finishing at 07:30 on 31 July in market time (UTC 2026-07-30T21:30:00Z) … the last forecast run issued ahead of that half-hour". The answer gave the run issued 18:27:01Z (POE50 10,954 MW, −224 MW), the latest available by the half-hour's end, as that run; the run asked for, issued 20:56:59Z, gave 11,082 MW against 11,178 | P1 | **verified offline; Live unverified** (PR `#52`, merged as `45e5203`; below). Z05's half-hour is now read and the run asked for bound: its saved answer is rejected and falls back. A run named relative to a half-hour that is not pinned down is sent back for it. v6's FAIL verdict and Z05's scores are unchanged |
-| I-17 | **A measure's requested maximum replaced by its value at the price peak and another measure's maximum** | Z04 (held-out v6, Live, 2026-10-02): "… when did TAS1 total demand peak and at what level?" for 29 July 2026 (Hobart time). The answer gave dispatch TOTALDEMAND at the price peak (1,321.81 MW, 20:05) and the maximum of operational demand (1,452 MW, half-hour ending 08:00). TOTALDEMAND's maximum, 1,367.32 MW in the interval ending 07:55, was retrieved but never given | P1 | **fix proposed** (below; root cause, fix and acceptance recorded before the code change). v6's FAIL verdict and Z04's scores are unchanged |
+| I-17 | **A measure's requested maximum replaced by its value at the price peak and another measure's maximum** | Z04 (held-out v6, Live, 2026-10-02): "… when did TAS1 total demand peak and at what level?" for 29 July 2026 (Hobart time). The answer gave dispatch TOTALDEMAND at the price peak (1,321.81 MW, 20:05) and the maximum of operational demand (1,452 MW, half-hour ending 08:00). TOTALDEMAND's maximum, 1,367.32 MW in the interval ending 07:55, was retrieved but never given | P1 | **verified offline; Live unverified** (PR `#53`, below). A requested maximum is now computed by code over the requested window, stated by the controller and required of the answer; Z04's answer gives 1,367.32 MW at 07:55, and substitutes stated as the peak are rejected. v6's FAIL verdict and Z04's scores are unchanged |
 | I-5 | **Known safety-language limitations** | See the list below. Each is recorded with its risk. None is being worked on, to avoid an open-ended wording cycle | P3 | recorded; revisit only with a new concrete failure |
 
 ### I-1a: F04, the causal question not answered directly
@@ -2661,6 +2661,83 @@ requested result.
    - I-15's and I-16's tests;
    - frozen evaluation material, scores and verdicts.
    - **Live is unverified.**
+
+**Result: verified offline; Live unverified** (PR `#53`; evidence in `artifacts/logs/requested_maximum.log`). All four
+checks are met. The three outcomes are reported separately:
+1. **Is the wrong answer blocked? Yes, for what the answer states and for what it omits.**
+   - **What Z04's saved answer was:** it never claimed a wrong peak. It omitted the maximum asked for, and offered the
+     at-peak value and the other measure's maximum instead.
+   - **Omission:** on the branch, an answer without the bound maximum is rejected (`REQUESTED_MAXIMUM_MISSING`). This was
+     shown with Z04's saved answer, with the controller's sentence removed.
+   - **Substitutes stated as the peak:**
+     - TOTALDEMAND at the price peak (1,321.81) or operational demand's maximum (1,452.0), stated as "total demand
+       peaked …", is rejected (`REQUESTED_MAXIMUM_MISMATCH`).
+     - Such an answer falls back. The sentence is not shown, and the fallback still shows the maximum as a validated
+       observation.
+     - **On `main`,** both substitutes passed and were shown.
+2. **Does a faithful answer pass? Yes.**
+   - A draft stating "dispatch total demand peaked at 1367.32 MW in the interval ending 2026-07-28T21:55:00Z" passes,
+     citing the model's own evidence for that row (`ev0284`). Identity is by row, not by evidence ID.
+   - Z04's saved draft also passes once the controller's sentence is in the answer.
+3. **Does the normal offline controller path supply the requested result? Yes, in both modes.**
+   - **Live controller path** (Z04's saved route, tool calls and draft, unchanged):
+     - the controller computes the maximum from its own call over all of 29 July (AEST), across 288 of 288 intervals;
+     - it gives the result to the model, and states as the answer's first line: "TAS1 dispatch total demand
+       (TOTALDEMAND) was highest at 1367.32 MW in the 5-minute interval ending 2026-07-28T21:55:00Z = 2026-07-29 07:55
+       AEST, over all of 2026-07-29 (AEST)";
+     - the value traces to source row `DISPATCHIS:PUBLIC_DISPATCHIS_202607290755_0000000529809198:L91`.
+   - **Replay mode** (the scripted controller): the same maximum, sentence and source row. On `main` it gave only the
+     at-peak value and operational demand's maximum.
+
+**Controls, each tested** (`tests/provider/test_requested_maximum.py`, 29 tests):
+- **Measures stay distinct:**
+  - an operational-demand value equal to the total-demand maximum does not satisfy a total-demand request
+    (SYNTHETIC);
+  - an operational-demand question ("when did TAS1 operational demand peak") is answered with operational demand:
+    1,452 MW, half-hour ending 2026-07-28T22:00Z, on real data;
+  - a total-demand maximum stated as operational demand's peak is another measure.
+- **The price peak:** its value satisfies a maximum request only when it is the maximum (SYNTHETIC, both ways).
+- **Ties:** every tied interval is stated and claimed, either satisfies the request, and the sentence passes I-15's time
+  binding.
+- **Missing data and a blocked call:** the answer says the maximum cannot be given, and any total-demand value stated as
+  the peak is rejected.
+- **As-of:** under a 2026-07-29T05:00Z cutoff, 118 intervals are not yet public. The answer says the day's maximum
+  cannot be established and gives the highest value public by then (real data).
+- **Ambiguous:** "when did demand peak" is sent back, asking which measure, in Live mode (routing call only, no tool)
+  and Replay mode.
+- **Request reading:**
+  - maxima are read in seven phrasings;
+  - four "at the peak" or "that interval" phrasings are not read;
+  - no other question in the repository asks for a maximum.
+- **Values at the price peak asked for as such:** nothing is bound and the check does not run.
+
+**Unchanged:**
+- **Saved replays (222, both ways):** only Z04's shown answer changes (it gains the maximum), and no validation code
+  changes.
+- **Replay evaluation and safety suite:** identical to `main`.
+- **I-15 and I-16:** their tests pass unchanged, and the controller's sentence passes I-15's time binding.
+- **The tools and their views, `MEASURE_SUBSTITUTED`, and the prompts.**
+- **Tests:** the full suite passes (1,387, of which 29 are new). Ruff and mypy are clean.
+
+**Still open for I-17:**
+- **Phrasings are a fixed set:**
+  - "peak", "peaked", "highest", "maximum", "max", "top" attached to "total demand"/"TOTALDEMAND" or "operational
+    demand";
+  - "when did … peak", "reach its maximum".
+
+  Other wording ("the busiest interval for demand") is not read: no maximum is computed, and the answer is not held to
+  one.
+- **The window is the whole local day of the question's date in the region's time,** or an explicit request window. A
+  maximum "during the event" or over hours the question names in words is taken over the whole day; the sentence says
+  which window was used.
+- **A sentence states a maximum only by the word patterns** in `demand_max.max_claim_re`. Other wording stating a wrong
+  peak is not caught, although the controller's sentence still gives the right one.
+- **The controller's call counts toward the tool's three calls.** If the model has used all three, the answer says the
+  maximum cannot be given.
+- **Only the two demand measures are covered;** other quantities' maxima (prices, interchange) are not bound here.
+- **A question about demand alone** (no price or event words) is not routed by the scripted Replay router. This is
+  unchanged, and Live routing is the model's.
+- **Live is unverified;** no paid run was made. v6's FAIL verdict and Z04's scores are unchanged.
 
 ### I-3a: F03, a notice time shown without its zone
 

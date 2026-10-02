@@ -762,6 +762,52 @@ def claim_time_violations(where: str, sentence: str, report: InvestigationReport
     return out
 
 
+def requested_max_violations(report: InvestigationReport, registry: EvidenceRegistry, bindings: list[dict[str, Any]],
+                             sentences: list[tuple[str, str]],
+                             numbers: Any) -> list[Violation]:
+    """``REQUESTED_MAXIMUM_MISSING`` and ``REQUESTED_MAXIMUM_MISMATCH`` for the maxima the controller bound (I-17).
+
+    - **Given:** some claim or observation in the answer is a bound maximum, matched by its evidence (metric, region,
+      interval end, value and source rows), never by the number alone: another measure's equal value does not count.
+    - **Not misstated:** a sentence stating the measure's maximum (``demand_max.max_claim_re``) gives no traced demand
+      value that is not a bound maximum: another interval of the measure (the value at the price peak) or another
+      demand measure. When no maximum can be established, it gives no demand value at all."""
+    from .agent.demand_max import MEASURES, max_claim_re
+
+    def key(ev: Any) -> tuple[Any, ...]:
+        return ev.metric, ev.region, ev.valid_at_utc, ev.value, tuple(ev.source_row_ids)
+
+    def demand(ev: Any) -> bool:
+        return ev.metric == "dispatch_totaldemand" or ev.metric.startswith("opdemand")
+    used = {o.evidence_id for o in report.observations} | {c.evidence_id for c in report.numeric_claims}
+    given = {key(ev) for e in used if (ev := registry.get(e)) is not None}
+    out: list[Violation] = []
+    for b in bindings:
+        measure = str(b["measure"])
+        bound = {key(ev) for e in b.get("evidence_ids") or [] if (ev := registry.get(e)) is not None}
+        what = f"the maximum of {measure} ({MEASURES[measure][3]}) over {' to '.join(b.get('window_utc') or [])}"
+        if bound and not bound & given:
+            out.append(Violation("REQUESTED_MAXIMUM_MISSING", "critical",
+                                 f"the question asks for {what}; the answer does not give it ({b.get('value')} in the "
+                                 f"interval ending {', '.join(b.get('interval_ends_utc') or [])})"))
+        rx = max_claim_re(measure)
+        for where, sentence in sentences:
+            if not rx.search(sentence):
+                continue
+            for v, _, _ in numbers(sentence):
+                evs = [ev for c in report.numeric_claims if abs(v - c.value) <= c.rounding + 1e-9
+                       and (ev := registry.get(c.evidence_id)) is not None and demand(ev)]
+                if evs and not any(key(ev) in bound for ev in evs):
+                    ev = evs[0]
+                    out.append(Violation("REQUESTED_MAXIMUM_MISMATCH", "critical",
+                                         f"{where}: {v:g} is stated as {what}, but it is {ev.metric} for the interval "
+                                         f"ending {ev.valid_at_utc} ({ev.evidence_id}); " +
+                                         (f"the maximum is {b.get('value')} in the interval ending "
+                                          f"{', '.join(b.get('interval_ends_utc') or [])}" if bound else
+                                          f"no maximum can be established ({b.get('unavailable') or 'incomplete'})")))
+    return out
+
+
 NOTICE_WORD_RE = re.compile(r"\bnotices?\b", re.I)
 # timing statements are read to the end of the sentence: "…: first interval ending A; last interval ending B; and
 # before the price extreme …" is one statement (v3 V18 was cut at ';')
@@ -1293,7 +1339,7 @@ def polarity_violations(where: str, text: str, passages: dict[str, tuple[str, st
 
 def validate(report: InvestigationReport, registry: EvidenceRegistry, *, as_of: datetime | None = None,
              window: tuple[datetime, datetime] | None = None, records: list[Any] | None = None,
-             forecast_run: dict[str, Any] | None = None,
+             forecast_run: dict[str, Any] | None = None, demand_max: list[dict[str, Any]] | None = None,
              required_tools: tuple[str, ...] = (), event_kind: str | None = None,
              approval_records: Sequence[Any] = ()) -> ValidationResult:
     """``approval_records``: approval records (``approvals.Approval``) that belong to this answer. An investigation
@@ -1706,6 +1752,16 @@ def validate(report: InvestigationReport, registry: EvidenceRegistry, *, as_of: 
                                                        f"{forecast_run.get('issued_at_utc')} ({want})" if want else
                                                        f"{none}, so no forecast value may stand in for it")))
 
+    # -- a demand measure's maximum the question asks for (I-17): the answer gives the maximum the controller computed
+    #    over the requested window, and a sentence stating the measure's maximum uses no other value (held-out v6 Z04
+    #    answered "when did total demand peak" with TOTALDEMAND at the price peak and operational demand's maximum)
+    if demand_max:
+        res.checks_run.append("requested_maximum")
+        texts = [(where, s) for where, text in _narratives(report) + _hypothesis_tests(report)
+                 for s in SENTENCE_RE.split(QUOTED_RE.sub(" ", text))]
+        V.extend(requested_max_violations(report, registry, demand_max, texts,
+                                          lambda s: number_spans(s, chunk_ids, titles(s))))
+
     # -- published findings: event-specific, same region/window, verbatim quote
     res.checks_run.append("published_findings")
     for i, f in enumerate(report.published_findings):
@@ -1899,15 +1955,16 @@ def validate_and_finalize(report: InvestigationReport, registry: EvidenceRegistr
     req = PLAYBOOKS[res.intent].required if res is not None and res.intent else ()
     kind = res.kind if res is not None else None
     run = getattr(res, "forecast_run", None)
+    maxima = getattr(res, "demand_max", None)
     first = validate(report, registry, as_of=as_of, window=window, records=records, required_tools=req, event_kind=kind,
-                     forecast_run=run)
+                     forecast_run=run, demand_max=maxima)
     info: dict[str, Any] = {"initial": first.as_dict(), "fallback_applied": False,
                             "repair_attempted": bool(report.validation.get("repair_attempted"))}
     final = report
     if first.critical:
         final = facts_only(report, registry, first, as_of)
         second = validate(final, registry, as_of=as_of, window=window, records=records, required_tools=req,
-                          event_kind=kind, forecast_run=run)
+                          event_kind=kind, forecast_run=run, demand_max=maxima)
         info.update(fallback_applied=True, after_fallback=second.as_dict())
     if not first.critical and first.ruled_out:  # the answer is shown: its validated exclusions (I-7c)
         info["ruled_out_explanations"] = first.ruled_out

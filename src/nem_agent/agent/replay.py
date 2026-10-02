@@ -25,8 +25,9 @@ from ..report import (
     Versions,
 )
 from ..timeutil import NEM_TZ, half_hour_end_for, iso_utc, local_str, parse_iso
+from . import demand_max
 from .dispatcher import Dispatcher, ToolCallRecord
-from .request import Resolution
+from .request import Resolution, requested_maxima
 
 CONTROLLER_VERSION = "scripted-replay-controller/1"
 WEATHER_WORDS = re.compile(r"\b(weather|temperature|hot|cold|wind|windy|solar|irradiance|heat)\b", re.I)
@@ -375,6 +376,7 @@ class ReplayController:
                 s += (f" and NETINTERCHANGE ('Net interconnector flow from the regional reference node') was "
                       f"{comp.num(ni['evidence_id'], 'signed_mw')}")
             summary.append(s + ".")
+        summary += self._maximum_lines(res, comp)
         hyps: list[Hypothesis] = []
         act = ok(recs, "get_actual_demand")
         peak_t = parse_iso(pk["interval_end_utc"])
@@ -448,6 +450,19 @@ class ReplayController:
         return self._base(res, comp, headline, summary, forecast_comparison=fc, possible_explanations=hyps,
                           published_findings=findings, uncertainties=uncertainties, status=status)
 
+    def _maximum_lines(self, res: Resolution, comp: Composer) -> list[str]:
+        """Each demand measure's maximum the question asks for, computed by code over the requested window from the
+        controller's own call, as sentences (``demand_max``; I-17: held-out v6 Z04). Recorded for the validator."""
+        measures = [m for m in requested_maxima(res.request.question) if m in demand_max.MEASURES]
+        if not measures or not res.region:
+            return []
+        res.demand_max = [demand_max.compute(self.d, res, m) for m in measures]
+
+        def num(eid: str) -> str:
+            comp.observe(eid)
+            return comp.num(eid, "raw")
+        return [demand_max.sentence(b, res.region, num, res.as_of) for b in res.demand_max]
+
     def _forecast_comparison(self, rec: ToolCallRecord, comp: Composer) -> ForecastComparison:
         v = rec.view
         la = v["largest_abs_error"]
@@ -470,7 +485,7 @@ class ReplayController:
         uncertainties = self._standard_uncertainties(res)[1:]
         uncertainties.insert(0, "POE10/POE90 are AEMO-published values derived from POE50 by scaling factors "
                                 "(SO_OP_3710); they are not calibrated uncertainty intervals.")
-        summary: list[str] = []
+        summary: list[str] = self._maximum_lines(res, comp)
         hyps: list[Hypothesis] = []
         fc = None
         if res.as_of and runs:

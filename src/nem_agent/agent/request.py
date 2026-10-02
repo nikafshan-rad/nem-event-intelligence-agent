@@ -65,6 +65,9 @@ class Resolution:
     forecast_run: dict[str, object] | None = None
     # the half-hour a forecast question asks about (start, end UTC), when it is pinned down (I-10)
     target: tuple[datetime, datetime] | None = None
+    # each demand measure's maximum the question asks for, as the controller computed it (I-17); the validator holds
+    # the answer to it
+    demand_max: list[dict[str, object]] | None = None
 
 
 def extract_regions(text: str) -> list[str]:
@@ -122,6 +125,35 @@ ISSUED_AT_RE = re.compile(r"\bissued\s+(?:at\s+|on\s+)?(?:(?:about|around|approx
 
 TOTAL_DEMAND_Q_RE = re.compile(r"\btotal[- ]?demand\b", re.I)
 OPERATIONAL_DEMAND_Q_RE = re.compile(r"\boperational[- ]demand\b", re.I)
+
+
+# "when did TAS1 total demand peak", "peak total demand", "the highest operational demand": a demand measure's
+# maximum (held-out v6 Z04); not a value at the (price) peak ("total demand at the peak"). The peak or maximum word must
+# be attached to the measure. A bare "demand" names no measure.
+_MAX_MEASURES = {"total demand": r"(?:dispatch\s+)?(?:total[- ]?demand|TOTALDEMAND)",
+                 "operational demand": r"(?:actual\s+)?operational[- ]demand",
+                 "demand": r"(?<!total )(?<!total-)(?<!operational )(?<!operational-)\bdemand"}
+
+
+def _max_of_re(m: str) -> re.Pattern[str]:
+    return re.compile(
+        rf"\bwhen\s+did\s+(?:[\w'’]+\s+){{0,3}}?{m}\s+(?:peak|top out|max out|reach (?:its|a) (?:peak|maximum|high))\b"
+        rf"|\b{m}\s+(?:peaked|peaks|topped out|maxed out)\b"
+        rf"|\b(?:peak|highest|maximum|max|top)\s+(?:(?:5-minute|five-minute|half-hour(?:ly)?|30-minute|daily|day's|"
+        rf"dispatch)\s+)*{m}\b|\b{m}\s+(?:peak|maximum|max)\b(?!\s+(?:price|interval))", re.I)
+
+
+_MAX_OF_RES = {k: _max_of_re(v) for k, v in _MAX_MEASURES.items()}
+MAXIMUM_CLARIFICATION = (
+    "Which demand measure is the peak asked about: dispatch total demand (TOTALDEMAND, a dispatch quantity) or "
+    "operational demand (half-hourly)? They are different measures with different peaks.")
+
+
+def requested_maxima(question: str) -> list[str]:
+    """The demand measures whose maximum a question asks for ("total demand", "operational demand"), or ["demand"]
+    when it asks for a demand peak without naming the measure."""
+    named = [k for k in ("total demand", "operational demand") if _MAX_OF_RES[k].search(question)]
+    return named or (["demand"] if _MAX_OF_RES["demand"].search(question) else [])
 
 
 def requested_measures(question: str) -> dict[str, str]:
@@ -501,6 +533,10 @@ def resolve(req: InvestigateRequest, sel: Selection) -> Resolution:
         # the run is named relative to a half-hour that is not pinned down: no run can be chosen without a guess, and
         # any run the answer used would stand in for the one asked for (held-out v6 Z05, I-16)
         reasons.append(HALF_HOUR_CLARIFICATION)
+    if intent in ("market_event_review", "forecast_review") and requested_maxima(q) == ["demand"]:
+        # a demand peak without its measure: total demand and operational demand peak differently, so it is sent back
+        # rather than guessed (I-17)
+        reasons.append(MAXIMUM_CLARIFICATION)
     needs_data = intent in ("market_event_review", "forecast_review")
     if needs_data and region is None and not reasons:
         reasons.append("Which NEM region (NSW1, QLD1, SA1, TAS1 or VIC1)?")
