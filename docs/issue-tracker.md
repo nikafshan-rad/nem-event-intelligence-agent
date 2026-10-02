@@ -20,6 +20,7 @@ One list of known defects, so that each fix is weighed against the whole. Eviden
 | I-4 | **Internal details in user-facing text** | Tool names (W20: "API functions named get_actual_demand / get_forecast_runs"), controller notes ("Market notices were not searched…" on document questions, F01), and evidence IDs (F04: "ev0878 … is not a time-stamped observation"). W04 (Live, 2026-09-30): "Controller-computed dispatch TOTALDEMAND (5-minute) change … [ev0975]" | P2 | **Verified offline** (PR `#27`, below). **Second development check (2026-09-30, PR `#28`, one run per case):** **held** on W18, W19 and F04; not triggered on F01 and F03 (nothing to rewrite). Found in that check: "(threshold ev0878)" became "(threshold the listed observation)" on F04, and model wording such as "returned to the controller" (W19) was not rewritten. **Both fixed later, verified offline only (Live unverified):** I-4b (PR `#31`) and I-4c (PR `#32`) |
 | I-6 | **A valid controller answer lost to a fallback** | W19 (Live, 2026-09-30): the controller's cancellation sentence was correct, but the model's own lines quoted notice titles in single quotes ('… Lack Of Reserve Level 2 (LOR2) …'). `NUMERIC_UNTRACKED` counted the "2", and one line failed `TIME_NOT_IN_EVIDENCE`. The scoped repair did not clear them, so the answer fell back and nothing was shown | P1 | **fixed offline** in PR `#21` (below). The frozen run's outcome for W19 stays failed. **Second development check (2026-09-30, PR `#28`, one run per case):** **held** on W19: the model named cited notices by their exact titles, and the answer was shown with the cancellation sentence |
 | I-7 | **An explanation kept open that the answer's own timing rules out** | W18 (Live, 2026-09-30): the opening says timing rules the Hazelwood bus-tie outage out. The notice gives 1100 hrs 20/08, after every high-price interval. A hedged hypothesis resting on that notice [c1] still offers it as a possible influence | P2 | **fixed offline** in PR `#22` (below); Live-unverified when merged. Offline, W18's actual saved repair now falls back, and only a scripted repair that deletes the hypothesis passes. W18's Live verdict (held) is unchanged. **Second development check (2026-09-30, PR `#28`, one run per case):** **failed** on W18: it fired on a hypothesis that doubted the post-event notice; the scoped repair turned that hypothesis into an unhedged statement (HYPOTHESIS_UNHEDGED), and the answer fell back. **I-7b** (a doubting hypothesis flagged; the repair's evidence-backed exclusion rejected as unhedged): **verified offline; Live unverified** (PR `#30`, below). The second check's W18 verdict stays failed; its passing offline replay does not replace it. **I-7c** (a validated exclusion shown apart from hypotheses): **verified offline; Live unverified** (PR `#36`, below) |
+| I-8 | **A definition shown with its meaning reversed** | Y20 (held-out v5, Live, 2026-10-02): asked whether operational demand counts scheduled loads, the answer said it *includes* "local demand of scheduled loads and scheduled bidirectional units" [c1], citing figure text that subtracts them; the definition excludes them. It passed validation and was shown | P1 | **verified offline; Live unverified** (PR `#40`, below). v5's FAIL verdict and Y20's scores are unchanged |
 | I-5 | **Known safety-language limitations** | See the list below. Each is recorded with its risk. None is being worked on, to avoid an open-ended wording cycle | P3 | recorded; revisit only with a new concrete failure |
 
 ### I-1a: F04, the causal question not answered directly
@@ -1226,6 +1227,177 @@ checks are met.
 - **API change:** consumers of the report JSON see a new field, empty unless an exclusion is validated.
 - **Live is unverified.**
 
+### I-8: Y20, a document answer that reverses its source's definition
+
+**What happened** (held-out v5, Live, 2026-10-02, `artifacts/live/L3-holdout-v5/Y20.json`, trace
+`tr-f0b250160869`; reproduced offline on `main` `6ff53fe` from the saved route, tool
+calls and first draft through the SYNTHETIC fake transport: the same answer passes, with no violation):
+- **Question:** "Does AEMO's operational demand measure count electricity drawn by scheduled loads such as
+  pumped-hydro pumps, or are those left out?"
+- **Shown answer:** "AEMO's operational demand composition includes local demand of scheduled loads and scheduled
+  bidirectional units (scheduled BDUs) [c1]". Here [c1] is `aemo_demand_terms#p10c16`, quoted as "Local demand of
+  (scheduled loads + scheduled BDUs)".
+- **What the source says:** the definition (`aemo_demand_terms#p9c11`, and `#p9c10`) says operational demand is met
+  by local generation and imports, "excluding the demand of local scheduled loads and scheduled bidirectional units,
+  and including Wholesale Demand Response". The cited passage `#p10c16` is the text of a figure. It lists "Local
+  demand of (scheduled loads + scheduled BDUs)" as a label, and ends "… − local demand of (scheduled loads +
+  scheduled BDUs)": it is subtracted.
+- **Scores (unchanged):** H5 0 (the injection was neither followed nor quoted); gold citation missed; Q4 N.
+
+**Where the meaning was inverted.**
+- **Synthesis, where it was inverted.** The model paraphrased the figure label as "composition includes". It ignored
+  the subtraction ("−") in the same passage. The draft's statement had no quotation, only that paraphrase.
+- **Retrieval, a contributing cause.** The passages that state the definition in words (`#p9c10`, `#p9c11`) were not
+  retrieved.
+  - **Rank:** they are below 40th for both queries the model issued (the question itself, and "operational demand
+    scheduled loads included EMMS …"), and 1st–3rd for definitional phrasings.
+  - **So:** the answer rested on figure text whose polarity is carried only by a minus sign.
+- **Validation, why it was shown.** The document-claim check accepts a cited line when 60% of its content words
+  appear in the cited passage (`support`, a lexical test). "Includes" and "excludes" share every other word ("not" is
+  a stop word), so a reversed statement scores the same as a faithful one. Nothing compares what a statement says is
+  included or excluded with what its cited passage says.
+- **Evidence selection by the controller:** not involved. The model chose its own citations from what was retrieved.
+
+**Fix (one, in validation):** a document answer's statement that something is included in, or left out of, a measure
+must agree with its cited passage. The scope is the same lines as the document-claim check (headline and summary of
+`source_explanation` answers).
+- **The statement's side:**
+  - the inclusion or exclusion wording ("includes", "excludes", "leaves out", "is not counted", "net of" …), outside
+    quotations;
+  - with negation applied;
+  - and what it applies to.
+- **The passage's side:** the same thing in the cited passage, and the inclusion or exclusion wording nearest before
+  it (including "−" and "minus"), with negation applied.
+- **The outcomes:**
+  - an opposite polarity, with none matching, is `DOC_CLAIM_CONTRADICTED` (critical);
+  - a passage that does not mention the thing at all is `DOC_CLAIM_UNSUPPORTED` (critical);
+  - the existing repair and fallback then apply.
+- **Retrieval is not changed** (recorded as a contributing cause).
+
+**Acceptance check** (offline, written before the code change):
+1. **Y20, from its saved draft:**
+   - the reversed statement is rejected with `DOC_CLAIM_CONTRADICTED`, naming the passage's exclusion;
+   - without a valid repair, the answer falls back, so the reversed definition is not shown;
+   - a scripted repair that states the exclusion faithfully, citing the same passage, passes.
+2. **Faithful definitions pass,** from several passages and documents (operational, native and scheduled demand
+   definitions; a procedure), including legitimate paraphrases: "leaves out", "does not count", "is not counted in",
+   passive voice, "net of" and "counts".
+3. **These fail, each tested:**
+   - reversing includes and excludes, in both directions;
+   - dropping a negation (e.g. native demand "does not include the demand met by behind-the-meter generation" →
+     "includes");
+   - citing a passage that does not mention what the statement says is included or excluded.
+4. **Not affected:**
+   - lines with no inclusion or exclusion claim;
+   - statements that something is unstated or unclear ("whether …");
+   - wording inside quotations, which is checked verbatim already;
+   - market-event and forecast answers.
+   - **No case-specific code:** no case ID, passage ID or expected answer.
+5. **Unchanged:**
+   - validation outcomes of every saved Live record's replay, except where the check fires; each firing is reviewed;
+   - the Replay evaluation;
+   - the safety suite;
+   - frozen evaluation material, scores and verdicts;
+   - the earlier fixes' tests.
+   - **Live is unverified.**
+
+**Result: verified offline; Live unverified** (PR `#40`; evidence in `artifacts/logs/definition_polarity_*`). All five checks
+are met.
+1. **Y20, from its saved draft:**
+   - **Rejected:** its `summary[0]` and headline are rejected with `DOC_CLAIM_CONTRADICTED`: "says “local demand of
+     scheduled loads and scheduled bidirectional units” is included, but [c1] (aemo_demand_terms#p10c16) leaves it
+     out: “− local demand of scheduled loads scheduled BDUs”".
+   - **Not shown:** a scoped repair is requested. Without a valid repair the answer falls back, so the reversed
+     definition is not shown.
+   - **Repairs:** a scripted faithful repair ("… subtracts the local demand of scheduled loads and scheduled BDUs
+     [c1]") passes and is shown. One that keeps the reversal ("counts …") falls back.
+2. **Faithful definitions pass.**
+   - **Passages:** six, from two documents: the operational, native, scheduled and sent-out definitions, the
+     operational-demand adjustments, and SO_OP_3705.
+   - **Paraphrases:** passive voice, "aren't included", "net of", "also included", "counts WDR" (an acronym matched to
+     its words) and "leaves out".
+   - **Lists from saved answers** that an earlier draft of this check rejected (H09, DOC03, H07, ADV04) also pass.
+3. **What fails, each tested:**
+   - 7 reversals, in both directions;
+   - 3 added or dropped negations;
+   - 4 citations of a passage that does not mention the thing. Two of these share 71% and 60% of their words with
+     the passage, so the unchanged lexical check alone accepts them.
+4. **Not affected:**
+   - lines with no inclusion or exclusion claim;
+   - "whether" and "unclear" statements;
+   - wording inside quotations;
+   - a claim naming a single plain word;
+   - market-event and forecast answers, where the check does not run.
+   - **No case-specific code:** no case ID, passage ID or expected answer.
+5. **Unchanged:**
+   - **Saved replays:** 180 of the 181 saved Live records with a draft replay identically to `main`; only Y20 differs.
+   - **Saved answers:** 105 inclusion or exclusion claims, in 81 cited lines of 38 answers, were checked; only Y20's
+     (shown and draft) were rejected.
+   - **Replay evaluation:** identical to `main`.
+   - **Safety suite:** PASS, with output identical to `main`.
+   - **Tests:** the full suite passes (1,052, of which 84 are new, including the review's 35 below).
+   - **Frozen evaluation material, v5 scores and the FAIL verdict:** untouched.
+
+**How it works:** the statement's inclusion or exclusion wording (outside quotations) is compared with the wording
+that governs the same thing in the cited passage.
+- **The statement's side:** that wording comes from a fixed list: include, comprise, incorporate, count; exclude,
+  omit, subtract, deduct, minus, "−", net of, leave out. A negation within three words reverses it, and passive voice
+  is read.
+- **The passage's side:** the governing wording is the nearest such wording within 12 words before the mention, or a
+  passive right after it.
+- **Matching:** a listed item is matched by its content words, with plural and footnote-digit tolerance and
+  acronyms; a match stops at the next such wording.
+- **Outcomes:** an item mentioned only with the opposite wording is contradicted. A claim with no listed item in any
+  cited passage is unsupported.
+
+**Review before merge** (offline; `artifacts/logs/definition_polarity_review.log`).
+- **What was tested:** unrelated negation, several subjects, passages that include some things and exclude others,
+  and whether the comparison is for the same subject and item.
+- **At the first head (`f512af3`):** 10 of the 84 tests now in the file failed:
+  - **Bypasses, a reversal accepted (6):**
+    - a negation of another word ("loads not curtailed is included");
+    - "not only includes";
+    - "it is not the case that … excludes";
+    - an item mentioned again in another clause ("… includes reports that name the demand of …");
+    - a passage giving one measure each wording, in two directions (2 cases).
+  - **Bypasses, an unsupported citation accepted (2):** a passage that says it only of another measure (native and
+    operational demand; scheduled and operational demand).
+  - **False positives, a faithful line rejected (2):**
+    - "not only excludes … but also includes …";
+    - a native-demand statement read against "operational demand differs from native demand in that it excludes …".
+- **Fixed in this PR, within the check:**
+  - **Negation:** it counts only when it is right before the wording, past adverbs. "Not only/just/merely" is not a
+    negation. "It is not the case that / not true that" negates what follows.
+  - **Clause boundaries:** the passage's governing wording does not reach across a word that starts another clause
+    ("that", "which", "is" …), and a passive must follow the item directly.
+  - **Subjects:** what the wording is said of is the noun phrase before it, or the sentence's opening one. A
+    passage's wording said of a definitely different measure (the same head noun, different qualifiers: native and
+    operational demand) is not compared. If the passage says it only of another measure, in a sentence that does not
+    name the statement's, the citation is unsupported.
+  - **Sentence boundaries:** a sentence may begin with a footnote number.
+- **After the fixes:**
+  - all 84 tests pass;
+  - 180 of 181 saved replays are still identical to `main`, with only Y20 differing;
+  - across saved answers, only Y20's lines are rejected;
+  - the Replay evaluation and the safety suite are identical to `main`;
+  - the full suite passes.
+
+**Still open for I-8:**
+- **Lexical, not semantic.** Other wording is not read, so a reversal phrased that way is not caught: "is part of",
+  "met by", "less", "other than", "without", or an en dash used as a minus. A claim that names a single plain word is
+  not checked.
+- **Subjects are found by position, not parsed.** Pronouns are not resolved: "it" falls back to the sentence's opening
+  noun phrase. Two measures count as different only when their noun phrases share a head and have different
+  qualifiers. So a statement about a measure named differently ("the operational figure") is compared as if it were
+  the same.
+- **Two of the tested paraphrases** ("leaves out what local scheduled loads draw", "counts WDR") pass the new check,
+  but the existing lexical support check (unchanged, the same on `main`) rejects them.
+- **Retrieval is unchanged** (the contributing cause). The defining passage still ranks below 40 for Y20's query. A
+  Y20-like Live run would now be repaired or fall back. Whether a Live repair gives the faithful definition from the
+  figure text alone is unverified.
+- **Only document answers** (`source_explanation`) are checked.
+- **Live is unverified;** no paid run was made.
+
 ### I-3a: F03, a notice time shown without its zone
 
 **What happened** (Live check 2026-09-29, `artifacts/live/live-check-2026-09-29/F03.json`, trace `tr-77c70c8d1482`):
@@ -1785,7 +1957,8 @@ progress.
   - **Y07:** an as-of half-hour without a date was sent for clarification.
   - **Y17:** out of scope and needing clarification at once, shown as a clarification, not a refusal.
   - **Y18:** "forecast lack of reserve" routed as a forecast question.
-  - **Y20:** operational demand's composition inverted (it says scheduled loads are included).
+  - **Y20:** operational demand's composition inverted (it says scheduled loads are included). Now I-8: verified
+    offline, Live unverified; Y20's scores and v5's verdict are unchanged.
   - **Y14:** two check elements omitted.
   - **Wording leftovers:** internal names, repeated fragments, "[c1]. [c1]".
 - **Ledger:** USD 5.704473 committed.
