@@ -1,0 +1,56 @@
+# I-14: a model response that did not finish is rejected, even when its text parses. Offline only: Y02's saved
+# records through the SYNTHETIC fake transport (no network, no key; scratch ledger), with the repair (or another
+# stage) answered by script, on main 0ded19f and on fix/incomplete-structured-output. Live is unverified.
+
+## Y02 in Live (trace tr-1e1285d617dc)
+   synthesis: status completed, incomplete None, output tokens 5136 (reasoning 3392) of max 16000, 46891.9 ms, USD 0.015218
+   repair: status incomplete, incomplete {'reason': 'max_output_tokens'}, output tokens 16000 (reasoning 384) of max 16000, 122476.3 ms, USD 0.037459
+   repair:invalid_json: Invalid JSON: EOF while parsing an object at line 5180 column 4 [type=json_invalid, input_
+
+## The two failures, separated
+   1. First draft, summary[6]: the retrieval tool's search_scope outcome put in quotation marks,
+      (retrieve_public_evidence search_scope outcome: "no notice held for this region and window")
+      -> QUOTE_NOT_IN_SOURCE: not in any cited passage. Correct rejection; no code change.
+   2. Scoped repair cut off at max_output_tokens (whitespace runaway). The controller does not check the response
+      status: it parses the text. Code change: reject a response that did not finish.
+
+## Output tokens of every saved Live repair and synthesis (traces)
+   route: 47 calls, 0 not completed; completed output tokens max 1333, median 337
+   tools: 102 calls, 0 not completed; completed output tokens max 5907, median 1203
+   synthesis: 43 calls, 0 not completed; completed output tokens max 7115, median 4069
+   repair: 26 calls, 1 not completed; completed output tokens max 5257, median 1177
+   (the one repair not completed is Y02's; the cap stays 16,000: raising it would not have helped a whitespace
+    runaway, and lowering it changes no outcome)
+
+## Y02 replayed with its repair cut off as in Live
+### main 0ded19f
+   first validation: [('QUOTE_NOT_IN_SOURCE', 'summary[6]: the quotation “no notice held for this region and window” is not in any cited passage')]
+   repair requested: scoped (RepairPatch) | max_output_tokens sent: 16000
+   repair events: [('repair', 'incomplete', {'reason': 'max_output_tokens'}, ''), ('repair:invalid_json', None, None, '1 validation error for RepairPatch\n  Invalid JSON: EOF while parsing a value at ')]
+   final: status answered_with_caveats | fallback True | final_passed True
+   headline: Validated facts only: the generated narrative failed independent validation. Observations below are retrieved values with source rows.
+   same as saved: True
+### fix/incomplete-structured-output
+   first validation: [('QUOTE_NOT_IN_SOURCE', 'summary[6]: the quotation “no notice held for this region and window” is not in any cited passage')]
+   repair requested: scoped (RepairPatch) | max_output_tokens sent: 16000
+   repair events: [('repair', 'incomplete', {'reason': 'max_output_tokens'}, ''), ('repair:incomplete', 'incomplete', {'reason': 'max_output_tokens'}, '')]
+   final: status answered_with_caveats | fallback True | final_passed True
+   headline: Validated facts only: the generated narrative failed independent validation. Observations below are retrieved values with source rows.
+   same as saved: True
+
+## A repair cut off AFTER a complete, valid patch (the runaway after the closing brace)
+   main  : repair calls 1; status answered; fallback False; events ['repair:scoped', 'repair:draft']
+   branch: repair calls 1; status answered_with_caveats; fallback True; events ['repair:incomplete']
+
+## New tests against main (tests/provider/test_incomplete_response.py copied into a main worktree)
+   FAILED test_y02s_cut_off_repair_is_rejected_as_cut_off (main falls back too, but records invalid JSON, not the cut-off)
+   FAILED test_a_repair_that_did_not_finish_is_rejected_even_when_it_parses[incomplete / failed / incomplete details]
+   FAILED test_a_cut_off_routing_response_is_not_used
+   FAILED test_a_cut_off_synthesis_gives_no_model_narrative
+   6 failed, 3 passed (the 3: the first draft's violation, a successful bounded repair, a repair keeping the quote)
+
+## Every saved Live routing decision (198) through investigate: identical to main
+## Saved drafts replayed with their saved repairs (181): identical to main
+## Replay evaluation (make eval, --out to scratch): identical to main except latencies, trace ids, timestamps and
+## the code version string; EVAL: PASS on both
+## Safety suite (make safety): identical to main; SAFETY-SUITE: PASS on both

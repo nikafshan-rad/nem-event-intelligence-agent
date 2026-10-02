@@ -803,6 +803,13 @@ class LiveController:
         fmt = {"type": "json_schema", "name": schema_model.__name__, "schema": strict_json_schema(schema_model), "strict": True}
         resp = self._call(trace, stage, instructions=instructions, input=input_items, text={"format": fmt})
         raw = _texts(resp)
+        if resp.get("status") not in (None, "completed") or resp.get("incomplete_details"):
+            # A response that did not finish (cut off at max_output_tokens, or failed) is no answer, even when its
+            # text parses: held-out v5 Y02's repair ran to the cap in whitespace, and a patch cut off after its closing
+            # brace would have been applied. It is rejected exactly as unparseable output is.
+            trace.add("model", f"{stage}:incomplete", status=resp.get("status"), incomplete=resp.get("incomplete_details"),
+                      output_tokens=(resp.get("usage") or {}).get("output_tokens"))
+            return None, raw
         try:
             return schema_model.model_validate_json(raw), raw
         except ValidationError as exc:
