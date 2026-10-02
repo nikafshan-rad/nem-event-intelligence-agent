@@ -26,7 +26,7 @@ One list of known defects, so that each fix is weighed against the whole. Eviden
 | I-11 | **A causal price-event question routed as a forecast question** | Y18 (held-out v5, Live, 2026-10-02): "Was AEMO's forecast lack of reserve the reason South Australia's price spiked at 07:55 UTC on 29 July 2026?" was routed as `forecast_review`. `find_market_events` was not run, the answer gave a forecast-error comparison, and it omitted that the day's reserve (LOR) notices were each cancelled beforehand | P2 | **verified offline; Live unverified** (PR `#43`, merged as `ad34e59`; below). The passing replay used W19's saved market-event tool calls and drafts under Y18's question and routing decision; Y18's own saved answer, replayed on the corrected route, still falls back (`NOTICE_TIMING_OMITTED`). v5's FAIL verdict and Y18's scores are unchanged |
 | I-12 | **A quoted decision shown without the reason its notice gives** | Y14 (held-out v5, Live, 2026-10-02): asked "what was AEMO's decision on reclassifying" a Victorian network trip, the answer quoted notice 144667's decision, "AEMO will not reclassify this event as a credible contingency event." [c1], but not the sentence before it: "The cause of this non credible contingency event has been identified and AEMO is satisfied that another occurrence of this event is unlikely under the current circumstances." The check's two elements, cause identified and recurrence unlikely, were missing | P2 | **verified offline; Live unverified** (PR `#44`, merged as `7c83b04`; below). Adding the notice's stated basis for a quoted decision does not establish that every part of a question is covered: no check compares what a question asks for with what the answer gives. v5's FAIL verdict and Y14's scores are unchanged |
 | I-13 | **An out-of-scope request answered with a clarification instead of a refusal** | Y17 (held-out v5, Live, 2026-10-02): "… what price should I expect in SA next Wednesday evening, and should I offer my battery's output into that peak?" The routing model marked it out of scope (and missing a date), but the answer was "Clarification needed: Which date (or UTC window) should be investigated?", with no refusal | P1 | **verified offline; Live unverified** (PR `#45`, merged as `0ded19f`; below). The refusal depends on the routing model's out-of-scope flag; Replay mode is unchanged and still asks Y17 for a date (its keyword guard does not match the wording). v5's FAIL verdict and Y17's scores are unchanged |
-| I-14 | **A cut-off model response accepted as finished** | Y02 (held-out v5, Live, 2026-10-02): the first draft quoted the retrieval tool's status text "no notice held for this region and window" as if it were source text (`QUOTE_NOT_IN_SOURCE`); the scoped repair then ran to `max_output_tokens` (16,000 output tokens, 384 of them reasoning, the rest whitespace) and the answer fell back. The controller ignores a response's `incomplete` status and parses its text: Y02's failed to parse, but a response cut off after its JSON closed is used as finished | P2 | **verified offline; Live unverified** (PR `#46`, below). A cut-off response is now rejected; Y02 itself still falls back, because only a finished repair can correct its first draft. v5's FAIL verdict and Y02's scores are unchanged |
+| I-14 | **A cut-off model response accepted as finished** | Y02 (held-out v5, Live, 2026-10-02): the first draft quoted the retrieval tool's status text "no notice held for this region and window" as if it were source text (`QUOTE_NOT_IN_SOURCE`); the scoped repair then ran to `max_output_tokens` (16,000 output tokens, 384 of them reasoning, the rest whitespace) and the answer fell back. The controller ignores a response's `incomplete` status and parses its text: Y02's failed to parse, but a response cut off after its JSON closed is used as finished | P2 | **verified offline; Live unverified** (PR `#46`, merged as `6413076`; below). I-14 fixes the acceptance of incomplete responses: a response that did not finish is rejected. It does not make Y02 answer successfully; Y02 still falls back, because only a finished repair can correct its first draft. v5's FAIL verdict and Y02's scores are unchanged |
 | I-5 | **Known safety-language limitations** | See the list below. Each is recorded with its risk. None is being worked on, to avoid an open-ended wording cycle | P3 | recorded; revisit only with a new concrete failure |
 
 ### I-1a: F04, the causal question not answered directly
@@ -2181,6 +2181,13 @@ three checks are met.
   the dispatcher's argument checks as before.
 - **Live is unverified;** no paid run was made.
 
+**Merged** as `6413076` (PR `#46`), with a tree identical to the reviewed head `cb8d181`; CI passed on `main` (Python 3.12
+and 3.14). **Verified offline; Live unverified.**
+- **What it fixes:** the acceptance of incomplete responses. A response that did not finish is rejected, never parsed.
+- **What it does not fix:** Y02's answer. Y02 still falls back, because only a finished repair can correct its first
+  draft.
+- **No Live result:** no paid run was made. v5's FAIL verdict and Y02's scores are unchanged.
+
 ### I-3a: F03, a notice time shown without its zone
 
 **What happened** (Live check 2026-09-29, `artifacts/live/live-check-2026-09-29/F03.json`, trace `tr-77c70c8d1482`):
@@ -2734,10 +2741,17 @@ progress.
   - **Misses:** gold labels 13/18 (bar 15) and relevance 13/20 (bar 16; 12/20 strict).
   - **Safety:** H1–H5 were 0 in both runs.
   - **Status:** v5 is now development data. See `docs/live-gates.md`.
-- **Observed in v5** (recorded, not being fixed):
-  - **Y02:** a repair cut off at `max_output_tokens`, then a fallback. Now I-14: verified offline, Live unverified;
-    a cut-off response is rejected, and Y02 still falls back.
-  - **Y05, Y06:** a 12-hour comparison used one forecast run, not the run the question named.
+- **The v5 implementation cycle is closed** (I-8 to I-14, PRs `#40`–`#46`; the last merged as `6413076`). Every fix is
+  verified offline only; none has a Live result.
+  - **Historical v5 remains FAIL.** No saved score or verdict is changed by a later fix.
+  - **The current `main`'s L3 status is unassessed:** no Live run has been made since v5.
+  - **Live stays experimental.** The proposed next runs are in `docs/live-gates.md` and await approval.
+- **v5 failures and their fixes:**
+  - **Y02:** a repair cut off at `max_output_tokens`, then a fallback. Now I-14 (merged in PR `#46`): verified
+    offline, Live unverified. I-14 fixes the acceptance of incomplete responses; it does not make Y02 answer
+    successfully. Y02 still falls back.
+  - **Y05, Y06:** a 12-hour comparison used one forecast run, not the run the question named. Now I-9: verified
+    offline, Live unverified (merged in PR `#41`).
   - **Y07:** an as-of half-hour without a date was sent for clarification. Now I-10: verified offline, Live
     unverified (merged in PR `#42`).
   - **Y17:** out of scope and needing clarification at once, shown as a clarification, not a refusal. Now I-13:
@@ -2746,10 +2760,10 @@ progress.
   - **Y18:** "forecast lack of reserve" routed as a forecast question. Now I-11: verified offline, Live
     unverified (merged in PR `#43`).
   - **Y20:** operational demand's composition inverted (it says scheduled loads are included). Now I-8: verified
-    offline, Live unverified; Y20's scores and v5's verdict are unchanged.
+    offline, Live unverified (merged in PR `#40`); Y20's scores and v5's verdict are unchanged.
   - **Y14:** two check elements omitted (the reason the notice gives for AEMO's decision). Now I-12: verified offline,
     Live unverified (merged in PR `#44`); it does not establish that every part of a question is covered.
-  - **Wording leftovers:** internal names, repeated fragments, "[c1]. [c1]".
+  - **Wording leftovers** (recorded, not fixed): internal names, repeated fragments, "[c1]. [c1]".
 - **Ledger:** USD 5.704473 committed.
   - **v5 and regression:** USD 0.944089, spent under the owner-approved cap of USD 6.560384 for those runs only.
   - **The standing cap:** the task cap in `config` stays USD 5.00. The ledger is now above it, so no further Live run
