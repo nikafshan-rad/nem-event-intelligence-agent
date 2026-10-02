@@ -1335,7 +1335,7 @@ are met.
      (shown and draft) were rejected.
    - **Replay evaluation:** identical to `main`.
    - **Safety suite:** PASS, with output identical to `main`.
-   - **Tests:** the full suite passes (1,017, of which 49 are new).
+   - **Tests:** the full suite passes (1,052, of which 84 are new, including the review's 35 below).
    - **Frozen evaluation material, v5 scores and the FAIL verdict:** untouched.
 
 **How it works:** the statement's inclusion or exclusion wording (outside quotations) is compared with the wording
@@ -1350,10 +1350,46 @@ that governs the same thing in the cited passage.
 - **Outcomes:** an item mentioned only with the opposite wording is contradicted. A claim with no listed item in any
   cited passage is unsupported.
 
+**Review before merge** (offline; `artifacts/logs/definition_polarity_review.log`).
+- **What was tested:** unrelated negation, several subjects, passages that include some things and exclude others,
+  and whether the comparison is for the same subject and item.
+- **At the first head (`f512af3`):** 10 of the 84 tests now in the file failed:
+  - **Bypasses, a reversal accepted (6):**
+    - a negation of another word ("loads not curtailed is included");
+    - "not only includes";
+    - "it is not the case that … excludes";
+    - an item mentioned again in another clause ("… includes reports that name the demand of …");
+    - a passage giving one measure each wording, in two directions (2 cases).
+  - **Bypasses, an unsupported citation accepted (2):** a passage that says it only of another measure (native and
+    operational demand; scheduled and operational demand).
+  - **False positives, a faithful line rejected (2):**
+    - "not only excludes … but also includes …";
+    - a native-demand statement read against "operational demand differs from native demand in that it excludes …".
+- **Fixed in this PR, within the check:**
+  - **Negation:** it counts only when it is right before the wording, past adverbs. "Not only/just/merely" is not a
+    negation. "It is not the case that / not true that" negates what follows.
+  - **Clause boundaries:** the passage's governing wording does not reach across a word that starts another clause
+    ("that", "which", "is" …), and a passive must follow the item directly.
+  - **Subjects:** what the wording is said of is the noun phrase before it, or the sentence's opening one. A
+    passage's wording said of a definitely different measure (the same head noun, different qualifiers: native and
+    operational demand) is not compared. If the passage says it only of another measure, in a sentence that does not
+    name the statement's, the citation is unsupported.
+  - **Sentence boundaries:** a sentence may begin with a footnote number.
+- **After the fixes:**
+  - all 84 tests pass;
+  - 180 of 181 saved replays are still identical to `main`, with only Y20 differing;
+  - across saved answers, only Y20's lines are rejected;
+  - the Replay evaluation and the safety suite are identical to `main`;
+  - the full suite passes.
+
 **Still open for I-8:**
 - **Lexical, not semantic.** Other wording is not read, so a reversal phrased that way is not caught: "is part of",
   "met by", "less", "other than", "without", or an en dash used as a minus. A claim that names a single plain word is
   not checked.
+- **Subjects are found by position, not parsed.** Pronouns are not resolved: "it" falls back to the sentence's opening
+  noun phrase. Two measures count as different only when their noun phrases share a head and have different
+  qualifiers. So a statement about a measure named differently ("the operational figure") is compared as if it were
+  the same.
 - **Two of the tested paraphrases** ("leaves out what local scheduled loads draw", "counts WDR") pass the new check,
   but the existing lexical support check (unchanged, the same on `main`) rejects them.
 - **Retrieval is unchanged** (the contributing cause). The defining passage still ranks below 40 for Y20's query. A

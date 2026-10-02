@@ -689,7 +689,7 @@ def support(sentence: str, passage: str) -> float:
 # What a document statement says is included in, or left out of, something must agree with its cited passage (I-8).
 # `support` cannot see this: "includes" and "excludes" share every other word (held-out v5 Y20 said operational demand
 # "includes local demand of scheduled loads …", citing figure text that subtracts them: "… − local demand of …").
-_POL_TOKEN_RE = re.compile(r"(?P<w>[A-Za-z][A-Za-z0-9_'’]*)|(?P<minus>−)|(?P<stop>\.(?=\s+[A-Z“\"(•]|\s*$))|"
+_POL_TOKEN_RE = re.compile(r"(?P<w>[A-Za-z][A-Za-z0-9_'’]*)|(?P<minus>−)|(?P<stop>\.(?=\s+[A-Z0-9“\"(•]|\s*$))|"
                            r"(?P<clause>[,;])|(?P<open>\()|(?P<close>\))")
 _INCLUDES = {"include", "includes", "included", "including", "comprise", "comprises", "comprised", "comprising",
              "incorporate", "incorporates", "incorporated", "incorporating", "count", "counts", "counted", "counting"}
@@ -700,6 +700,17 @@ _PARTICIPLES = {"included", "excluded", "counted", "omitted", "subtracted", "ded
 _BE = {"is", "are", "was", "were", "be", "been", "being"}
 _NEGATORS = {"not", "never", "no", "without"}
 _ADVERBS = {"also", "generally", "explicitly", "therefore", "only", "always", "usually", "typically", "then"}
+_AUX = _BE | {"do", "does", "did", "has", "have", "had", "can", "could", "may", "might", "will", "would", "should", "must",
+              "shall"}
+_NOT_NEGATING = {"only", "just", "merely", "simply"}  # "not only includes" includes
+_SENTENTIAL_NEG = [("not", "the", "case", "that"), ("not", "true", "that"), ("untrue", "that"), ("false", "that")]
+# words that start another clause: inclusion or exclusion wording before them does not govern what follows them
+_CLAUSE_WORDS = {"which", "that", "who", "whose", "where", "when", "while", "whereas", "because", "although", "though",
+                 "if"} | _BE | {"has", "have", "had"}
+_PREPOSITIONS = {"in", "of", "for", "at", "on", "by", "from", "with", "to", "within", "across", "over", "under", "into"}
+_SUBJECT_VERBS = {"differs", "differ", "means", "mean", "refers", "refer", "represents", "represent", "reflects",
+                  "describes", "measures", "covers", "comprises", "consists"}
+_PRONOUNS = {"it", "they", "this", "these", "those", "its", "their", "them"}
 _OBJECT_END = {"such", "e", "eg", "for", "but", "while", "whereas", "which", "that", "because", "since", "as", "is", "are",
                "was", "were", "has", "have", "had", "can", "could", "may", "might", "will", "would", "should", "must",
                "does", "do", "did"}
@@ -739,13 +750,71 @@ def _cue(toks: list[_Tok], i: int) -> tuple[bool, int] | None:
 
 
 def _negated(toks: list[_Tok], i: int) -> bool:
-    """A negation among the three words before token i ("does not include", "is not counted", "isn't included")."""
-    j, seen = i - 1, 0
-    while j >= 0 and seen < 3 and toks[j].kind == "w":
-        if toks[j].text in _NEGATORS or toks[j].text.endswith("n't"):
-            return True
-        j, seen = j - 1, seen + 1
-    return False
+    """A negation of the wording at token i: right before it, past adverbs only ("does not include", "is not explicitly
+    counted", "isn't included", "no longer includes"). "Not only includes" is no negation, and a negation of another
+    word ("loads not curtailed are included") is not this one's. "It is not the case that …" negates what follows."""
+    j = i - 1
+    while j >= 0 and toks[j].kind == "w" and toks[j].text in _ADVERBS | {"longer"}:
+        j -= 1
+    near = j >= 0 and toks[j].kind == "w" and (toks[j].text in _NEGATORS or toks[j].text.endswith("n't")) and \
+        not (j + 1 < i and toks[j + 1].text in _NOT_NEGATING)
+    k = i - 1
+    while k >= 0 and toks[k].kind != "stop":
+        if any([t.text for t in toks[k:k + len(pat)]] == list(pat) for pat in _SENTENTIAL_NEG):
+            return not near
+        k -= 1
+    return near
+
+
+def _np_keys(toks: list[_Tok], j: int, step: int) -> list[str]:
+    """The keys of the noun phrase that ends (step -1) or starts (step 1) at token j, up to a clause word, a
+    preposition, a verb or punctuation."""
+    out: list[str] = []
+    while 0 <= j < len(toks) and toks[j].kind == "w" and len(out) < 6:
+        t = toks[j].text
+        if t in _CLAUSE_WORDS | _PREPOSITIONS | _AUX | _SUBJECT_VERBS | {"but", "and", "or", "than", "as", "unlike",
+                                                                          "like"} or _cue(toks, j) is not None:
+            break
+        if key := _key(toks[j].raw):
+            out.append(key)
+        elif t in _PRONOUNS:
+            out.append(t)
+        j += step
+    return out[::-1] if step < 0 else out
+
+
+def _subject(toks: list[_Tok], kc: int) -> list[str]:
+    """What the inclusion or exclusion wording at token kc is about: for a passive one, the measure after it ("is
+    included in operational demand"); else the noun phrase right before it, or, when that is a pronoun or absent ("…,
+    excluding", "it excludes"), the one that opens the sentence. Empty when none is found."""
+    be = _passive(toks, kc)
+    if be is not None:
+        j = kc + (2 if toks[kc].text == "left" else 1)
+        while j < len(toks) and toks[j].kind == "w" and toks[j].text in _PREPOSITIONS | {"the", "a", "an"}:
+            j += 1
+        return _np_keys(toks, j, 1)
+    j = kc - 1
+    while j >= 0 and toks[j].kind == "w" and (toks[j].text in _AUX | _ADVERBS | _NEGATORS | {"longer", "both", "all"}
+                                               or toks[j].text.endswith("n't")):
+        j -= 1
+    near = _np_keys(toks, j, -1)
+    if near and not set(near) <= _PRONOUNS:
+        return [k for k in near if k not in _PRONOUNS]
+    j = kc - 1
+    while j > 0 and toks[j - 1].kind != "stop":
+        j -= 1
+    while j < kc and toks[j].kind != "w":
+        j += 1
+    return [k for k in _np_keys(toks, j, 1) if k not in _PRONOUNS]
+
+
+def _other_subject(a: list[str], b: list[str]) -> bool:
+    """Two noun phrases with the same head and different qualifiers ("native demand", "operational demand"): definitely
+    about different things. Anything less certain counts as the same."""
+    if not a or not b or a[-1] != b[-1]:
+        return False
+    qa, qb = set(a[:-1]), set(b[:-1])
+    return bool(qa) and bool(qb) and qa.isdisjoint(qb)
 
 
 def _passive(toks: list[_Tok], i: int) -> int | None:
@@ -764,9 +833,10 @@ def _acronym(raw: str) -> bool:
     return 2 <= len(core) <= 6 and core.isupper() and core.isalpha()
 
 
-def polarity_claims(text: str) -> list[tuple[bool, list[_Tok], list[_Tok]]]:
-    """(includes?, what, its parenthetical other name) for each inclusion or exclusion a statement makes, read outside
-    quotations with negation applied. A statement that something is unstated or unclear makes none."""
+def polarity_claims(text: str) -> list[tuple[bool, list[_Tok], list[_Tok], list[str]]]:
+    """(includes?, what, its parenthetical other name, what it is said of) for each inclusion or exclusion a statement
+    makes, read outside quotations with negation applied. A statement that something is unstated or unclear makes
+    none."""
     body = CITE_RE.sub(" ", text)
     if _UNSTATED_RE.search(QUOTED_RE.sub(" ", body)):
         return []
@@ -805,7 +875,7 @@ def polarity_claims(text: str) -> list[tuple[bool, list[_Tok], list[_Tok]]]:
                 j += 1
         # one plain word ("includes scheduled, semi-scheduled …", cut at the comma) names too little to check
         if len(_stem_set(what)) >= 2 or any(_acronym(t.raw) or _identifier(t.raw) for t in what):
-            out.append((includes, what, alt))
+            out.append((includes, what, alt, _subject(toks, i)))
         i = after
     return out
 
@@ -836,10 +906,12 @@ def _stem_set(toks: list[_Tok]) -> set[str]:
     return {key for t in toks if (key := _key(t.raw))}
 
 
-def passage_polarity(passage: str, what: list[_Tok], alt: Sequence[_Tok] = ()) -> tuple[float, set[bool], str]:
-    """How fully the passage mentions ``what`` (0–1), the inclusion or exclusion wording that governs its best mentions
-    (the nearest such wording before it in the same sentence, with negation, or a passive one right after it), and a
-    short excerpt of the first mention that has one."""
+def passage_polarity(passage: str, what: list[_Tok], alt: Sequence[_Tok] = (),
+                     subject: Sequence[str] = ()) -> tuple[float, set[bool], str]:
+    """How fully the passage mentions ``what`` (0–1), the inclusion or exclusion wording that governs its best mentions,
+    and a short excerpt of the first mention that has one. The governing wording is a passive one right after the
+    mention, or else the nearest one before it in the same clause, with negation. Wording said of a definitely
+    different ``subject`` (another measure) is not counted."""
     toks = _pol_tokens(passage)
     words = [k for k, t in enumerate(toks) if t.kind == "w"]
     keys = {k: _key(toks[k].raw) for k in words}
@@ -889,26 +961,41 @@ def passage_polarity(passage: str, what: list[_Tok], alt: Sequence[_Tok] = ()) -
         return best, set(), ""
     found: set[bool] = set()
     excerpt = ""
+    foreign = 0  # mentions whose wording is said only of another measure, in a sentence that does not name ours
     for s in starts:
         pol = None
-        k = s + 1  # a passive after it: "… scheduled loads are excluded"
-        while k < len(toks) and k <= s + width + 4 and toks[k].kind == "w":
+        k, ahead = s + 1, 1  # a passive right after it: "… scheduled loads are excluded"
+        while k < len(toks) and ahead <= len(what) + 3 and toks[k].kind == "w":
             if _passive(toks, k) is not None and (c := _cue(toks, k)) is not None:
                 pol = c[0] != _negated(toks, k)
                 break
-            k += 1
-        k, back = s - 1, 0
-        while pol is None and k >= 0 and back < 12 and toks[k].kind != "stop":
-            c = _cue(toks, k) if toks[k].kind in ("w", "minus") else None
-            if c is not None:
-                pol = c[0] != _negated(toks, k)
-                break
-            back += toks[k].kind == "w"
-            k -= 1
+            k, ahead = k + 1, ahead + 1
+        if pol is None:
+            k, back = s - 1, 0
+            while k >= 0 and back < 12 and toks[k].kind != "stop":
+                c = _cue(toks, k) if toks[k].kind in ("w", "minus") else None
+                if c is not None:
+                    pol = c[0] != _negated(toks, k)
+                    break
+                if toks[k].text in _CLAUSE_WORDS or (toks[k].text == "as" and (k == 0 or toks[k - 1].text != "such")):
+                    break  # "… includes reports that name X": X is not what "includes" governs
+                back += toks[k].kind == "w"
+                k -= 1
+        if pol is not None and _other_subject(list(subject), _subject(toks, k)):
+            pol = None  # said of another measure ("operational demand … excludes" read for "native demand")
+            a = k
+            while a > 0 and toks[a - 1].kind != "stop":
+                a -= 1
+            b = k
+            while b < len(toks) and toks[b].kind != "stop":
+                b += 1
+            foreign += not set(subject) <= {key for t in toks[a:b] if t.kind == "w" and (key := _key(t.raw))}
         if pol is not None:
             found.add(pol)
             if not excerpt:
                 excerpt = " ".join(t.raw for t in toks[max(k, 0):s + width] if t.kind in ("w", "minus"))[:110]
+    if foreign == len(starts):
+        return 0.0, set(), ""  # the passage speaks of it only for another measure: it does not support this statement
     return best, found, excerpt
 
 
@@ -939,11 +1026,11 @@ def polarity_violations(where: str, text: str, passages: dict[str, tuple[str, st
     as contradicted when a cited passage mentions it, with only the opposite wording; the statement is unsupported when
     no cited passage mentions any of its items."""
     out = []
-    for includes, what, alt in polarity_claims(text):
+    for includes, what, alt, subject in polarity_claims(text):
         said = " ".join(t.raw for t in what if t.text not in ("and", "or") or t is not what[-1])
         any_mentioned, against = False, None
         for item in _items(what):
-            seen = {cid: passage_polarity(p, item, alt) for cid, (_, p) in passages.items()}
+            seen = {cid: passage_polarity(p, item, alt, subject) for cid, (_, p) in passages.items()}
             mentioned = {cid: r for cid, r in seen.items() if r[0] >= POLARITY_MIN}
             any_mentioned = any_mentioned or bool(mentioned)
             if against is None and mentioned and not any(includes in r[1] for r in mentioned.values()):

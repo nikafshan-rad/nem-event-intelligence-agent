@@ -153,6 +153,113 @@ def test_lines_without_an_inclusion_claim_are_not_checked(statement):
     assert polarity_claims(statement) == [] and _codes(statement, OP_FIGURE) == []
 
 
+# ------------------------------------------------------------------------------------------------ review (before merge)
+# Each case below was checked against the first version of this check (PR #40 at f512af3): the ones marked "was a
+# bypass" or "was a false positive" failed there (artifacts/logs/definition_polarity_review.log). SYNTHETIC passages
+# are written for the test, to put two subjects or opposite wording around the same item.
+SYN_TWO_SENTENCES = ("Operational demand excludes the demand of pumped storage loads. Native demand is published daily "
+                     "and includes reports that name the demand of pumped storage loads.")
+SYN_TWO_SUBJECTS = ("Operational demand excludes the demand of pumped storage loads, and native demand includes the "
+                    "demand of pumped storage loads.")
+SYN_LIST = "The measure includes rooftop generation estimates and excludes battery charging and pumped storage loads."
+OTHER_MEASURES = "aemo_demand_terms#p10c14"  # "Operational demand differs from native demand in that it generally
+#                                              excludes demand met by non- scheduled wind/solar generation …"
+TOTAL = "aemo_demand_terms#p21c42"  # "… excluding the local demand of scheduled loads …, but including the demand met by
+#                                     Wholesale Demand Response"
+
+
+def _codes_in(statement: str, passage: str) -> list[str]:
+    return [v.code for v in polarity_violations("summary[0]", statement, {"c1": ("synthetic", passage)})]
+
+
+@pytest.mark.parametrize("statement,chunk", [
+    # a negation of another word, "not only", and a negated sentence (each was a bypass)
+    ("The demand of local scheduled loads not curtailed is included in operational demand [c1].", OP_DEF),
+    ("Operational demand not only includes the demand of local scheduled loads but also Wholesale Demand Response "
+     "[c1].", OP_DEF),
+    ("It is not the case that operational demand excludes the demand of local scheduled loads [c1].", OP_DEF),
+    ("Operational demand, which does not cover rooftop PV, includes the demand of local scheduled loads [c1].", OP_DEF),
+    ("Operational demand does not exclude the demand of local scheduled loads [c1].", OP_DEF),
+    ("Operational demand may include the demand of local scheduled loads [c1].", OP_DEF),
+])
+def test_an_unrelated_or_partial_negation_does_not_hide_a_reversal(statement, chunk):
+    assert _codes(statement, chunk) == ["DOC_CLAIM_CONTRADICTED"]
+
+
+@pytest.mark.parametrize("statement,chunk", [
+    ("Operational demand not only excludes the demand of local scheduled loads but also includes Wholesale Demand "
+     "Response [c1].", OP_DEF),  # was a false positive
+    ("Native demand, which is not the same as operational demand, does not include the demand met by "
+     "behind-the-meter generation [c1].", NATIVE),
+    ("Operational demand does not exclude Wholesale Demand Response [c1].", OP_DEF),
+])
+def test_negation_controls_stay_accepted(statement, chunk):
+    assert _codes(statement, chunk) == []
+
+
+@pytest.mark.parametrize("statement,chunk", [
+    ("Native demand is broader, but operational demand includes the demand of local scheduled loads [c1].", OP_DEF),
+    ("Operational demand, unlike native demand, includes the demand of local scheduled loads [c1].", OP_DEF),
+    ("Native demand and operational demand both include the demand of local scheduled loads [c1].", OP_DEF),
+    ("Regional operational demand includes the demand of local scheduled loads [c1].", OP_DEF),
+    ("The operational measure includes the demand of local scheduled loads [c1].", OP_DEF),
+    ("It includes the demand of local scheduled loads [c1].", OP_DEF),
+    ("Operational demand includes demand met by non-scheduled wind and solar generation [c1].", OTHER_MEASURES),
+])
+def test_several_subjects_in_the_statement_do_not_hide_a_reversal(statement, chunk):
+    assert _codes(statement, chunk) == ["DOC_CLAIM_CONTRADICTED"]
+
+
+@pytest.mark.parametrize("statement,chunk", [
+    # the passage says it of another measure only: no contradiction, and no support either
+    ("Native demand includes the demand of local scheduled loads [c1].", OP_DEF),
+    ("Operational demand includes the demand met by non-scheduled generation [c1].", SCHEDULED),
+])
+def test_a_passage_about_another_measure_does_not_support_the_statement(statement, chunk):
+    assert _codes(statement, chunk) == ["DOC_CLAIM_UNSUPPORTED"]
+
+
+@pytest.mark.parametrize("statement,chunk", [
+    ("Native demand includes demand met by non-scheduled wind and solar generation [c1].", OTHER_MEASURES),  # was a
+    # false positive: the passage says operational demand differs from native demand in excluding it
+    ("Operational demand generally excludes demand met by non-scheduled wind and solar generation [c1].", OTHER_MEASURES),
+    ("Operational demand excludes the demand of local scheduled loads, while it includes Wholesale Demand Response "
+     "[c1].", OP_DEF),
+    ("It excludes the demand of local scheduled loads and includes Wholesale Demand Response [c1].", OP_DEF),
+    ("Operational demand adjustments exclude under frequency load shedding [c1].", OP_FIGURE),
+    ("Total Demand includes the demand met by Wholesale Demand Response and excludes allocated interconnector losses "
+     "[c1].", TOTAL),
+    ("Operational demand includes generation from scheduled bidirectional units [c1].", OP_DEF),
+])
+def test_subject_and_mixed_passage_controls_stay_accepted(statement, chunk):
+    assert _codes(statement, chunk) == []
+
+
+@pytest.mark.parametrize("statement,chunk", [
+    # passages that include and exclude different things: the reversal of each is caught
+    ("Operational demand adjustments exclude involuntary load shedding [c1].", OP_FIGURE),
+    ("Total Demand excludes the demand met by Wholesale Demand Response [c1].", TOTAL),
+    ("Operational demand includes the demand of scheduled bidirectional units [c1].", OP_DEF),
+])
+def test_a_passage_with_both_wordings_still_catches_the_reversed_item(statement, chunk):
+    assert _codes(statement, chunk) == ["DOC_CLAIM_CONTRADICTED"]
+
+
+@pytest.mark.parametrize("statement,passage,codes", [
+    ("Operational demand includes the demand of pumped storage loads [c1].", SYN_TWO_SENTENCES,
+     ["DOC_CLAIM_CONTRADICTED"]),  # was a bypass: "includes reports that name …" read as including the item
+    ("Operational demand excludes the demand of pumped storage loads [c1].", SYN_TWO_SENTENCES, []),
+    ("Operational demand includes the demand of pumped storage loads [c1].", SYN_TWO_SUBJECTS,
+     ["DOC_CLAIM_CONTRADICTED"]),
+    ("Native demand excludes the demand of pumped storage loads [c1].", SYN_TWO_SUBJECTS, ["DOC_CLAIM_CONTRADICTED"]),
+    ("Native demand includes the demand of pumped storage loads [c1].", SYN_TWO_SUBJECTS, []),
+    ("The measure includes battery charging and pumped storage loads [c1].", SYN_LIST, ["DOC_CLAIM_CONTRADICTED"]),
+    ("The measure excludes battery charging and pumped storage loads [c1].", SYN_LIST, []),
+])
+def test_the_comparison_is_for_the_same_subject_and_item(statement, passage, codes):
+    assert _codes_in(statement, passage) == codes
+
+
 # ------------------------------------------------------------------------------------------------ Y20, replayed
 def _replay(repair=None):
     rec = json.loads(Y20.read_text())
