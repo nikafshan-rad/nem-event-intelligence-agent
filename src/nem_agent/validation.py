@@ -564,39 +564,87 @@ def number_spans(text: str, ids: frozenset[str] = frozenset(),
 
 
 def _separators(s: str) -> list[int]:
-    """Start positions of clause separators outside brackets."""
+    """Start positions of clause separators: "and", "while", "whereas", "but" anywhere, "," and ";" outside brackets
+    (inside, they list equivalents, "(09:00Z, 19:00 AEST)"). In "(… −718.24 MW [ev0438] and the price rise from the
+    interval ending T)" (held-out v4 W18), T is the price rise's, not −718.24's."""
     depth, out = 0, []
     opens, closes = "([", ")]"
-    seps = {m.start() for m in _CLAUSE_SEP_RE.finditer(s)}
+    seps = {m.start(): m.group(0) for m in _CLAUSE_SEP_RE.finditer(s)}
     for i, ch in enumerate(s):
         if ch in opens:
             depth += 1
         elif ch in closes:
             depth = max(depth - 1, 0)
-        elif i in seps and depth == 0:
+        elif i in seps and (depth == 0 or seps[i] not in ",;"):
             out.append(i)
     return out
 
 
+# How a time names the value's interval, under the interval-ending convention (an interval ending T covers
+# (T - length, T]): "ending T" names its end, "starting T" its start, "containing T" or a time with no qualifier an
+# instant in it. A named interval of another length ("the half-hour containing the 5-minute interval ending T") must lie
+# inside the value's interval, or the value's inside it. An equivalent written after "/", "=" or "(" keeps the
+# qualifier of the time before it.
+_QUAL_RE = re.compile(
+    r"(?:\b(?P<noun>half[- ]hours?|30[- ]min(?:ute)?s?(?:\s+(?:interval|period))?|5[- ]min(?:ute)?s?(?:\s+(?:dispatch\s+)?"
+    r"interval)?|dispatch interval|interval|period)\s+)?\b(?P<q>ending|ended|ends|starting|started|starts|beginning|"
+    r"begins)(?:\s+(?:at|on))?\s*$"
+    r"|\b(?P<field>[a-z]+_(?:end|start))(?:_utc|_local)?\s*[:=]?\s*$"
+    r"|\b(?P<c>containing|contains|during|within|including|includes|covering|covers)(?:\s+(?:the|a|an))?\s*$", re.I)
+_CONTAINER_RE = re.compile(r"\b(?:containing|contains|during|within|including|includes|covering|covers)\b", re.I)
+_EQUIV_JOIN_RE = re.compile(r"\s*(?:[/=(]|\)\s*\()?\s*")
+
+
+def _qualifier(lead: str) -> tuple[str, int | None, bool]:
+    """(kind, named interval length in minutes or None, contained) for the text just before a time: kind is "end",
+    "start", "contain" or "plain"; a generic "interval ending T" after "containing" names an interval inside the
+    value's."""
+    m = _QUAL_RE.search(lead)
+    if m is None:
+        return "plain", None, False
+    if m.group("c"):
+        return "contain", None, False
+    if m.group("field"):
+        return ("end" if m.group("field").lower().endswith("_end") else "start"), None, False
+    kind = "end" if m.group("q").lower().startswith("end") else "start"
+    noun = (m.group("noun") or "").lower()
+    named = 30 if noun.startswith(("half", "30")) else 5 if noun.startswith(("5", "dispatch")) else None
+    return kind, named, named is None and bool(_CONTAINER_RE.search(lead[:m.start()]))
+
+
 @dataclass
 class _Stated:
-    """A time stated for a number: one instant (a mention) or a range of two."""
+    """A time stated for a number: one instant (a mention) or a range of two, with how it names the interval."""
     start: int
     end: int
     first: _Mention
     last: _Mention | None = None
     label: str = ""
+    kind: str = "plain"       # "end", "start", "contain" or "plain"
+    named: int | None = None  # the length of the interval the wording names, when it names one
+    contained: bool = False   # a generic interval named inside the value's ("containing the interval ending T")
 
     def fits(self, ev: Any) -> bool:
-        """Whether this time is the evidence's: its interval end or start, an instant inside the interval (in UTC or
-        any zone; a time without a date by its clock in its zone), or, for a range, one overlapping the interval."""
+        """Whether this time names the evidence's interval (end, start, an instant in it, or a range overlapping it),
+        in UTC or any zone; a time without a date by its clock in its zone."""
         end = parse_iso(ev.valid_at_utc).replace(second=0, microsecond=0)
-        start = end - timedelta(minutes=ev.interval_minutes or 0)
+        length = ev.interval_minutes or 0
+        start = end - timedelta(minutes=length)
         a = self.first.near(end)
-        if self.last is None:
-            return start <= a <= end
-        b = self.last.near(end)
-        return min(a, b) <= end and start <= max(a, b)
+        if self.last is not None:  # a range (lo, hi] overlapping the value's interval (start, end]
+            b = self.last.near(end)
+            lo, hi = min(a, b), max(a, b)
+            return lo < end <= hi if not length else lo < end and start < hi
+        if not length:
+            return a == end
+        if self.kind in ("plain", "contain"):
+            return start < a <= end
+        if (self.named is None and not self.contained) or self.named == length:  # the value's own interval
+            return a == (end if self.kind == "end" else start)
+        if self.contained or (self.named or 0) < length:  # a shorter interval inside the value's
+            return start < a <= end if self.kind == "end" else start <= a < end
+        span = timedelta(minutes=self.named or 0)  # a longer interval around the value's
+        return (a - span <= start and end <= a) if self.kind == "end" else (a <= start and end <= a + span)
 
 
 def _stated_times(s: str) -> list[_Stated]:
@@ -606,6 +654,12 @@ def _stated_times(s: str) -> list[_Stated]:
     not_value = [m for m in ms if _NOT_VALUE_TIME_RE.search(s[max(0, m.start - 40):m.start])]
     ruled = {id(m) for m in ms if m in not_value or any(
         n.instant is not None and m.instant is not None and n.instant == m.instant for n in not_value)}
+    quals: dict[int, tuple[str, int | None, bool]] = {}
+    for n, m in enumerate(ms):
+        prev = ms[n - 1] if n else None
+        lead = s[max(prev.end if prev else 0, m.start - 80):m.start]
+        quals[id(m)] = (quals[id(prev)] if prev is not None and _EQUIV_JOIN_RE.fullmatch(lead)
+                        else _qualifier(lead))
     keep = [m for m in ms if id(m) not in ruled]
     out: list[_Stated] = []
     i = 0
@@ -626,7 +680,7 @@ def _stated_times(s: str) -> list[_Stated]:
             out.append(_Stated(m.start, keep[j].end, m, keep[j], f"{m.label} – {keep[j].label}"))
             i = j + 1
             continue
-        out.append(_Stated(m.start, m.end, m, None, m.label))
+        out.append(_Stated(m.start, m.end, m, None, m.label, *quals[id(m)]))
         i += 1
     return out
 
@@ -638,10 +692,12 @@ def claim_time_violations(where: str, sentence: str, report: InvestigationReport
     - **The number:** a number traced to point evidence (an observed row, an AEMO forecast, a context row) with a time.
       Its supporting evidence is that of an ``[evNNNN]`` marker written after it when the marker's value is the number;
       otherwise the evidence of every claim with that value. Never another evidence item with an equal value.
-    - **The time stated for it:** the sentence is cut into clauses at separators outside brackets. A stated time goes to
+    - **The time stated for it:** the sentence is cut into clauses (``_separators``). A stated time goes to
       the closest number before it in its clause ("11432.7 MW in the interval ending T"), or, when none comes before
-      it, to the next one ("(half-hour ending T) was 1204.0 MW"). A time introduced as an issue, as-of, publication or availability
-      time, or in a relation, is not a value time, nor is its equivalent elsewhere in the sentence.
+      it, to the next one ("(half-hour ending T) was 1204.0 MW"). A time introduced as an issue, as-of, publication or
+      availability time, or in a relation, is not a value time, nor is its equivalent elsewhere in the sentence.
+    - **What the time names:** "ending T" the interval's end, "starting T" its start, "containing T" or a bare time an
+      instant in (start, end] (``_Stated.fits``; interval-ending convention).
     - **The rule:** every time stated for the number must fit its evidence (``_Stated.fits``). When the value is
       supported by evidence at several times and the stated times fit only some of them, the answer has not said which:
       ``CLAIM_TIME_AMBIGUOUS``, never a guess. A number stated with no time is given none."""

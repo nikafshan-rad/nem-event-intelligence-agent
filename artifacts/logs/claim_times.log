@@ -47,3 +47,47 @@
 ## Replay evaluation (make eval, --out to scratch): identical to main except latencies, trace ids, timestamps and
 ## the code version string; EVAL: PASS on both
 ## Safety suite (make safety): identical to main; SAFETY-SUITE: PASS on both
+
+
+## Interval semantics, checked before merge (1147.0 MW = the half-hour ending 2026-08-06T03:00Z, i.e. (02:30Z, 03:00Z])
+### PR head 6448905 (one rule for every time: start <= T <= end)
+   'the half-hour ending 2026-08-06T03:00:00Z': passes
+   'the half-hour ending 2026-08-06T02:30:00Z': passes
+   'the half-hour ending 2026-08-06T02:45:00Z': passes
+   'the half-hour starting 2026-08-06T02:30:00Z': passes
+   'the half-hour starting 2026-08-06T03:00:00Z': passes
+   'the half-hour starting 2026-08-06T02:45:00Z': passes
+   'the half-hour containing 2026-08-06T02:45:00Z': passes
+   'the half-hour containing 2026-08-06T03:00:00Z': passes
+   'the half-hour containing 2026-08-06T02:30:00Z': passes
+   'at 2026-08-06T02:30:00Z' (no qualifier): passes
+### fix/claim-time-binding (ending = the end, starting = the start, containing or no qualifier = (start, end])
+   'the half-hour ending 2026-08-06T03:00:00Z': passes
+   'the half-hour ending 2026-08-06T02:30:00Z': rejected (CLAIM_TIME_MISMATCH)
+   'the half-hour ending 2026-08-06T02:45:00Z': rejected (CLAIM_TIME_MISMATCH)
+   'the half-hour starting 2026-08-06T02:30:00Z': passes
+   'the half-hour starting 2026-08-06T03:00:00Z': rejected (CLAIM_TIME_MISMATCH)
+   'the half-hour starting 2026-08-06T02:45:00Z': rejected (CLAIM_TIME_MISMATCH)
+   'the half-hour containing 2026-08-06T02:45:00Z': passes
+   'the half-hour containing 2026-08-06T03:00:00Z': passes
+   'the half-hour containing 2026-08-06T02:30:00Z': rejected (CLAIM_TIME_MISMATCH)
+   'at 2026-08-06T02:30:00Z' (no qualifier): rejected (CLAIM_TIME_MISMATCH)
+### A regression found by the full suite after the semantics change, and fixed
+###   tests/provider/test_causal_question_answer.py::test_a_timing_contradiction_reads_differently and
+###   tests/provider/test_direct_headline.py::test_timing_that_rules_it_out_is_the_headline_of_w18[path0-kw0] failed:
+###   held-out v4 W18's repaired draft (passing on main) was rejected, "-718.24 is stated for 2026-08-19T23:05:00Z, but its
+###   evidence is for another time (ev0438 2026-08-19T23:10:00Z)", on "(see the observed net interchange -718.24 MW
+###   [ev0438] and the price rise from the interval ending 2026-08-19T23:05:00Z)". The time is the price rise's; clauses
+###   were cut only outside brackets, so it was paired with -718.24. At 6448905 it passed only because 23:05Z is the
+###   start of -718.24's 5-minute interval. Fix: "and", "while", "whereas", "but" cut clauses inside brackets too ("," and
+###   ";" still only outside, where inside they list equivalents). Test: test_a_time_after_and_inside_brackets_belongs_to_
+###   its_own_clause (fails with the previous rule, passes now). The probe results above are unchanged by this.
+### Replays after both changes, main vs branch (222 records each, SYNTHETIC fake transport, scratch ledger):
+###   with the saved synthesis draft and saved repair: Z03 is the only shown answer that changes; the check fires on the
+###     same 24 records as at 6448905 (listed above), not on W18
+###   with each run's final (repaired) draft as the only draft, as the provider tests replay it: Z03 is the only shown
+###     answer that changes; the check fires on 21: Z03 and 20 records already a facts-only fallback on main (saved
+###     evidence IDs no longer match the replay's; CLAIM_VALUE_MISMATCH too)
+### Replay evaluation: EVAL: PASS, identical to main (latencies, trace ids, timestamps, version stripped)
+### Safety suite: SAFETY-SUITE: PASS, log identical to main
+### Full test suite after both changes: 1323 passed (scratch ledger); ruff and mypy clean

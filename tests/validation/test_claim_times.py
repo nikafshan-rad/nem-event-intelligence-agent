@@ -143,6 +143,23 @@ def test_shared_and_trailing_times_go_to_their_own_numbers():
     assert _codes(swapped, reg2, _claims((10046.72, a), (11432.7, b))) == ["CLAIM_TIME_MISMATCH"] * 2
 
 
+def test_a_time_after_and_inside_brackets_belongs_to_its_own_clause():
+    """Held-out v4 W18: the interval ending 23:05Z is the price rise's; −718.24 MW is the 5-minute interval ending
+    23:10Z. A comma inside brackets still lists equivalents, and a number's own time in the brackets is still checked."""
+    reg, (flow,) = _registry(("net_interchange", -718.24, "2026-08-19T23:10:00Z", 5, "observed"))
+    w18 = ("The price spike may be associated with interconnector flow changes around the 5-minute intervals "
+           f"2026-08-19T23:05:00Z–2026-08-19T23:15:00Z (see the observed net interchange −718.24 MW [{flow}] and the "
+           "price rise from the interval ending 2026-08-19T23:05:00Z).")
+    assert _codes(w18, reg, _claims((-718.24, flow))) == []
+    own = f"(The observed net interchange was −718.24 MW [{flow}] in the interval ending 2026-08-19T23:05:00Z.)"
+    assert _codes(own, reg, _claims((-718.24, flow))) == ["CLAIM_TIME_MISMATCH"]
+    listed = ("The net interchange was −718.24 MW (interval ending 2026-08-19T23:10:00Z, 2026-08-20 09:10 AEST) and "
+              "{t}.")
+    assert _codes(listed.format(t="fell later"), reg, _claims((-718.24, flow))) == []
+    assert _codes(listed.replace("09:10 AEST", "09:05 AEST").format(t="fell later"), reg,
+                  _claims((-718.24, flow))) == ["CLAIM_TIME_MISMATCH"]
+
+
 @pytest.mark.parametrize("lead", ["issued", "issued_at_utc", "published_at_utc", "available_at_utc", "as of",
                                   "provably public as-of", "after the price extreme at", "before"])
 def test_issue_as_of_publication_and_relational_times_are_not_the_values_time(lead):
@@ -226,3 +243,53 @@ def test_the_check_runs_on_every_narrative_place():
                                 "possible_explanations": [], "published_findings": [], "forecast_comparison": None,
                                 "_model_headline": None})
     assert [w for w, _ in _narratives(report)] == ["headline", "summary[0]"]
+
+
+# ------------------------------------------------------------------------------------------------ interval semantics
+# 1147.0 MW is the half-hour ending 2026-08-06T03:00Z: (02:30Z, 03:00Z] under the interval-ending convention.
+# "ending T" must be its end, "starting T" its start, "containing T" (or a bare time) an instant in (start, end].
+@pytest.mark.parametrize("phrase,ok", [
+    ("for the half-hour ending 2026-08-06T03:00:00Z", True),
+    ("for the half-hour ending 2026-08-06 13:00 AEST", True),
+    ("for the half-hour ending 2026-08-06T03:00:00Z (2026-08-06 13:00 AEST)", True),  # the equivalent keeps "ending"
+    ("for the half-hour ending 2026-08-06T02:30:00Z", False),  # its start
+    ("for the half-hour ending 2026-08-06T02:45:00Z", False),  # an instant inside it
+    ("for the half-hour ending 2026-08-06T03:30:00Z", False),  # the next half-hour
+    ("for the half-hour ending 2026-08-06T03:00:00Z (2026-08-06 12:30 AEST)", False),  # a wrong equivalent
+    ("for the half-hour starting 2026-08-06T02:30:00Z", True),
+    ("for the half-hour starting 2026-08-06 12:30 AEST", True),
+    ("for the half-hour starting 2026-08-06T03:00:00Z", False),  # its end
+    ("for the half-hour starting 2026-08-06T02:45:00Z", False),  # an instant inside it
+    ("for the half-hour starting 2026-08-06T02:00:00Z", False),  # the half-hour before
+    ("for the half-hour containing 2026-08-06T02:45:00Z", True),
+    ("for the half-hour containing 2026-08-06T03:00:00Z", True),  # the end belongs to it
+    ("for the half-hour containing 2026-08-06T02:30:00Z", False),  # the start belongs to the half-hour before
+    ("for the half-hour containing 2026-08-06T03:05:00Z", False),
+    ("for the half-hour containing the 5-minute interval ending 2026-08-06T02:55:00Z", True),
+    ("for the half-hour containing the 5-minute interval ending 2026-08-06T02:30:00Z", False),  # (02:25, 02:30]
+    ("for the half-hour containing the interval ending 2026-08-06T02:35:00Z", True),
+    ("at 2026-08-06T02:45:00Z", True),  # no qualifier: an instant in the interval
+    ("at 2026-08-06T02:30:00Z", False),
+    ("with interval_end_utc 2026-08-06T03:00:00Z", True),  # field names
+    ("with interval_end_utc 2026-08-06T02:30:00Z", False),
+    ("with interval_start_utc 2026-08-06T02:30:00Z", True),
+    ("with interval_start_utc 2026-08-06T03:00:00Z", False),
+])
+def test_ending_starting_and_containing_are_distinct(phrase, ok):
+    assert (_codes(f"Demand was 1147.0 MW {phrase}.", REG, _claims((1147.0, AT03))) == []) is ok
+
+
+@pytest.mark.parametrize("phrase,ok", [
+    ("in the 5-minute interval ending 2026-08-06T02:55:00Z", True),
+    ("in the 5-minute interval ending 2026-08-06T02:50:00Z", False),  # its start
+    ("in the 5-minute interval starting 2026-08-06T02:50:00Z", True),
+    ("in the 5-minute interval starting 2026-08-06T02:55:00Z", False),  # its end
+    ("in the half-hour ending 2026-08-06T03:00:00Z", True),  # (02:50, 02:55] lies inside (02:30, 03:00]
+    ("in the half-hour ending 2026-08-06T02:30:00Z", False),
+    ("in the half-hour starting 2026-08-06T02:30:00Z", True),
+    ("in the half-hour starting 2026-08-06T03:00:00Z", False),
+])
+def test_a_5_minute_value_against_5_minute_and_half_hour_wording(phrase, ok):
+    """A 5-minute price ending 02:55Z, i.e. (02:50Z, 02:55Z]: named as its own interval, or as the half-hour it lies in."""
+    reg, (price,) = _registry(("dispatch_rrp", 450.08, "2026-08-06T02:55:00Z", 5, "observed"))
+    assert (_codes(f"The price was 450.08 $/MWh {phrase}.", reg, _claims((450.08, price))) == []) is ok

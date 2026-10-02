@@ -2286,8 +2286,10 @@ are met.
    - a marker naming one of them resolves it, as does stating both times.
 4. **These stay valid:**
    - UTC with local;
-   - interval end and start;
-   - an instant inside a half-hour;
+   - interval end and start, each where the wording puts it ("the half-hour ending T" with T the end, "starting T"
+     with T the start);
+   - an instant inside a half-hour, for "the half-hour containing T" or a time with no position ("at T"), under the
+     interval-ending convention (start excluded, end included);
    - a zoned clock without a date;
    - ranges, including with bracketed equivalents;
    - shared times ("For the half-hour ending T: POE50 …, POE10 …, POE90 …");
@@ -2297,7 +2299,9 @@ are met.
    - a UTC time read as local;
    - a wrong local clock;
    - one wrong time of two;
-   - a range that misses the value.
+   - a range that misses the value;
+   - "ending T" where T is not the interval's end, and "starting T" where T is not its start, even when T falls
+     inside the interval (reviewed before merge, item 7).
 5. **Explicit handling:**
    - a number with no stated time is not checked;
    - issue, as-of, publication and availability times are not the value's time, in words or as field names
@@ -2311,20 +2315,47 @@ are met.
      - **Already falling back on `main`:** W02, another genuine local/UTC slip, and 21 old records whose saved
        evidence IDs no longer match today's registry (`CLAIM_VALUE_MISMATCH` too).
    - **Replay evaluation and safety suite:** identical to `main`.
-   - **Tests:** the full suite passes (1,289, of which 31 are new), and ruff and mypy are clean. The existing
+   - **Tests:** the full suite passes (1,323, of which 65 are new), and ruff and mypy are clean. The existing
      numeric, citation, as-of, safety and adversarial tests are unchanged and pass.
+7. **Interval semantics, reviewed before merge.**
+   - **The bypass at `6448905`:** every stated time was accepted anywhere in [start, end] of the evidence interval,
+     whatever the wording. For 1147.0 MW, the half-hour ending 03:00Z, these passed: "the half-hour ending 02:30Z",
+     "ending 02:45Z", "starting 03:00Z", "starting 02:45Z", "containing 02:30Z" and "at 02:30Z".
+   - **The fix:** the words before a time say what it names.
+     - "ending" (or a `*_end` field) names the interval's end exactly;
+     - "starting" or "beginning" (or a `*_start` field) names its start exactly;
+     - "containing", "during", "within" and similar, or no qualifier, name an instant in (start, end];
+     - a named shorter interval (a 5-minute interval inside a half-hour value) must lie inside the value's interval,
+       and a named longer one must contain it;
+     - an equivalent written after `/`, `=` or `(` keeps the qualifier of the time it restates.
+   - **After:** all six are rejected, and "ending 03:00Z", "starting 02:30Z", "containing 02:45Z" and "containing
+     03:00Z" pass. 33 tests cover the three forms, faithful and adversarial, in UTC and local time.
+   - **A regression it exposed, fixed:** the full suite then rejected held-out v4 W18's repaired draft, which passes on
+     `main` (two provider tests). In "(see the observed net interchange −718.24 MW [ev0438] and the price rise from
+     the interval ending 2026-08-19T23:05:00Z)", the time is the price rise's, but clauses were cut only outside
+     brackets, so it was paired with −718.24. At `6448905` it passed only because 23:05Z is the start of −718.24's
+     5-minute interval. "and", "while", "whereas" and "but" now cut clauses inside brackets too; "," and ";" still do
+     only outside, where inside they list equivalents. A test covers it.
+   - **Replays (222), main against the branch, two ways:**
+     - with the saved synthesis draft and saved repair: Z03 is still the only shown answer that changes, and the
+       check fires on the same 24 records as at `6448905`;
+     - with each run's final draft as the only draft (as the provider tests replay W18): Z03 is the only shown answer
+       that changes, and the check fires on Z03 and 20 records already falling back on `main`.
+   - **Replay evaluation and safety suite:** identical to `main` after both changes.
 
 **Still open for I-15:**
 - **Pairing is lexical.**
   - **How a time is paired:** it goes to the closest number before it in its clause, else the next one. Clauses are
-    cut at `,` `;` "and" "while" "whereas" "but" outside brackets.
+    cut at "and" "while" "whereas" "but", and at `,` `;` outside brackets.
   - **Unusual phrasings** can pair a time with the wrong number. A time in its own clause, with no number in that
     clause, is not checked.
 - **Derived evidence** (counts, means, MAE, changes, forecast errors) is not bound number by number. Only the
   sentence-level check covers it.
 - **The non-value cues are a fixed list:** issue, as-of, publication, availability and relation words. A time
   introduced otherwise is read as the value's time.
-- **Tolerance:** an instant inside a half-hour counts for that half-hour, as a label of the interval.
+- **What the time names is read from a fixed list of words** just before it ("ending", "starting", "containing",
+  "during" …, and `*_end`/`*_start` fields). A time with no such word is read as an instant in the interval, so a
+  value's interval can still be named by any instant inside it.
 - **Live is unverified;** no paid run was made. v6's FAIL verdict and Z03's scores are unchanged.
 
 ### I-3a: F03, a notice time shown without its zone
