@@ -1793,8 +1793,10 @@ checks are met.
    - **Frozen evaluation material:** untouched.
 
 **Still open for I-11:**
-- **Lexical recognition.** A causal question is recognised by its influence wording with price-event wording. Other
-  phrasings are not rerouted ("what was behind SA's $845 interval?" is; "SA hit $845 — was that the LOR?" is not).
+- **Lexical recognition.** A causal question is recognised by its influence wording with price-event wording.
+  - **Recognised:** "What was behind South Australia's price spike …?" and "Why did South Australia's prices jump …?".
+  - **Not recognised** (no price-event wording): "What was behind SA's $845 interval …?" and "SA hit $845 … — was
+    that the LOR?". They are not rerouted.
 - **Mixed questions keep the model's route.** A question that also asks about forecast accuracy, or is an as-of
   question, keeps the model's route even when it asks about a cause.
 - **Only the forecast-to-event direction.** A non-causal price question that the model routes as a forecast question
