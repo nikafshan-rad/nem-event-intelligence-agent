@@ -519,6 +519,249 @@ def _z(t: datetime) -> str:
     return f"{t:%Y-%m-%dT%H:%MZ}"
 
 
+# -- the time stated for a number (I-15) ----------------------------------------------------------------------------
+# Held-out v6 Z03 stated 1204.0 MW for "the half-hour ending 2026-08-06T03:00:00Z / 2026-08-06 13:00 AEST"; the value
+# (its claim's evidence, ev0917) is the 13:00Z half-hour, and 03:00Z was 1147.0 MW. The sentence-wide check above passed
+# it because the same sentence stated another number with its right time. Here each number is bound to the time stated
+# for it, and that time must be the time of the evidence supporting that number.
+POINT_EVIDENCE = ("observed", "aemo_forecast", "retrospective_context")  # one interval's value; derived ones span more
+_CLAUSE_SEP_RE = re.compile(r"[;,]|\s(?:and|while|whereas|but)\s", re.I)
+# a time introduced as something other than when the value applies: an issue, as-of, publication or availability time
+# (also as a field name, "issued_at_utc 2026-…"), or one side of a relation
+_NOT_VALUE_TIME_RE = re.compile(r"\b(?:issued|issue|as[ _-]of|published|publication|public|available|availability|created|"
+                                r"cut-?off)(?:_at)?(?:_utc|_local)?(?:\s+times?)?\W{0,4}(?:(?:at|on|by|about|around)\W{1,3})?$"
+                                # a relation, also across a few words with no number or clause break before the time
+                                r"|\b(?:before|after|since|until|prior to|later than|earlier than)\b[^\d.;,]{0,40}$", re.I)
+# what may join two times in a list ("at both T1 and T2", "T1, T2"): not a clause break
+_TIME_LIST_JOIN_RE = re.compile(r"\s*(?:\([^()]*\)\s*)?[,;]?\s*(?:and|or)?\s*", re.I)
+_RANGE_LEAD_RE = re.compile(r"\b(?:between|from)\s*$", re.I)
+_RANGE_JOIN_RE = re.compile(r"^\s*(?:\([^()]*\)\s*)?(?:and|to|until|through|–|—|-)\s*$", re.I)
+EV_MARK_RE = re.compile(r"\[(ev\d{4})\]")
+
+
+def number_spans(text: str, ids: frozenset[str] = frozenset(),
+                 titles: frozenset[str] = frozenset()) -> list[tuple[float, int, int]]:
+    """``narrative_numbers`` with each number's position in ``text``: (value, start, end). Ignored spans are blanked
+    to the same length, so positions are the text's own."""
+    def blank(m: re.Match[str]) -> str:
+        return " " * len(m.group(0))
+    t = QUOTED_RE.sub(blank, text)
+    for i in sorted(ids, key=len, reverse=True):
+        t = t.replace(i, " " * len(i))
+    t = t.replace("‐", "-").replace("‑", "-")
+    for title in sorted(titles, key=len, reverse=True):
+        t = re.sub(rf"(?<!\w){re.escape(title)}(?!\w)", blank, t)
+    for pat in IGNORE_RES:
+        t = pat.sub(blank, t)
+    out = []
+    for m in NUM_RE.finditer(t):
+        s = m.group(0).replace("−", "-").replace("$", "").replace(",", "")
+        try:
+            out.append((float(s), m.start(), m.end()))
+        except ValueError:
+            continue
+    return out
+
+
+def _separators(s: str) -> list[int]:
+    """Start positions of clause separators: "and", "while", "whereas", "but" anywhere, "," and ";" outside brackets
+    (inside, they list equivalents, "(09:00Z, 19:00 AEST)"). In "(… −718.24 MW [ev0438] and the price rise from the
+    interval ending T)" (held-out v4 W18), T is the price rise's, not −718.24's."""
+    depth, out = 0, []
+    opens, closes = "([", ")]"
+    seps = {m.start(): m.group(0) for m in _CLAUSE_SEP_RE.finditer(s)}
+    for i, ch in enumerate(s):
+        if ch in opens:
+            depth += 1
+        elif ch in closes:
+            depth = max(depth - 1, 0)
+        elif i in seps and (depth == 0 or seps[i] not in ",;"):
+            out.append(i)
+    return out
+
+
+# How a time names the value's interval, under the interval-ending convention (an interval ending T covers
+# (T - length, T]): "ending T" names its end, "starting T" its start, "containing T" or a time with no qualifier an
+# instant in it. A named interval of another length ("the half-hour containing the 5-minute interval ending T") must lie
+# inside the value's interval, or the value's inside it. An equivalent written after "/", "=" or "(" keeps the
+# qualifier of the time before it.
+_QUAL_RE = re.compile(
+    r"(?:\b(?P<noun>half[- ]hours?|30[- ]min(?:ute)?s?(?:\s+(?:interval|period))?|5[- ]min(?:ute)?s?(?:\s+(?:dispatch\s+)?"
+    r"interval)?|dispatch interval|interval|period)\s+)?\b(?P<q>ending|ended|ends|starting|started|starts|beginning|"
+    r"begins)(?:\s+(?:at|on))?\s*$"
+    r"|\b(?P<field>[a-z]+_(?:end|start))(?:_utc|_local)?\s*[:=]?\s*$"
+    r"|\b(?P<c>containing|contains|during|within|including|includes|covering|covers)(?:\s+(?:the|a|an))?\s*$", re.I)
+_CONTAINER_RE = re.compile(r"\b(?:containing|contains|during|within|including|includes|covering|covers)\b", re.I)
+_EQUIV_JOIN_RE = re.compile(r"\s*(?:[/=(]|\)\s*\()?\s*")
+
+
+def _qualifier(lead: str) -> tuple[str, int | None, bool]:
+    """(kind, named interval length in minutes or None, contained) for the text just before a time: kind is "end",
+    "start", "contain" or "plain"; a generic "interval ending T" after "containing" names an interval inside the
+    value's."""
+    m = _QUAL_RE.search(lead)
+    if m is None:
+        return "plain", None, False
+    if m.group("c"):
+        return "contain", None, False
+    if m.group("field"):
+        return ("end" if m.group("field").lower().endswith("_end") else "start"), None, False
+    kind = "end" if m.group("q").lower().startswith("end") else "start"
+    noun = (m.group("noun") or "").lower()
+    named = 30 if noun.startswith(("half", "30")) else 5 if noun.startswith(("5", "dispatch")) else None
+    return kind, named, named is None and bool(_CONTAINER_RE.search(lead[:m.start()]))
+
+
+@dataclass
+class _Stated:
+    """A time stated for a number: one instant (a mention) or a range of two, with how it names the interval."""
+    start: int
+    end: int
+    first: _Mention
+    last: _Mention | None = None
+    label: str = ""
+    kind: str = "plain"       # "end", "start", "contain" or "plain"
+    named: int | None = None  # the length of the interval the wording names, when it names one
+    contained: bool = False   # a generic interval named inside the value's ("containing the interval ending T")
+
+    def fits(self, ev: Any) -> bool:
+        """Whether this time names the evidence's interval (end, start, an instant in it, or a range overlapping it),
+        in UTC or any zone; a time without a date by its clock in its zone."""
+        end = parse_iso(ev.valid_at_utc).replace(second=0, microsecond=0)
+        length = ev.interval_minutes or 0
+        start = end - timedelta(minutes=length)
+        a = self.first.near(end)
+        if self.last is not None:  # a range (lo, hi] overlapping the value's interval (start, end]
+            b = self.last.near(end)
+            lo, hi = min(a, b), max(a, b)
+            return lo < end <= hi if not length else lo < end and start < hi
+        if not length:
+            return a == end
+        if self.kind in ("plain", "contain"):
+            return start < a <= end
+        if (self.named is None and not self.contained) or self.named == length:  # the value's own interval
+            return a == (end if self.kind == "end" else start)
+        if self.contained or (self.named or 0) < length:  # a shorter interval inside the value's
+            return start < a <= end if self.kind == "end" else start <= a < end
+        span = timedelta(minutes=self.named or 0)  # a longer interval around the value's
+        return (a - span <= start and end <= a) if self.kind == "end" else (a <= start and end <= a + span)
+
+
+def _stated_times(s: str) -> list[_Stated]:
+    """The value times in sentence ``s``: zoned times, minus those introduced as issue, as-of, publication or
+    availability times or in a relation (with their equivalents in the sentence), with ranges joined."""
+    ms = _mentions(PAREN_OFFSET_RE.sub(lambda m: " " * len(m.group(0)), s))
+    not_value = [m for m in ms if _NOT_VALUE_TIME_RE.search(s[max(0, m.start - 40):m.start])]
+    ruled = {id(m) for m in ms if m in not_value or any(
+        n.instant is not None and m.instant is not None and n.instant == m.instant for n in not_value)}
+    quals: dict[int, tuple[str, int | None, bool]] = {}
+    for n, m in enumerate(ms):
+        prev = ms[n - 1] if n else None
+        lead = s[max(prev.end if prev else 0, m.start - 80):m.start]
+        quals[id(m)] = (quals[id(prev)] if prev is not None and _EQUIV_JOIN_RE.fullmatch(lead)
+                        else _qualifier(lead))
+    keep = [m for m in ms if id(m) not in ruled]
+    out: list[_Stated] = []
+    i = 0
+    while i < len(keep):
+        m = keep[i]
+        nxt = keep[i + 1] if i + 1 < len(keep) else None
+        if nxt is not None and nxt.start == m.start:  # a clock range in one match ("11:15–11:25 UTC")
+            out.append(_Stated(m.start, m.end, m, nxt, m.label))
+            i += 2
+            continue
+        # a range of two dated times: "between T1 and T2", "from T1 (L1) to T2", "T1 – T2"; equivalents written in
+        # brackets between them belong to the range
+        j = next((j for j in range(i + 1, min(i + 4, len(keep)))
+                  if _RANGE_JOIN_RE.match(re.sub(r"\([^()]*\)", " ", s[m.end:keep[j].start]))
+                  and (_RANGE_LEAD_RE.search(s[max(0, m.start - 12):m.start])
+                       or not re.search(r"\band\b", s[m.end:keep[j].start], re.I))), None)
+        if j is not None:
+            out.append(_Stated(m.start, keep[j].end, m, keep[j], f"{m.label} – {keep[j].label}"))
+            i = j + 1
+            continue
+        out.append(_Stated(m.start, m.end, m, None, m.label, *quals[id(m)]))
+        i += 1
+    return out
+
+
+def claim_time_violations(where: str, sentence: str, report: InvestigationReport, registry: EvidenceRegistry,
+                          ids: frozenset[str], titles: frozenset[str]) -> list[Violation]:
+    """``CLAIM_TIME_MISMATCH`` and ``CLAIM_TIME_AMBIGUOUS`` for one narrative sentence (I-15).
+
+    - **The number:** a number traced to point evidence (an observed row, an AEMO forecast, a context row) with a time.
+      Its supporting evidence is that of an ``[evNNNN]`` marker written after it when the marker's value is the number;
+      otherwise the evidence of every claim with that value. Never another evidence item with an equal value.
+    - **The time stated for it:** the sentence is cut into clauses (``_separators``). A stated time goes to
+      the closest number before it in its clause ("11432.7 MW in the interval ending T"), or, when none comes before
+      it, to the next one ("(half-hour ending T) was 1204.0 MW"). A time introduced as an issue, as-of, publication or
+      availability time, or in a relation, is not a value time, nor is its equivalent elsewhere in the sentence.
+    - **What the time names:** "ending T" the interval's end, "starting T" its start, "containing T" or a bare time an
+      instant in (start, end] (``_Stated.fits``; interval-ending convention).
+    - **The rule:** every time stated for the number must fit its evidence (``_Stated.fits``). When the value is
+      supported by evidence at several times and the stated times fit only some of them, the answer has not said which:
+      ``CLAIM_TIME_AMBIGUOUS``, never a guess. A number stated with no time is given none."""
+    nums = number_spans(sentence, ids, titles)
+    stated = _stated_times(sentence)
+    if not nums or not stated:
+        return []
+    claims = [(c, registry.get(c.evidence_id)) for c in report.numeric_claims]
+
+    def point(ev: Any) -> bool:
+        return ev is not None and ev.value is not None and bool(ev.valid_at_utc) and ev.evidence_class in POINT_EVIDENCE
+
+    bound: list[tuple[float, int, int, list[Any], bool]] = []  # value, start, end, supporting evidence, marked
+    for i, (v, a, b) in enumerate(nums):
+        upto = nums[i + 1][1] if i + 1 < len(nums) else len(sentence)
+        marks = [registry.get(m.group(1)) for m in EV_MARK_RE.finditer(sentence, b, upto)]
+        marked = [ev for ev in marks if point(ev) and ev is not None and abs(float(ev.value or 0.0) - v) <= 1e-9]
+        if marked:
+            bound.append((v, a, b, marked[:1], True))
+            continue
+        evs = [ev for c, ev in claims if ev is not None and point(ev)
+               and (abs(v - c.value) <= c.rounding + 1e-9 or abs(abs(v) - abs(c.value)) <= c.rounding + 1e-9)]
+        if evs:
+            bound.append((v, a, b, evs, False))
+    if not bound:
+        return []
+    joins = [(a.end, b.start) for a, b in zip(stated, stated[1:], strict=False)
+             if _TIME_LIST_JOIN_RE.fullmatch(sentence[a.end:b.start])]
+    seps = [x for x in _separators(sentence) if not any(st.start < x < st.end for st in stated)
+            and not any(lo <= x < hi for lo, hi in joins)]
+
+    def clause(pos: int) -> int:
+        return sum(1 for x in seps if x < pos)
+    assigned: dict[int, list[_Stated]] = {}
+    for st in stated:
+        same = [k for k, (_, a, b, _, _) in enumerate(bound) if clause(a) == clause(st.start)]
+        before = [j for j in same if bound[j][2] <= st.start]
+        after = [j for j in same if bound[j][1] >= st.end]
+        owner = (max(before, key=lambda j: bound[j][2]) if before
+                 else min(after, key=lambda j: bound[j][1]) if after else None)
+        if owner is not None:
+            assigned.setdefault(owner, []).append(st)
+    out = []
+    for k, (v, _, _, evs, by_marker) in enumerate(bound):
+        times = assigned.get(k)
+        if not times:
+            continue
+        distinct = {(ev.valid_at_utc, ev.interval_minutes): ev for ev in evs}
+        unfit = [st.label for st in times if not any(st.fits(ev) for ev in distinct.values())]
+        evidence = ", ".join(f"{ev.evidence_id} {ev.valid_at_utc}" for ev in distinct.values())
+        if unfit:
+            out.append(Violation("CLAIM_TIME_MISMATCH", "critical",
+                                 f"{where}: {v:g} is stated for {', '.join(unfit)}, but its evidence is for another "
+                                 f"time ({evidence})"))
+        elif len(distinct) > 1 and not by_marker:
+            covered = [ev for ev in distinct.values() if any(st.fits(ev) for st in times)]
+            if len(covered) < len(distinct):
+                out.append(Violation("CLAIM_TIME_AMBIGUOUS", "critical",
+                                     f"{where}: {v:g} is supported by evidence at several times ({evidence}); the time "
+                                     f"stated ({', '.join(st.label for st in times)}) fits only some, so say which "
+                                     "evidence it is"))
+    return out
+
+
 NOTICE_WORD_RE = re.compile(r"\bnotices?\b", re.I)
 # timing statements are read to the end of the sentence: "…: first interval ending A; last interval ending B; and
 # before the price extreme …" is one statement (v3 V18 was cut at ';')
@@ -1171,6 +1414,12 @@ def validate(report: InvestigationReport, registry: EvidenceRegistry, *, as_of: 
                 if utc not in known:
                     V.append(Violation("TIME_NOT_IN_EVIDENCE", "critical",
                                        f"{where}: '{label}' ({utc:%Y-%m-%dT%H:%MZ}) is not a time any tool returned"))
+
+    # -- each traced number's stated time must be the time of the evidence supporting it, number by number (I-15)
+    res.checks_run.append("claim_times")
+    for where, text in _narratives(report) + _hypothesis_tests(report):
+        for sentence in SENTENCE_RE.split(QUOTED_RE.sub(" ", text)):
+            V.extend(claim_time_violations(where, sentence, report, registry, chunk_ids, titles(text)))
 
     # -- clock times and parts of the day in event and forecast answers (headline, summary, hypotheses and their
     #    tests). A clock time needs an explicit zone and must be an instant a tool produced in that zone; a word such
