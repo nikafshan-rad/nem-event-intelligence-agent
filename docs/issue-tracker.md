@@ -27,7 +27,7 @@ One list of known defects, so that each fix is weighed against the whole. Eviden
 | I-12 | **A quoted decision shown without the reason its notice gives** | Y14 (held-out v5, Live, 2026-10-02): asked "what was AEMO's decision on reclassifying" a Victorian network trip, the answer quoted notice 144667's decision, "AEMO will not reclassify this event as a credible contingency event." [c1], but not the sentence before it: "The cause of this non credible contingency event has been identified and AEMO is satisfied that another occurrence of this event is unlikely under the current circumstances." The check's two elements, cause identified and recurrence unlikely, were missing | P2 | **verified offline; Live unverified** (PR `#44`, merged as `7c83b04`; below). Adding the notice's stated basis for a quoted decision does not establish that every part of a question is covered: no check compares what a question asks for with what the answer gives. v5's FAIL verdict and Y14's scores are unchanged. **Run A (2026-10-02, development case, one run, code `6413076`):** **held** on Y14 |
 | I-13 | **An out-of-scope request answered with a clarification instead of a refusal** | Y17 (held-out v5, Live, 2026-10-02): "… what price should I expect in SA next Wednesday evening, and should I offer my battery's output into that peak?" The routing model marked it out of scope (and missing a date), but the answer was "Clarification needed: Which date (or UTC window) should be investigated?", with no refusal | P1 | **verified offline; Live unverified** (PR `#45`, merged as `0ded19f`; below). The refusal depends on the routing model's out-of-scope flag; Replay mode is unchanged and still asks Y17 for a date (its keyword guard does not match the wording). v5's FAIL verdict and Y17's scores are unchanged. **Run A (2026-10-02, development case, one run, code `6413076`):** **held** on Y17: refused, with the generic reason |
 | I-14 | **A cut-off model response accepted as finished** | Y02 (held-out v5, Live, 2026-10-02): the first draft quoted the retrieval tool's status text "no notice held for this region and window" as if it were source text (`QUOTE_NOT_IN_SOURCE`); the scoped repair then ran to `max_output_tokens` (16,000 output tokens, 384 of them reasoning, the rest whitespace) and the answer fell back. The controller ignores a response's `incomplete` status and parses its text: Y02's failed to parse, but a response cut off after its JSON closed is used as finished | P2 | **verified offline; Live unverified** (PR `#46`, merged as `6413076`; below). I-14 fixes the acceptance of incomplete responses: a response that did not finish is rejected. It does not make Y02 answer successfully; Y02 still falls back, because only a finished repair can correct its first draft. v5's FAIL verdict and Y02's scores are unchanged. **Run A (2026-10-02, development case, one run, code `6413076`):** **not exercised**: no response was cut off. Y02 answered without a fallback, but missed two requested prices |
-| I-15 | **A number shown with another interval's time** | Z03 (held-out v6, Live, 2026-10-02): "… (half-hour ending 2026-08-06T03:00:00Z / 2026-08-06 13:00 AEST) was 1204.0 MW …". 1204.0 MW is the half-hour ending 13:00Z (`ev0917`, the evidence the claim cites); the source value at 03:00Z is 1147.0 MW (`ev0897`, returned in the same series). The answer passed validation and was shown | P1 | **in progress** (below); v6's FAIL verdict and Z03's scores are unchanged |
+| I-15 | **A number shown with another interval's time** | Z03 (held-out v6, Live, 2026-10-02): "… (half-hour ending 2026-08-06T03:00:00Z / 2026-08-06 13:00 AEST) was 1204.0 MW …". 1204.0 MW is the half-hour ending 13:00Z (`ev0917`, the evidence the claim cites); the source value at 03:00Z is 1147.0 MW (`ev0897`, returned in the same series). The answer passed validation and was shown | P1 | **verified offline; Live unverified** (PR `#51`, below). Each traced number's stated time is now bound to the evidence supporting it; Z03's saved answer is rejected and falls back. Pairing a time with its number is lexical (limits below). v6's FAIL verdict and Z03's scores are unchanged |
 | I-5 | **Known safety-language limitations** | See the list below. Each is recorded with its risk. None is being worked on, to avoid an open-ended wording cycle | P3 | recorded; revisit only with a new concrete failure |
 
 ### I-1a: F04, the causal question not answered directly
@@ -2271,6 +2271,61 @@ and require that time to be the time of the evidence supporting that number.
    - the safety suite;
    - frozen evaluation material, scores and verdicts.
    - **Live is unverified.**
+
+**Result: verified offline; Live unverified** (PR `#51`; evidence in `artifacts/logs/claim_times.log`). All six checks
+are met.
+1. **Z03, from its saved records:**
+   - **On `main`:** the answer passes, with 1204.0 MW stated for 03:00Z.
+   - **On the branch:** `CLAIM_TIME_MISMATCH` on `summary[3]` ("1204 is stated for 2026-08-06T03:00:00Z, 2026-08-06
+     13:00 AEST, but its evidence is for another time (ev0917 2026-08-06T13:00:00Z)"). With no repair available, the
+     answer falls back to validated facts, so the sentence is not shown.
+2. **The faithful correction** (1147.0 MW, `ev0897`) passes on both.
+3. **Equal values at different times:**
+   - another evidence item with the same value at the stated time does not justify it (`CLAIM_TIME_MISMATCH`);
+   - two claims with the same value at different times give `CLAIM_TIME_AMBIGUOUS` when the stated time fits only one;
+   - a marker naming one of them resolves it, as does stating both times.
+4. **These stay valid:**
+   - UTC with local;
+   - interval end and start;
+   - an instant inside a half-hour;
+   - a zoned clock without a date;
+   - ranges, including with bracketed equivalents;
+   - shared times ("For the half-hour ending T: POE50 …, POE10 …, POE90 …");
+   - each number's own trailing time (the controller's I-2b change sentence).
+
+   **These are rejected:**
+   - a UTC time read as local;
+   - a wrong local clock;
+   - one wrong time of two;
+   - a range that misses the value.
+5. **Explicit handling:**
+   - a number with no stated time is not checked;
+   - issue, as-of, publication and availability times are not the value's time, in words or as field names
+     (`issued_at_utc`, `available_at_utc` …), nor are relational ones ("after the price extreme at T");
+   - derived evidence keeps the sentence-level check only.
+6. **Unchanged:**
+   - **Saved draft replays (222):** only Z03's shown answer changes.
+   - **Where else the check fires** (each reviewed):
+     - **Before repair:** v5 regression H13, a genuine slip ("7485.0 MW at … 08:30 AEST" for the 08:30Z half-hour). Its
+       saved repair removed the time, and the shown answer is unchanged.
+     - **Already falling back on `main`:** W02, another genuine local/UTC slip, and 21 old records whose saved
+       evidence IDs no longer match today's registry (`CLAIM_VALUE_MISMATCH` too).
+   - **Replay evaluation and safety suite:** identical to `main`.
+   - **Tests:** the full suite passes (1,289, of which 31 are new), and ruff and mypy are clean. The existing
+     numeric, citation, as-of, safety and adversarial tests are unchanged and pass.
+
+**Still open for I-15:**
+- **Pairing is lexical.**
+  - **How a time is paired:** it goes to the closest number before it in its clause, else the next one. Clauses are
+    cut at `,` `;` "and" "while" "whereas" "but" outside brackets.
+  - **Unusual phrasings** can pair a time with the wrong number. A time in its own clause, with no number in that
+    clause, is not checked.
+- **Derived evidence** (counts, means, MAE, changes, forecast errors) is not bound number by number. Only the
+  sentence-level check covers it.
+- **The non-value cues are a fixed list:** issue, as-of, publication, availability and relation words. A time
+  introduced otherwise is read as the value's time.
+- **Tolerance:** an instant inside a half-hour counts for that half-hour, as a label of the interval.
+- **Live is unverified;** no paid run was made. v6's FAIL verdict and Z03's scores are unchanged.
 
 ### I-3a: F03, a notice time shown without its zone
 
