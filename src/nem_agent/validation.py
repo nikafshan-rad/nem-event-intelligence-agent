@@ -1422,7 +1422,27 @@ def validate(report: InvestigationReport, registry: EvidenceRegistry, *, as_of: 
         res.checks_run.append("requested_forecast_run")
         hh_end = parse_iso(str(forecast_run["half_hour_end_utc"]))
         want = forecast_run.get("run_id")
-        for eid in sorted({o.evidence_id for o in report.observations} | {c.evidence_id for c in report.numeric_claims}):
+        used = {o.evidence_id for o in report.observations} | {c.evidence_id for c in report.numeric_claims}
+        # a mean (absolute) error over a comparison whose pairs include another run for the half-hour is not this run's
+        # error, whether shown, cited or given as the comparison (I-9 review: such figures carry no source rows)
+        windowed: dict[str, tuple[str, list[dict[str, Any]]]] = {}
+        for r in records or []:
+            view = r.view if getattr(r, "name", None) == "compare_forecast_actual" and r.status == "ok" else {}
+            for key in ("mae_mw", "mean_error_mw"):
+                if eid_ := (view.get(key) or {}).get("evidence_id"):
+                    windowed[eid_] = (key, view.get("pairs") or [])
+        fc = report.forecast_comparison
+        figures = used | {e for e in ((fc.mae_evidence_id, fc.mean_error_evidence_id) if fc else ()) if e}
+        for eid in sorted(figures & set(windowed)):
+            key, pairs = windowed[eid]
+            at = [pr for pr in pairs if parse_iso(pr["target_end_utc"]) == hh_end]
+            if at and any(not want or pr.get("run_id") != want for pr in at):
+                V.append(Violation("FORECAST_RUN_SUBSTITUTED", "critical",
+                                   f"{eid}: {key} over {len(pairs)} half-hour(s) includes another forecast run for the "
+                                   f"half-hour ending {iso_utc(hh_end)}, so it is not the error of " +
+                                   (f"the run the question asks for ({want})" if want else
+                                    "a run the question asks for: no run the question asks for holds this half-hour")))
+        for eid in sorted(used):
             ev = registry.get(eid)
             if ev is None or not ev.valid_at_utc or parse_iso(ev.valid_at_utc) != hh_end:
                 continue

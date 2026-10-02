@@ -1503,7 +1503,7 @@ checks are met.
        had been shown. Their original verdicts stand.
    - **Replay evaluation:** identical to `main`.
    - **Safety suite:** identical to `main`.
-   - **Tests:** the full suite passes (1,080, of which 28 are new).
+   - **Tests:** the full suite passes (1,094, of which 42 are new, including the review's 14 below).
    - **Frozen evaluation material:** untouched.
 
 **How it works.**
@@ -1519,6 +1519,38 @@ checks are met.
   run's.
 - **The facts-only fallback** leaves those values out.
 
+**Review before merge** (offline; `artifacts/logs/forecast_run_review.log`). Three boundaries, and an exhausted tool
+budget, were checked. Faithful controls were included throughout.
+1. **A run named alongside an as-of cutoff given with the request** (not in the question's words). **Defect at the
+   first head (`01ab054`):** the lookup ignored the cutoff, so the context named a run public only after it (ID,
+   issue and publication times). The comparison itself leaked no values. **Fixed:**
+   - **Runs:** the lookup considers only runs public by the cutoff, for both a named issue time and the last run
+     issued before the half-hour. A named run not public by then is reported as unavailable, without its ID or times.
+   - **The comparison:** the controller's comparison runs under the cutoff.
+   - **Unchanged:** a cutoff in the question's own words still binds nothing.
+2. **Every forecast value for the half-hour comes from the bound run.** This already held at the first head, and is
+   now tested:
+   - **Mixed-run answers:** POE50 from the run asked for with POE10 and POE90 from another are rejected, and the
+     fallback keeps only the bound run's value.
+   - **The same value from two runs:** held in the store, NSW1 2026-07-28 21:30Z, POE50 10,243 MW from the
+     20:56:59Z and the 02:27:03Z runs. They are told apart by their source rows.
+3. **A window MAE or mean error from another run.** **Defect at the first head:** these carry no source rows, so they
+   were not checked. Two cases passed:
+   - a one-half-hour MAE from another run, cited as the error;
+   - a 12-hour comparison (`latest_before_target`) given as the answer's comparison.
+
+   Y05's and Y06's fallbacks still showed such a window MAE (250.38 and 139.71 MW).
+
+   **Fixed:** the binding also covers an MAE or mean error whose comparison's pairs include another run for the
+   half-hour asked about, whether shown, cited or given as the comparison. The fallback leaves it out. Window figures
+   of the run asked for, and windows without that half-hour, are not affected.
+4. **The tool budget used up by the model** (three comparisons). This already held: the controller's comparison is
+   blocked (the limit holds, and no fourth call runs), a substituted answer is still rejected, and an answer citing
+   the model's own comparison of the run asked for passes.
+- **Test results:** at the first head, 6 of the 42 tests now in the file fail; all pass after the fixes.
+- **Unchanged:** the saved replays (the same 5 differ from `main`; against the first head only Y05's and Y06's
+  fallbacks change), the Replay evaluation, the safety suite and the call limits.
+
 **Still open for I-9:**
 - **Phrasings are a fixed set.**
   - **The run:** "issued, published, produced, made or released before the half-hour, interval or period";
@@ -1531,8 +1563,12 @@ checks are met.
 - **`latest_before_target` keeps its availability meaning;** the model is told it gives an earlier run.
 - **The controller's comparison uses one of the three calls** allowed per required tool. If the model has used all
   three, it is blocked. No other run can then be shown, but the run's values may be missing.
-- **Window figures are not bound.** MAE and mean error over a wider window have no source rows; only values for the
-  half-hour asked about are bound.
+- **Window figures are bound only through the half-hour asked about.** An MAE whose pairs use the run asked for at
+  that half-hour, but other runs at other half-hours, is not rejected, although it is not that run's error alone.
+- **The check reads structure, not wording.** A correctly labelled window figure that uses another run for the
+  half-hour ("the runs available by each half-hour had MAE …") is rejected too.
+- **Under a cutoff given with the request,** "the last run issued before the half-hour" becomes the last one public
+  by the cutoff. The controller's comparison may be unavailable, because actuals after the cutoff are hidden.
 - **Evaluation scoring:** the controller's comparison counts as the required tool executed.
 - **Live is unverified;** no paid run was made.
 

@@ -1,0 +1,86 @@
+# I-9 review before merge: the forecast-run binding at three boundaries (an as-of cutoff given with the request; every
+# forecast value for the half-hour; window figures) and an exhausted tool budget. Offline: questions run through the
+# controller with chosen tool calls and answers built from the tool outputs' evidence IDs (SYNTHETIC fake transport,
+# scratch ledger, no API call). Live is unverified.
+
+## probes at the PR's first head (01ab054)
+== 1a relative run + request as_of 21:10Z (the run asked for is public only at 23:47Z)
+   codes=['EMPTY_ANSWER'] passed=True fallback=True
+   controller comparison: [('unavailable', '_202607310730_20260731070129', '2026-07-30T21:10:00Z', 0)]
+== 1b named run + request as_of 21:10Z
+   codes=['EMPTY_ANSWER'] passed=True fallback=True
+   controller comparison: [('unavailable', '_202607310730_20260731070129', '2026-07-30T21:10:00Z', 0)]
+== 1c named run, as of in the question's words (control: nothing bound)
+   codes=['EMPTY_ANSWER', 'STATUS_OVERCLAIMS'] passed=True fallback=True
+   controller comparison: []
+== 2a mixed: POE50 from the run asked for, POE10 and POE90 from another
+   codes=['FORECAST_RUN_SUBSTITUTED'] passed=True fallback=True
+   controller comparison: [('ok', '_202607310730_20260731070129', None, 1)]
+== 2b faithful: all three from the run asked for
+   codes=[] passed=True fallback=False
+   controller comparison: [('ok', '_202607310730_20260731070129', None, 1)]
+== 3a faithful values + the 12-hour window's MAE (latest_before_target: another run at the half-hour) as the comparison
+   codes=[] passed=True fallback=False
+   controller comparison: [('ok', '_202607310730_20260731070129', None, 1)]
+== 3b faithful values + a one-half-hour MAE from another run, cited as the error
+   codes=[] passed=True fallback=False
+   controller comparison: [('ok', '_202607310730_20260731070129', None, 1)]
+== 3c faithful values + the MAE of the run asked for (controller-free: the model compared it)
+   codes=[] passed=True fallback=False
+   controller comparison: [('ok', '_202607310730_20260731070129', None, 1)]
+== 4a three model comparisons, none of the run asked for; answer gives another run
+   codes=['FORECAST_RUN_SUBSTITUTED'] passed=True fallback=True
+   controller comparison: [('blocked', '_202607310730_20260731070129', None, 0)]
+== 4b three model comparisons, the last of the run asked for; faithful answer
+   codes=[] passed=True fallback=False
+   controller comparison: [('blocked', '_202607310730_20260731070129', None, 0)]
+  (1a, 1b: the context named the run issued 20:56:59Z, public only at 23:47:29Z, although the cutoff was 21:10Z)
+
+## probes after the review fixes
+== 1a relative run + request as_of 21:10Z (the run asked for is public only at 23:47Z)
+   codes=['EMPTY_ANSWER'] passed=True fallback=True
+   controller comparison: [('unavailable', '_202607310430_20260731040140', '2026-07-30T21:10:00Z', 0)]
+== 1b named run + request as_of 21:10Z
+   codes=['EMPTY_ANSWER', 'STATUS_OVERCLAIMS'] passed=True fallback=True
+   controller comparison: []
+== 1c named run, as of in the question's words (control: nothing bound)
+   codes=['EMPTY_ANSWER', 'STATUS_OVERCLAIMS'] passed=True fallback=True
+   controller comparison: []
+== 2a mixed: POE50 from the run asked for, POE10 and POE90 from another
+   codes=['FORECAST_RUN_SUBSTITUTED'] passed=True fallback=True
+   controller comparison: [('ok', '_202607310730_20260731070129', None, 1)]
+== 2b faithful: all three from the run asked for
+   codes=[] passed=True fallback=False
+   controller comparison: [('ok', '_202607310730_20260731070129', None, 1)]
+== 3a faithful values + the 12-hour window's MAE (latest_before_target: another run at the half-hour) as the comparison
+   codes=['FORECAST_RUN_SUBSTITUTED'] passed=True fallback=True
+   controller comparison: [('ok', '_202607310730_20260731070129', None, 1)]
+== 3b faithful values + a one-half-hour MAE from another run, cited as the error
+   codes=['FORECAST_RUN_SUBSTITUTED'] passed=True fallback=True
+   controller comparison: [('ok', '_202607310730_20260731070129', None, 1)]
+== 3c faithful values + the MAE of the run asked for (controller-free: the model compared it)
+   codes=[] passed=True fallback=False
+   controller comparison: [('ok', '_202607310730_20260731070129', None, 1)]
+== 4a three model comparisons, none of the run asked for; answer gives another run
+   codes=['FORECAST_RUN_SUBSTITUTED'] passed=True fallback=True
+   controller comparison: [('blocked', '_202607310730_20260731070129', None, 0)]
+== 4b three model comparisons, the last of the run asked for; faithful answer
+   codes=[] passed=True fallback=False
+   controller comparison: [('blocked', '_202607310730_20260731070129', None, 0)]
+
+## tests/provider/test_requested_forecast_run.py (42 tests) at 01ab054
+FAILED tests/provider/test_requested_forecast_run.py::test_an_unavailable_run_is_said_and_no_other_run_stands_in
+FAILED tests/provider/test_requested_forecast_run.py::test_a_run_not_public_by_the_cutoff_is_not_named_or_compared
+FAILED tests/provider/test_requested_forecast_run.py::test_a_named_run_not_public_by_the_cutoff_is_reported_unavailable
+FAILED tests/provider/test_requested_forecast_run.py::test_a_one_half_hour_error_from_another_run_is_rejected
+FAILED tests/provider/test_requested_forecast_run.py::test_a_window_comparison_using_another_run_for_the_half_hour_is_rejected
+FAILED tests/provider/test_requested_forecast_run.py::test_y05s_fallback_no_longer_shows_the_window_error_of_the_other_run
+6 failed, 36 passed in 7.98s
+
+## the same tests on the reviewed code
+42 passed
+
+## saved Live records replayed (181): differ from main d0f3a12, as at the first head
+L3-holdout-v2/H05, L3-holdout-v3/V07, L3-holdout-v3/V08, L3-holdout-v5/Y05, L3-holdout-v5/Y06 (176 identical).
+Against the first head only Y05 and Y06 change: their fallbacks no longer show the 12-hour window MAE (250.38 and
+139.71 MW), whose pairs used the substituted runs for the half-hour asked about.

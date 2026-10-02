@@ -226,7 +226,9 @@ def test_an_unavailable_run_is_said_and_no_other_run_stands_in():
                                         "numeric_claims": [], "validation": {}})
     codes = [v for v in validate(raw, reg, records=res.records, forecast_run=gone).critical
              if v.code == "FORECAST_RUN_SUBSTITUTED"]
-    assert len(codes) == 5  # POE10, POE50, POE90, error and error % for that half-hour (the actual is not a forecast)
+    # POE10, POE50, POE90, error and error % for that half-hour (the actual is not a forecast), and the draft's 12-hour
+    # MAE, whose pairs include another run for that half-hour
+    assert len(codes) == 6 and sum(v.detail.split(":")[0] in ("ev0694",) for v in codes) == 1
     assert all("no run the question asks for holds this half-hour" in v.detail for v in codes)
     from nem_agent.validation import ValidationResult, facts_only
 
@@ -246,3 +248,195 @@ def test_other_half_hours_of_a_wider_comparison_are_not_bound():
     rep = res.report.model_copy(update={"observations": _obs(reg, other), "numeric_claims": [], "validation": {}})
     out = validate(rep, reg, records=res.records, forecast_run=run)
     assert not [v for v in out.critical if v.code == "FORECAST_RUN_SUBSTITUTED"]
+
+
+# ------------------------------------------------------------------------------------------------ review (before merge)
+# Each scenario runs the question through the controller with chosen tool calls, an optional request-level as-of
+# cutoff, and an answer built from the evidence IDs the tool outputs give (SYNTHETIC fake transport). At the PR's first
+# head (01ab054), 1a/1b exposed a run not public by the cutoff, and 3a/3b passed (artifacts/logs/forecast_run_review.log).
+Q05 = ("In NSW, what POE10, POE50 and POE90 values did AEMO's final operational demand forecast issued before the "
+       "half-hour from 21:00 to 21:30 UTC on 2026-07-30 carry, and how did they stack up against the measured outturn?")
+ROUTE = {"intent": "forecast_review", "region": "NSW1", "event_date": "2026-07-31", "as_of_utc": None,
+         "needs_clarification": False, "clarification_reason": None, "clarification": None, "out_of_scope": False}
+BOUND = "PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607310730_20260731070129"  # issued 20:56:59Z, public 23:47:29Z
+OTHER = "PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607310430_20260731040140"  # issued 17:56:59Z, public 20:47:40Z
+HALF = {"region": "NSW1", "target_start_utc": "2026-07-30T21:00:00Z", "target_end_utc": "2026-07-30T21:30:00Z"}
+WINDOW = {"region": "NSW1", "target_start_utc": "2026-07-30T15:30:00Z", "target_end_utc": "2026-07-31T03:30:00Z"}
+LATER = {"region": "NSW1", "target_start_utc": "2026-07-30T21:30:00Z", "target_end_utc": "2026-07-31T03:30:00Z"}
+
+
+def _base(day: str = "2026-07-30") -> list:
+    return [("get_forecast_runs", {**WINDOW, "max_runs": 8}),
+            ("get_actual_demand", {"region": "NSW1", "start_utc": f"{day}T09:30:00Z", "end_utc": f"{day}T23:30:00Z"}),
+            ("retrieve_public_evidence", {"query": "operational demand forecast POE", "region": "NSW1"})]
+
+
+def _compared(kw) -> list[dict]:
+    """The comparisons in the model's input: its own tool outputs, and the controller's comparison."""
+    out = []
+    for i in kw["input"]:
+        if isinstance(i, dict) and i.get("type") == "function_call_output":
+            v = json.loads(i["output"]).get("result") or {}
+            if "pairs" in v:
+                out.append(v)
+        elif isinstance(i, dict) and str(i.get("content", "")).startswith("Requested forecast run, compared by"):
+            c = json.loads(i["content"].split("\n", 1)[1])
+            if "poe50_evidence_id" in (c.get("comparison") or {}):
+                out.append({"pairs": [c["comparison"]], "mae_mw": None})
+    return out
+
+
+def _pair(outs, run: str, end: str = "2026-07-30T21:30:00Z") -> dict:
+    return next(p for o in outs for p in o["pairs"] if p["target_end_utc"] == end and p["run_id"] == run)
+
+
+def _vals(p: dict, *keys: str) -> list[tuple[str, str, float]]:
+    return [(k, p[f"{k}_evidence_id"], p[f"{k}_mw"]) for k in keys]
+
+
+def _run(calls, pick, *, question=Q05, route=ROUTE, as_of=None):
+    """``pick(comparisons)`` gives the (label, evidence ID, value) items an answer shows, and the MAE evidence it names
+    as its comparison (or None)."""
+    base = json.loads((V5 / "Y05.json").read_text())["drafts"]["synthesis:draft"]
+
+    def draft(kw):
+        items, mae = pick(_compared(kw))
+        return {**copy.deepcopy(base), "forecast_mae_evidence_id": mae, "uncertainties": [], "missing_evidence": [],
+                "possible_explanations": [], "published_findings": [], "citations": [], "document_statements": [],
+                "observation_evidence_ids": [e for _, e, _ in items],
+                "numeric_claims": [{"claim_id": f"n{k + 1}", "text": f"{lab} {v:.1f}", "value": v, "unit": "MW",
+                                    "evidence_id": e, "rounding": 0.0} for k, (lab, e, v) in enumerate(items)],
+                "headline": "The forecast for the half-hour asked about, against the actual.",
+                "summary": ["Values: " + ", ".join(f"{lab} {v:.1f}" for lab, _, v in items) + "."]}
+    fake = FakeModel(route, [calls], draft)
+    res = investigate(InvestigateRequest(question=question, mode="live", as_of_utc=as_of), live_client=fake,
+                      write_trace=False)
+    return res, fake
+
+
+def _codes(res) -> set[str]:
+    v = res.report.validation
+    return {x["code"] for x in (v.get("pre_repair") or v["initial"])["violations"]} | \
+        {x["code"] for x in v["initial"]["violations"]}
+
+
+def _requests_text(fake) -> str:
+    return json.dumps(fake.requests)
+
+
+# -- 1. a run named alongside an as-of cutoff given with the request (not in the question's words)
+def test_a_run_not_public_by_the_cutoff_is_not_named_or_compared():
+    """Relative run: the last run issued before the half-hour is public only at 23:47Z, after the 21:10Z cutoff. The
+    lookup names the last one issued before the half-hour that was public by then (17:56:59Z), and nothing in the
+    model's input names the later run."""
+    calls = _base() + [("compare_forecast_actual", {**HALF, "run_selector": "latest_available_as_of",
+                                                    "as_of_utc": "2026-07-30T21:10:00Z"})]
+    res, fake = _run(calls, lambda outs: ([], None), as_of="2026-07-30T21:10:00Z")
+    ctx = json.loads(fake.requests[1]["input"][0]["content"].split("\n", 1)[1])["requested_forecast_run"]
+    assert ctx["run_id"] == OTHER and ctx["issued_at_utc"] == "2026-07-30T17:56:59Z"
+    assert BOUND not in _requests_text(fake) and "20:56:59" not in _requests_text(fake)
+    ctl = next(r for r in res.records if r.call_id == "controller_requested_run")
+    assert ctl.args["as_of_utc"] == "2026-07-30T21:10:00Z"  # the comparison is under the cutoff too
+
+
+def test_a_named_run_not_public_by_the_cutoff_is_reported_unavailable():
+    q = ("For NSW, what POE50 did the run issued 2026-07-30T20:56:59Z give for the half-hour ending 21:30 UTC on 30 "
+         "July 2026, and how did it compare with the actual?")
+    res, fake = _run(_base(), lambda outs: ([], None), question=q, as_of="2026-07-30T21:10:00Z")
+    ctx = json.loads(fake.requests[1]["input"][0]["content"].split("\n", 1)[1])["requested_forecast_run"]
+    assert ctx["run_id"] is None and ctx["issued_at_utc"] is None and "public by the as-of cutoff" in ctx["note"]
+    assert BOUND not in _requests_text(fake)
+    assert not any(r.call_id == "controller_requested_run" for r in res.records)
+
+
+def test_an_as_of_cutoff_in_the_question_binds_nothing():
+    q = ("As of 2026-07-30T21:10:00Z, what POE50 had the run issued 2026-07-30T20:56:59Z given for the half-hour "
+         "ending 21:30 UTC on 30 July 2026?")
+    res, fake = _run(_base(), lambda outs: ([], None), question=q)
+    assert "requested_forecast_run" not in json.loads(fake.requests[1]["input"][0]["content"].split("\n", 1)[1])
+    assert not any(r.call_id == "controller_requested_run" for r in res.records)
+
+
+# -- 2. every forecast value for the half-hour comes from the run asked for
+ONE_HALF_HOUR = [("compare_forecast_actual", {**HALF, "run_selector": "latest_before_target"})]
+
+
+def test_a_mixed_run_answer_is_rejected():
+    res, _ = _run(_base() + ONE_HALF_HOUR,
+                  lambda outs: (_vals(_pair(outs, BOUND), "poe50") + _vals(_pair(outs, OTHER), "poe10", "poe90"), None))
+    assert "FORECAST_RUN_SUBSTITUTED" in _codes(res) and res.report.validation["fallback_applied"]
+    assert {o.metric for o in res.report.observations} == {"opdemand_forecast_poe50"}  # only the bound run's value
+
+
+def test_all_three_values_of_the_run_asked_for_pass():
+    res, _ = _run(_base() + ONE_HALF_HOUR, lambda outs: (_vals(_pair(outs, BOUND), "poe50", "poe10", "poe90"), None))
+    assert not _codes(res) and res.report.validation["final_passed"]
+
+
+SAME_VALUE_Q = ("In NSW, what POE50 did AEMO's final operational demand forecast issued before the half-hour from 21:00 "
+                "to 21:30 UTC on 2026-07-28 give, and how did it compare with the actual?")
+SAME_ROUTE = {**ROUTE, "event_date": "2026-07-29"}
+SAME_HALF = {"region": "NSW1", "target_start_utc": "2026-07-28T21:00:00Z", "target_end_utc": "2026-07-28T21:30:00Z"}
+SAME_BOUND = "PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607290730_20260729070144"  # issued 20:56:59Z, POE50 10,243
+SAME_OTHER = "PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607281300_20260728123224"  # issued 02:27:03Z, POE50 10,243
+
+
+@pytest.mark.parametrize("cite,codes", [(SAME_OTHER, {"FORECAST_RUN_SUBSTITUTED"}), (SAME_BOUND, set())])
+def test_two_runs_with_the_same_value_are_told_apart_by_their_rows(cite, codes):
+    """Held in the store: both runs forecast POE50 10,243 MW for this half-hour. Citing the other run's value is a
+    substitution even though the number is the same."""
+    calls = _base("2026-07-28") + [("compare_forecast_actual", {**SAME_HALF, "run_selector": "run_id",
+                                                                "run_id": SAME_OTHER})]
+    res, _ = _run(calls, lambda outs: (_vals(_pair(outs, cite, "2026-07-28T21:30:00Z"), "poe50"), None),
+                  question=SAME_VALUE_Q, route=SAME_ROUTE)
+    assert _codes(res) & {"FORECAST_RUN_SUBSTITUTED"} == codes
+    if not codes:
+        assert [o.value for o in res.report.observations if o.metric == "opdemand_forecast_poe50"] == [10243.0]
+
+
+# -- 3. window figures: a mean (absolute) error that includes another run for the half-hour is not this run's error
+def test_a_one_half_hour_error_from_another_run_is_rejected():
+    res, _ = _run(_base() + ONE_HALF_HOUR, lambda outs: (
+        _vals(_pair(outs, BOUND), "poe50") + [("mae", outs[0]["mae_mw"]["evidence_id"], outs[0]["mae_mw"]["value"])],
+        None))
+    assert "FORECAST_RUN_SUBSTITUTED" in _codes(res)
+    assert not any(o.metric == "mae_mw" for o in res.report.observations)  # not shown in the fallback
+
+
+def test_a_window_comparison_using_another_run_for_the_half_hour_is_rejected():
+    calls = _base() + [("compare_forecast_actual", {**WINDOW, "run_selector": "latest_before_target"})]
+    res, _ = _run(calls, lambda outs: (_vals(_pair(outs, BOUND), "poe50"), outs[0]["mae_mw"]["evidence_id"]))
+    assert "FORECAST_RUN_SUBSTITUTED" in _codes(res) and res.report.forecast_comparison is None
+
+
+@pytest.mark.parametrize("calls_extra,what", [
+    ([("compare_forecast_actual", {**HALF, "run_selector": "run_id", "run_id": BOUND})], "the run asked for"),
+    ([("compare_forecast_actual", {**LATER, "run_selector": "latest_before_target"})], "a window without the half-hour"),
+])
+def test_window_figures_of_the_run_asked_for_or_of_other_half_hours_pass(calls_extra, what):
+    res, _ = _run(_base() + calls_extra, lambda outs: (_vals(_pair(outs, BOUND), "poe50"),
+                                                       outs[0]["mae_mw"]["evidence_id"]))
+    assert not _codes(res), what
+    assert res.report.forecast_comparison is not None and res.report.validation["final_passed"]
+
+
+def test_y05s_fallback_no_longer_shows_the_window_error_of_the_other_run():
+    res, _, _ = _replay("Y05")
+    assert {o.metric for o in res.report.observations} == {"opdemand_actual"}
+
+
+# -- 4. the comparison tool's call budget used up by the model
+THREE = [("compare_forecast_actual", {**WINDOW, "run_selector": "latest_before_target"}),
+         ("compare_forecast_actual", {**HALF, "run_selector": "latest_before_target"})]
+
+
+@pytest.mark.parametrize("last,cite,rejected", [
+    (("compare_forecast_actual", {**HALF, "run_selector": "min_lead_hours", "min_lead_hours": 1}), OTHER, True),
+    (("compare_forecast_actual", {**HALF, "run_selector": "run_id", "run_id": BOUND}), BOUND, False),
+])
+def test_an_exhausted_tool_budget_keeps_its_limit_and_the_binding(last, cite, rejected):
+    res, _ = _run(_base() + THREE + [last], lambda outs: (_vals(_pair(outs, cite), "poe50"), None))
+    ctl = next(r for r in res.records if r.call_id == "controller_requested_run")
+    assert ctl.status == "blocked" and "already called 3 times" in ctl.blocked_reason  # the limit holds
+    assert sum(r.name == "compare_forecast_actual" and r.status != "blocked" for r in res.records) == 3
+    assert ("FORECAST_RUN_SUBSTITUTED" in _codes(res)) is rejected

@@ -19,7 +19,7 @@ import os
 import re
 import time
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from importlib import resources
 from typing import Any, Literal, Protocol
 
@@ -928,7 +928,7 @@ class LiveController:
         hh = wanted.half_hour
         if wanted.run == "issued_at":
             assert wanted.issued_at is not None
-            out = self._run_issued_at(res.region, wanted.issued_at)
+            out = self._run_issued_at(res.region, wanted.issued_at, res.as_of)
             if hh is None:
                 return out  # no half-hour named: as before
         elif hh is None:
@@ -937,10 +937,12 @@ class LiveController:
                             "does not pin down (one date, a time zone and a 30-minute interval). Do not pick a run "
                             "silently: say which run you use and when it was issued."}
         else:
+            # under an as-of cutoff, only runs public by then: a later run is never named (I-9 review)
             rows = self.d.store.query(
                 "SELECT run_id, MIN(issued_at_utc) AS issued_at_utc, MIN(published_at_utc) AS published_at_utc FROM "
-                "opdemand_forecast WHERE region=? AND target_end_utc=? AND issued_at_utc < ? GROUP BY run_id "
-                "ORDER BY issued_at_utc DESC LIMIT 1", [res.region, hh[1], hh[0]])
+                "opdemand_forecast WHERE region=? AND target_end_utc=? AND issued_at_utc < ? AND available_at_utc <= ? "
+                "GROUP BY run_id ORDER BY issued_at_utc DESC LIMIT 1",
+                [res.region, hh[1], hh[0], res.as_of or datetime.max.replace(tzinfo=UTC)])
             best = rows[0] if rows else None
             out = {"rule": "the last run issued before the half-hour starts (by issue time, not availability)",
                    "issued_at_utc": iso_utc(best["issued_at_utc"]) if best else None,
@@ -959,8 +961,8 @@ class LiveController:
             "compare_forecast_actual(run_selector='run_id', run_id=<run_id>); run_selector='latest_before_target' "
             "gives the run available by then (published + a margin), an earlier run. The controller also compares it "
             "before you write the answer." if run_id else
-            "No forecast run the question asks for holds this half-hour: say so, and give no other run's values for "
-            "it.")
+            "No forecast run the question asks for holds this half-hour" +
+            (", public by the as-of cutoff" if res.as_of else "") + ": say so, and give no other run's values for it.")
         return out
 
     def _requested_comparison(self, res: Resolution, allowed: list[str], trace: Any) -> dict[str, Any] | None:
@@ -973,21 +975,24 @@ class LiveController:
         assert isinstance(hh, list) and res.region is not None
         rec = self.d.call("compare_forecast_actual", {
             "region": res.region, "target_start_utc": hh[0], "target_end_utc": hh[1], "run_selector": "run_id",
-            "run_id": run["run_id"]}, call_id="controller_requested_run", origin="controller")
+            "run_id": run["run_id"], "as_of_utc": iso_utc(res.as_of) if res.as_of else None},
+            call_id="controller_requested_run", origin="controller")
         trace.add("model", "requested_forecast_run", run_id=run["run_id"], status=rec.status)
         pair = (rec.view.get("pairs") or [None])[0] if rec.status == "ok" else None
         return {"run_id": run["run_id"], "issued_at_utc": run.get("issued_at_utc"), "half_hour_utc": hh,
                 "comparison": pair or {"status": rec.status, "reason": rec.blocked_reason or rec.missing[:3]},
                 "note": "For this half-hour, cite these evidence IDs (this run and the actual) and no other run's."}
 
-    def _run_issued_at(self, region: str, issued: datetime) -> dict[str, Any]:
-        """The forecast run a question names by its issue time, looked up by code (never an as-of cutoff): the run issued
-        nearest that time, within 10 minutes ("issued at about 07:57Z" is the run issued 07:57:01Z)."""
+    def _run_issued_at(self, region: str, issued: datetime, as_of: datetime | None = None) -> dict[str, Any]:
+        """The forecast run a question names by its issue time, looked up by code (the issue time is not an as-of
+        cutoff): the run issued nearest that time, within 10 minutes ("issued at about 07:57Z" is the run issued
+        07:57:01Z). Under an as-of cutoff given with the request, only a run public by then (I-9 review)."""
         assert self.d is not None
         rows = self.d.store.query(
             "SELECT run_id, MIN(issued_at_utc) AS issued_at_utc FROM opdemand_forecast WHERE region=? AND "
-            "issued_at_utc BETWEEN ? AND ? GROUP BY run_id", [region, issued - timedelta(minutes=10),
-                                                               issued + timedelta(minutes=10)])
+            "issued_at_utc BETWEEN ? AND ? AND available_at_utc <= ? GROUP BY run_id",
+            [region, issued - timedelta(minutes=10), issued + timedelta(minutes=10),
+             as_of or datetime.max.replace(tzinfo=UTC)])
         best = min(rows, key=lambda r: abs(r["issued_at_utc"] - issued)) if rows else None
         return {"issued_at_utc_asked": iso_utc(issued),
                 "issued_at_utc": iso_utc(best["issued_at_utc"]) if best else None,
@@ -995,8 +1000,9 @@ class LiveController:
                 "note": ("The question names a forecast by its issue time. It is not an as-of cutoff: actuals may be "
                          "used. Select this run with compare_forecast_actual(run_selector='run_id', run_id=<run_id>); "
                          "its pairs give POE10, POE50 and POE90, and where the actual falls against that range."
-                         if best else "No forecast run issued within 10 minutes of that time is held; say so rather "
-                         "than use another run.")}
+                         if best else "No forecast run issued within 10 minutes of that time is held" +
+                         (" that was public by the as-of cutoff" if as_of else "") + "; say so rather than use another "
+                         "run.")}
 
     def _notice_timing(self, res: Resolution) -> dict[str, Any] | None:
         """Each retrieved market notice for the investigated region, with its clock times set against the event's
