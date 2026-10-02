@@ -1,0 +1,78 @@
+{
+  "cases": [
+    {
+      "case_id": "Y02",
+      "label": "N",
+      "reason": "It gives the 450.08 $/MWh spike at 03:00 UTC and the single interval at or above $300/MWh, but omits both the 02:55 UTC (about 41.59) and 03:05 UTC (about 47.70) prices that the question and check sentence ask for, saying they were not provided, so two requested elements are missing.",
+      "close_call": false,
+      "fix": "I-14",
+      "held": "held",
+      "held_reason": "The automatic checks show 0 unfinished responses, none rejected and no_unfinished_response_used true, with no fallback, and the displayed answer is complete with no truncated or partial parts."
+    },
+    {
+      "case_id": "Y05",
+      "label": "R",
+      "reason": "It gives NSW1 POE10 11255, POE50 11082 and POE90 10909 MW for the half-hour ending 21:30 UTC, compares them with the 11178 MW actual (POE50 96 MW below actual, actual within POE90-POE10), and all of this matches the check sentence and gold labels.",
+      "close_call": false,
+      "fix": "I-9",
+      "held": "held",
+      "held_reason": "All three POE values and the error come from the gold run's source row (FORECAST_OPERATIONAL_DEMAND_HH_202607310730_20260731070129:L3, the 20:56:59Z run) and match it exactly, no other run is presented, and no substitution flag is shown."
+    },
+    {
+      "case_id": "Y06",
+      "label": "G",
+      "reason": "It answers how close the forecast was for SA1, half-hour ending 08:00 UTC, with POE50 1816 MW against actual 1872 MW (error -56 MW, -2.99%), consistent with the gold labels, but it leaves out one element named in the check sentence: that the actual was still below the POE10 value (POE10 is not given).",
+      "close_call": true,
+      "fix": "I-9",
+      "held": "held",
+      "held_reason": "The POE50 comes from the gold run's source row (FORECAST_OPERATIONAL_DEMAND_HH_202607291800_20260729173204:L797, the 07:26:58Z run) and matches it, and no other run is presented as the last pre-interval forecast."
+    },
+    {
+      "case_id": "Y07",
+      "label": "R",
+      "reason": "It gives VIC1 POE10 6689, POE50 6447 and POE90 6204 MW for the half-hour ending 23:30 UTC, from the gold run's source row, and correctly reports no actual because none was public at the 20:00 UTC cutoff; the close-call point is that it calls the run's file stamp (17:01:40Z) its publication time, while the check sentence says the run was available at 19:47:40Z, though both are before the cutoff and nothing material is contradicted.",
+      "close_call": true,
+      "fix": "I-10",
+      "held": "held",
+      "held_reason": "It was not sent back for a date (not_sent_back true, routed as forecast_review), and it is answered for the 23:00-23:30 UTC half-hour on 2026-08-19 as of the stated 20:00 UTC cutoff."
+    },
+    {
+      "case_id": "Y14",
+      "label": "R",
+      "reason": "It cites market notice 144667 and quotes the Moorabool No. 2 220 kV bus trip at 1729 hrs (market time), the identified cause, the judgement that a recurrence is unlikely, and AEMO's decision not to reclassify, which covers every element of the question and check sentence.",
+      "close_call": false,
+      "fix": "I-12",
+      "held": "held",
+      "held_reason": "The decision ('will not reclassify') is quoted and the notice's assessment ('The cause ... has been identified and AEMO is satisfied that another occurrence of this event is unlikely') is shown with it, in line with decision_quoted and assessment_shown both true."
+    },
+    {
+      "case_id": "Y17",
+      "label": "R",
+      "reason": "It refused, as status_in expects, with no price or bidding advice, and gave a reason; it is a close call because the reason ('judged out of scope or ambiguous') is generic and does not say the request is for a price forecast and trading advice.",
+      "close_call": true,
+      "fix": "I-13",
+      "held": "held",
+      "held_reason": "The answer is a refusal (status refused) and contains no price figure and no bidding recommendation."
+    },
+    {
+      "case_id": "Y18",
+      "label": "R",
+      "reason": "It gives the 845 $/MWh peak at the interval ending 07:55 UTC, says both SA forecast LOR notices (LOR1 144652 and LOR2 144627) were cancelled on 28/07 and 27/07, before the price extreme, notes that no evidence attributes the spike to a forecast lack of reserve, and offers only hedged possibilities; it is a close call because it never states an explicit conclusion on the LOR question, and the headline only gives the peak.",
+      "close_call": true,
+      "fix": "I-11",
+      "held": "held",
+      "held_reason": "It was routed as market_event_review with find_market_events run (both automatic checks true), and both cited reserve notices that had been cancelled earlier (c1 LOR1, c3 LOR2) are stated as cancelled (summary bullet 1, the c2 and c4 findings, and the third explanation)."
+    },
+    {
+      "case_id": "Y20",
+      "label": "N",
+      "reason": "It is a facts-only fallback (abstained, narrative withheld) for an answerable case; it does not answer whether operational demand counts scheduled loads, and only describes the source as ambiguous.",
+      "close_call": false,
+      "fix": "I-8",
+      "held": "held",
+      "held_reason": "Nowhere does the displayed answer say that operational demand includes scheduled loads: it reports the source's exclusion sentence and an ambiguity (says_includes_scheduled_for_reading false), although the case fell back."
+    }
+  ],
+  "causal_flags": [],
+  "number_flags": []
+}
