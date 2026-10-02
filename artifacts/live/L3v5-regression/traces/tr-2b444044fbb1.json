@@ -1,0 +1,100 @@
+{
+  "trace_id": "tr-2b444044fbb1",
+  "started_at": "2026-10-02T00:17:49.352310Z",
+  "events": [
+    {
+      "seq": 1,
+      "t_ms": 8131.8,
+      "kind": "model",
+      "name": "route",
+      "model": "gpt-5-mini",
+      "response_id": "resp_0efdec4ba3edd682016abef82e9e9887d0a1105fe5acd36326",
+      "function_calls": [],
+      "usage": {
+        "input_tokens": 764,
+        "input_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "output_tokens": 877,
+        "output_tokens_details": {
+          "reasoning_tokens": 704
+        },
+        "total_tokens": 1641
+      },
+      "cost_usd": 0.001945,
+      "max_output_tokens": 2000,
+      "status": "completed",
+      "incomplete": null,
+      "duration_ms": 7161.5
+    },
+    {
+      "seq": 2,
+      "t_ms": 8133.0,
+      "kind": "route",
+      "name": "model_decision",
+      "decision": {
+        "intent": "market_event_review",
+        "region": null,
+        "event_date": "2026-07-31",
+        "as_of_utc": null,
+        "needs_clarification": true,
+        "clarification_reason": "several_regions",
+        "clarification": "You named two regions (New South Wales and Victoria). Do you want a combined summary for both or separate region-by-region summaries? Also please confirm what you mean by 'morning' (e.g. 00:00\u201312:00 local, 06:00\u201312:00, or specific hours) and whether you want half-hourly data or a brief overview.",
+        "out_of_scope": false
+      },
+      "policy_notes": [
+        "several regions or dates in the question: left to the resolver"
+      ]
+    },
+    {
+      "seq": 3,
+      "t_ms": 8134.6,
+      "kind": "route",
+      "name": "market_event_review",
+      "status": "needs_clarification",
+      "routing": {
+        "router": "explicit",
+        "regions_found": [
+          "NSW1",
+          "VIC1"
+        ],
+        "dates_found": [
+          "2026-07-31"
+        ],
+        "region_tz": null
+      },
+      "reasons": [
+        "Several regions are mentioned (NSW1, VIC1); choose one region."
+      ],
+      "region": null,
+      "as_of": null,
+      "window": null
+    },
+    {
+      "seq": 4,
+      "t_ms": 8176.2,
+      "kind": "validate",
+      "name": "report",
+      "passed": true,
+      "n_critical": 0,
+      "codes": [],
+      "fallback": false
+    },
+    {
+      "seq": 5,
+      "t_ms": 8200.5,
+      "kind": "done",
+      "name": "needs_clarification",
+      "latency_ms": 8230.3,
+      "usage": {
+        "model_calls": 1,
+        "input_tokens": 764,
+        "output_tokens": 877,
+        "cost_usd": 0.001945,
+        "cost_note": "list-price estimate (cached input at the cached rate)",
+        "elapsed_s": 7.19
+      }
+    }
+  ]
+}
