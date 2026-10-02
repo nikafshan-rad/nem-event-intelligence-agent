@@ -1,0 +1,58 @@
+# I-9: the forecast run a question names, for the half-hour it asks about. Offline only: saved Live records replayed
+# through the SYNTHETIC fake transport (no network, no key; scratch ledger), on main d0f3a12 and on
+# fix/forecast-run-selection. Live is unverified.
+
+## The store's runs for the two half-hours (available_at = published + 166 minutes)
+NSW1, half-hour 21:00-21:30 UTC: runs that forecast it, latest issued first
+   issued 20:56:59  published 21:01:29  available 07-30 23:47:29  POE50  11082.0  <- last issued before the half-hour (asked for)
+   issued 20:26:59  published 20:31:28  available 07-30 23:17:28  POE50  11049.0  
+   issued 19:57:01  published 20:01:28  available 07-30 22:47:28  POE50  11090.0  
+   issued 19:27:01  published 19:31:27  available 07-30 22:17:27  POE50  11063.0  
+   issued 18:56:59  published 19:01:35  available 07-30 21:47:35  POE50  11030.0  
+   issued 18:27:01  published 18:31:26  available 07-30 21:17:26  POE50  10954.0  
+   issued 17:56:59  published 18:01:40  available 07-30 20:47:40  POE50  10972.0  <- latest available by its start (latest_before_target; shown)
+SA1, half-hour 07:30-08:00 UTC: runs that forecast it, latest issued first
+   issued 07:26:58  published 07:32:04  available 07-29 10:18:04  POE50   1816.0  <- last issued before the half-hour (asked for)
+   issued 06:57:01  published 07:02:03  available 07-29 09:48:03  POE50   1858.0  
+   issued 06:26:59  published 06:32:02  available 07-29 09:18:02  POE50   1925.0  
+   issued 05:56:59  published 06:02:02  available 07-29 08:48:02  POE50   1936.0  
+   issued 05:27:00  published 05:32:02  available 07-29 08:18:02  POE50   1961.0  
+   issued 04:57:01  published 05:02:19  available 07-29 07:48:19  POE50   1994.0  
+   issued 04:27:00  published 04:32:15  available 07-29 07:18:15  POE50   2017.0  <- latest available by its start (latest_before_target; shown)
+
+## Y05, Y06: saved route, tool calls, first draft and saved repair
+### main d0f3a12
+Y05: status=answered fallback=False codes before repair=['CLAIM_UNIT_MISMATCH']
+    headline: For NSW1 target interval ending 2026-07-30T21:30:00Z (2026-07-31 07:30 AEST) AEMO's final operational demand forecast carried POE10 = 11,316.0 MW, POE
+    forecast values shown: [('opdemand_forecast_poe10', 11316.0, '_202607310430_20260731040140'), ('opdemand_forecast_poe50', 10972.0, '_202607310430_20260731040140'), ('opdemand_forecast_poe90', 10629.0, '_202607310430_20260731040140'), ('forecast_error_mw', -206.0, '_202607310430_20260731040140'), ('forecast_error_pct', -1.84, '_202607310430_20260731040140')]
+Y06: status=answered fallback=False codes before repair=['NUMERIC_UNTRACKED']
+    headline: Last pre-interval POE50 forecast for SA1 for 2026-07-29 07:30–08:00 UTC (2026-07-29 17:30 ACST) was 2017.0 MW; actual was 1872.0 MW, an error of 145.0
+    forecast values shown: [('opdemand_forecast_poe50', 2017.0, '_202607291500_20260729143215'), ('forecast_error_mw', 145.0, '_202607291500_20260729143215'), ('forecast_error_pct', 7.75, '_202607291500_20260729143215')]
+### fix/forecast-run-selection
+Y05: status=answered_with_caveats fallback=True codes before repair=['CLAIM_UNIT_MISMATCH', 'FORECAST_RUN_SUBSTITUTED']
+    headline: Validated facts only: the generated narrative failed independent validation. Observations below are retrieved values with source rows.
+    forecast values shown: none
+    controller comparison: run _202607310730_20260731070129 status ok
+Y06: status=answered_with_caveats fallback=True codes before repair=['FORECAST_RUN_SUBSTITUTED', 'NUMERIC_UNTRACKED']
+    headline: Validated facts only: the generated narrative failed independent validation. Observations below are retrieved values with source rows.
+    forecast values shown: none
+    controller comparison: run _202607291800_20260729173204 status ok
+
+## Every saved Live record with a first draft, replayed with its actual saved repair
+records: 181; errors: main 0, branch 0
+L3-holdout-v2/H05: DIFFERS | before repair ['NUMERIC_UNTRACKED', 'TIME_NOT_IN_EVIDENCE'] -> ['FORECAST_RUN_SUBSTITUTED', 'NUMERIC_UNTRACKED', 'TIME_NOT_IN_EVIDENCE'] | fallback True -> True | status answered_with_caveats -> abstained
+L3-holdout-v3/V07: DIFFERS | before repair [] -> ['FORECAST_RUN_SUBSTITUTED'] | fallback False -> True | status answered_with_caveats -> abstained
+L3-holdout-v3/V08: DIFFERS | before repair ['CITATION_QUOTE_NOT_FOUND', 'TIME_NOT_IN_EVIDENCE'] -> ['CITATION_QUOTE_NOT_FOUND', 'FORECAST_RUN_SUBSTITUTED', 'TIME_NOT_IN_EVIDENCE'] | fallback True -> True | status answered_with_caveats -> abstained
+L3-holdout-v5/Y05: DIFFERS | before repair ['CLAIM_UNIT_MISMATCH'] -> ['CLAIM_UNIT_MISMATCH', 'FORECAST_RUN_SUBSTITUTED'] | fallback False -> True | status answered -> answered_with_caveats
+L3-holdout-v5/Y06: DIFFERS | before repair ['NUMERIC_UNTRACKED'] -> ['FORECAST_RUN_SUBSTITUTED', 'NUMERIC_UNTRACKED'] | fallback False -> True | status answered -> answered_with_caveats
+same as main: 176 of 181
+
+## The three earlier answers that now differ: the run each question named, and the run each answer showed for the half-hour
+- held-out v2 H05: named the run issued 2026-07-30T11:56:59Z (file ..._202607302230_20260730220148); showed POE10/50/90 from
+  ..._202607301930_20260730190159, another run. It already fell back on main (NUMERIC_UNTRACKED, TIME_NOT_IN_EVIDENCE).
+- held-out v3 V07: named the run issued about 2026-07-28T07:57Z (held: 07:57:01Z, ..._202607281830_20260728180158); showed
+  POE50 2,060 from ..._202607281530_20260728150210, another run. It passed validation on main: a substitution that was shown.
+- held-out v3 V08: named the run issued about 2026-07-30T09:27Z (held: 09:26:58Z, ..._202607302000_20260730193159); showed
+  POE10/50/90 from ..._202607301700_20260730163213, another run. It already fell back on main (CITATION_QUOTE_NOT_FOUND, TIME_NOT_IN_EVIDENCE).
+- controls: held-out v4 W07 and W08, and v5 regression H05, named a run and showed it; their replays are unchanged.
+Their original verdicts are unchanged.

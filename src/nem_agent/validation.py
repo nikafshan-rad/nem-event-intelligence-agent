@@ -1050,6 +1050,7 @@ def polarity_violations(where: str, text: str, passages: dict[str, tuple[str, st
 
 def validate(report: InvestigationReport, registry: EvidenceRegistry, *, as_of: datetime | None = None,
              window: tuple[datetime, datetime] | None = None, records: list[Any] | None = None,
+             forecast_run: dict[str, Any] | None = None,
              required_tools: tuple[str, ...] = (), event_kind: str | None = None,
              approval_records: Sequence[Any] = ()) -> ValidationResult:
     """``approval_records``: approval records (``approvals.Approval``) that belong to this answer. An investigation
@@ -1414,6 +1415,26 @@ def validate(report: InvestigationReport, registry: EvidenceRegistry, *, as_of: 
             elif where == "headline" and cited_passages:
                 V.extend(polarity_violations(where, text, cited_passages, contradictions_only=True))
 
+    # -- the forecast run a question names, for the half-hour it asks about (I-9): every forecast value shown or cited
+    #    for that half-hour comes from that run, and when no such run is held none is given (held-out v5 Y05 and Y06
+    #    gave the run available by then, issued three hours earlier, as the one asked for)
+    if forecast_run and forecast_run.get("half_hour_end_utc"):
+        res.checks_run.append("requested_forecast_run")
+        hh_end = parse_iso(str(forecast_run["half_hour_end_utc"]))
+        want = forecast_run.get("run_id")
+        for eid in sorted({o.evidence_id for o in report.observations} | {c.evidence_id for c in report.numeric_claims}):
+            ev = registry.get(eid)
+            if ev is None or not ev.valid_at_utc or parse_iso(ev.valid_at_utc) != hh_end:
+                continue
+            runs = [r for r in ev.source_row_ids if r.startswith("OPDEM_FORECAST")]
+            if runs and (not want or not any(str(want) in r for r in runs)):
+                V.append(Violation("FORECAST_RUN_SUBSTITUTED", "critical",
+                                   f"{eid}: {ev.metric} for the half-hour ending {iso_utc(hh_end)} comes from another "
+                                   "forecast run; " + (f"the question asks for the run issued "
+                                                       f"{forecast_run.get('issued_at_utc')} ({want})" if want else
+                                                       "no run the question asks for holds this half-hour, so no "
+                                                       "forecast value may stand in for it")))
+
     # -- published findings: event-specific, same region/window, verbatim quote
     res.checks_run.append("published_findings")
     for i, f in enumerate(report.published_findings):
@@ -1532,9 +1553,14 @@ def validate(report: InvestigationReport, registry: EvidenceRegistry, *, as_of: 
 
 def facts_only(report: InvestigationReport, registry: EvidenceRegistry, result: ValidationResult,
                as_of: datetime | None) -> InvestigationReport:
-    """Safe fallback after failed validation: keep only independently valid observations, no narrative."""
+    """Safe fallback after failed validation: keep only independently valid observations, no narrative. A value from a
+    forecast run that stands in for the one asked for is not shown either (I-9)."""
+    substituted = {m.group(1) for v in result.critical if v.code == "FORECAST_RUN_SUBSTITUTED"
+                   and (m := re.match(r"(ev\d{4})", v.detail))}
     good_obs = []
     for o in report.observations:
+        if o.evidence_id in substituted:
+            continue
         ev = registry.get(o.evidence_id)
         if ev is None or ev.value is None or abs(o.value - float(ev.value)) > 1e-6 or not metric_compatible(ev):
             continue
@@ -1601,14 +1627,16 @@ def validate_and_finalize(report: InvestigationReport, registry: EvidenceRegistr
     as_of = res.as_of if res is not None else None
     req = PLAYBOOKS[res.intent].required if res is not None and res.intent else ()
     kind = res.kind if res is not None else None
-    first = validate(report, registry, as_of=as_of, window=window, records=records, required_tools=req, event_kind=kind)
+    run = getattr(res, "forecast_run", None)
+    first = validate(report, registry, as_of=as_of, window=window, records=records, required_tools=req, event_kind=kind,
+                     forecast_run=run)
     info: dict[str, Any] = {"initial": first.as_dict(), "fallback_applied": False,
                             "repair_attempted": bool(report.validation.get("repair_attempted"))}
     final = report
     if first.critical:
         final = facts_only(report, registry, first, as_of)
         second = validate(final, registry, as_of=as_of, window=window, records=records, required_tools=req,
-                          event_kind=kind)
+                          event_kind=kind, forecast_run=run)
         info.update(fallback_applied=True, after_fallback=second.as_dict())
     if not first.critical and first.ruled_out:  # the answer is shown: its validated exclusions (I-7c)
         info["ruled_out_explanations"] = first.ruled_out

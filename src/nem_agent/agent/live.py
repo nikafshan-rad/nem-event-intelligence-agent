@@ -49,11 +49,12 @@ from .playbook import PLAYBOOKS
 from .replay import forecast_focus
 from .request import (
     FORECAST_WORD_RE,
+    ForecastRequest,
     Resolution,
     asks_for_change,
     asks_if_notice_event_caused,
-    forecast_issue_time,
     named_instants,
+    requested_forecast,
     requested_measures,
 )
 
@@ -809,9 +810,9 @@ class LiveController:
         measures = requested_measures(res.request.question)
         if measures:  # say which tool field holds each measure the question names (held-out H02, H03, H14)
             context["requested_measures"] = measures
-        issued = forecast_issue_time(res.request.question)
-        if issued is not None and res.region and self.d is not None:
-            context["requested_forecast_run"] = self._run_issued_at(res.region, issued)
+        wanted = requested_forecast(res.request.question)
+        if wanted is not None and res.region and self.d is not None:
+            context["requested_forecast_run"] = self._requested_run(res, wanted)
         if res.window and res.region and res.intent in ("forecast_review", "market_event_review"):
             lo, hi = forecast_focus(res)  # the same forecast-review scope the replay controller uses
             context["forecast_targets_utc"] = [iso_utc(lo), iso_utc(hi)]
@@ -859,6 +860,10 @@ class LiveController:
             if change is not None:
                 items.append({"role": "user", "content": "Change computed by the controller (JSON):\n" +
                               json.dumps(change, indent=1, ensure_ascii=False)})
+            compared = self._requested_comparison(res, allowed, trace)
+            if compared is not None:
+                items.append({"role": "user", "content": "Requested forecast run, compared by the controller (JSON):\n" +
+                              json.dumps(compared, indent=1, ensure_ascii=False)})
             timing = self._notice_timing(res)
             if timing is not None:
                 trace.add("model", "notice_timing", required=timing["required_in_summary"],
@@ -878,6 +883,7 @@ class LiveController:
         from ..validation import validate
 
         first = validate(report, self.reg, as_of=res.as_of, window=res.window, records=self.d.records,
+                         forecast_run=res.forecast_run,
                          required_tools=pb.required, event_kind=res.kind)
         if first.critical and self.usage.model_calls < config.MAX_MODEL_CALLS:
             # scoped when every violation names a draft item: the model may change only those items
@@ -910,6 +916,69 @@ class LiveController:
                                                               "pre_repair_codes": sorted({v.code for v in first.critical}),
                                                               "pre_repair": first.as_dict()}})
         return report
+
+    def _requested_run(self, res: Resolution, wanted: ForecastRequest) -> dict[str, Any]:
+        """The forecast run a question names, found by issue time (never by availability): the run issued at the named
+        time, or the last run issued before the half-hour asked about starts that forecasts it. When the half-hour is
+        pinned down, the run is recorded for the validator, so no other run stands in for it, and the controller
+        compares it with the actual before synthesis (I-9: held-out v5 Y05 and Y06 were given the run available by
+        then, issued three hours earlier). A question naming a run without pinning down the half-hour is told to say
+        which run it uses."""
+        assert self.d is not None and res.region is not None
+        hh = wanted.half_hour
+        if wanted.run == "issued_at":
+            assert wanted.issued_at is not None
+            out = self._run_issued_at(res.region, wanted.issued_at)
+            if hh is None:
+                return out  # no half-hour named: as before
+        elif hh is None:
+            return {"rule": "the last run issued before the half-hour asked about",
+                    "note": "The question names the forecast run by when it was issued, relative to a half-hour it "
+                            "does not pin down (one date, a time zone and a 30-minute interval). Do not pick a run "
+                            "silently: say which run you use and when it was issued."}
+        else:
+            rows = self.d.store.query(
+                "SELECT run_id, MIN(issued_at_utc) AS issued_at_utc, MIN(published_at_utc) AS published_at_utc FROM "
+                "opdemand_forecast WHERE region=? AND target_end_utc=? AND issued_at_utc < ? GROUP BY run_id "
+                "ORDER BY issued_at_utc DESC LIMIT 1", [res.region, hh[1], hh[0]])
+            best = rows[0] if rows else None
+            out = {"rule": "the last run issued before the half-hour starts (by issue time, not availability)",
+                   "issued_at_utc": iso_utc(best["issued_at_utc"]) if best else None,
+                   "published_at_utc": iso_utc(best["published_at_utc"]) if best else None,
+                   "run_id": best["run_id"] if best else None}
+        run_id = out.get("run_id")
+        if run_id and not self.d.store.query("SELECT 1 FROM opdemand_forecast WHERE region=? AND run_id=? AND "
+                                             "target_end_utc=? LIMIT 1", [res.region, run_id, hh[1]]):
+            run_id = None  # the named run holds no forecast for this half-hour
+        out |= {"half_hour_utc": [iso_utc(hh[0]), iso_utc(hh[1])],
+                "half_hour_local": [local_str(hh[0], res.region), local_str(hh[1], res.region)], "run_id": run_id}
+        res.forecast_run = {"half_hour_utc": [iso_utc(hh[0]), iso_utc(hh[1])], "half_hour_end_utc": iso_utc(hh[1]),
+                            "run_id": run_id, "issued_at_utc": out.get("issued_at_utc")}
+        out["note"] = (
+            "The question asks for this run for this half-hour: give no other run's values for it. Compare it with "
+            "compare_forecast_actual(run_selector='run_id', run_id=<run_id>); run_selector='latest_before_target' "
+            "gives the run available by then (published + a margin), an earlier run. The controller also compares it "
+            "before you write the answer." if run_id else
+            "No forecast run the question asks for holds this half-hour: say so, and give no other run's values for "
+            "it.")
+        return out
+
+    def _requested_comparison(self, res: Resolution, allowed: list[str], trace: Any) -> dict[str, Any] | None:
+        """The run the question asks for, compared with the actual for its half-hour by the controller after the tool
+        loop, so its values and evidence IDs are there to cite whatever run the model compared (I-9)."""
+        run = res.forecast_run
+        if self.d is None or not run or not run.get("run_id") or "compare_forecast_actual" not in allowed:
+            return None
+        hh = run["half_hour_utc"]
+        assert isinstance(hh, list) and res.region is not None
+        rec = self.d.call("compare_forecast_actual", {
+            "region": res.region, "target_start_utc": hh[0], "target_end_utc": hh[1], "run_selector": "run_id",
+            "run_id": run["run_id"]}, call_id="controller_requested_run", origin="controller")
+        trace.add("model", "requested_forecast_run", run_id=run["run_id"], status=rec.status)
+        pair = (rec.view.get("pairs") or [None])[0] if rec.status == "ok" else None
+        return {"run_id": run["run_id"], "issued_at_utc": run.get("issued_at_utc"), "half_hour_utc": hh,
+                "comparison": pair or {"status": rec.status, "reason": rec.blocked_reason or rec.missing[:3]},
+                "note": "For this half-hour, cite these evidence IDs (this run and the actual) and no other run's."}
 
     def _run_issued_at(self, region: str, issued: datetime) -> dict[str, Any]:
         """The forecast run a question names by its issue time, looked up by code (never an as-of cutoff): the run issued

@@ -21,7 +21,7 @@ One list of known defects, so that each fix is weighed against the whole. Eviden
 | I-6 | **A valid controller answer lost to a fallback** | W19 (Live, 2026-09-30): the controller's cancellation sentence was correct, but the model's own lines quoted notice titles in single quotes ('… Lack Of Reserve Level 2 (LOR2) …'). `NUMERIC_UNTRACKED` counted the "2", and one line failed `TIME_NOT_IN_EVIDENCE`. The scoped repair did not clear them, so the answer fell back and nothing was shown | P1 | **fixed offline** in PR `#21` (below). The frozen run's outcome for W19 stays failed. **Second development check (2026-09-30, PR `#28`, one run per case):** **held** on W19: the model named cited notices by their exact titles, and the answer was shown with the cancellation sentence |
 | I-7 | **An explanation kept open that the answer's own timing rules out** | W18 (Live, 2026-09-30): the opening says timing rules the Hazelwood bus-tie outage out. The notice gives 1100 hrs 20/08, after every high-price interval. A hedged hypothesis resting on that notice [c1] still offers it as a possible influence | P2 | **fixed offline** in PR `#22` (below); Live-unverified when merged. Offline, W18's actual saved repair now falls back, and only a scripted repair that deletes the hypothesis passes. W18's Live verdict (held) is unchanged. **Second development check (2026-09-30, PR `#28`, one run per case):** **failed** on W18: it fired on a hypothesis that doubted the post-event notice; the scoped repair turned that hypothesis into an unhedged statement (HYPOTHESIS_UNHEDGED), and the answer fell back. **I-7b** (a doubting hypothesis flagged; the repair's evidence-backed exclusion rejected as unhedged): **verified offline; Live unverified** (PR `#30`, below). The second check's W18 verdict stays failed; its passing offline replay does not replace it. **I-7c** (a validated exclusion shown apart from hypotheses): **verified offline; Live unverified** (PR `#36`, below) |
 | I-8 | **A definition shown with its meaning reversed** | Y20 (held-out v5, Live, 2026-10-02): asked whether operational demand counts scheduled loads, the answer said it *includes* "local demand of scheduled loads and scheduled bidirectional units" [c1], citing figure text that subtracts them; the definition excludes them. It passed validation and was shown | P1 | **verified offline; Live unverified** (PR `#40`, below). v5's FAIL verdict and Y20's scores are unchanged |
-| I-9 | **The forecast run asked for, replaced by another** | Y05, Y06 (held-out v5, Live, 2026-10-02): asked for the last forecast issued before a named half-hour, both answers gave a run issued about three hours earlier (Y05 POE50 10,972 MW from the 17:56:59Z run instead of 11,082 from the 20:56:59Z run; Y06 2,017 from 04:27:00Z instead of 1,816 from 07:26:58Z), presented as the run asked for | P1 | **in progress** (below); v5's FAIL verdict and Y05/Y06's scores are unchanged |
+| I-9 | **The forecast run asked for, replaced by another** | Y05, Y06 (held-out v5, Live, 2026-10-02): asked for the last forecast issued before a named half-hour, both answers gave a run issued about three hours earlier (Y05 POE50 10,972 MW from the 17:56:59Z run instead of 11,082 from the 20:56:59Z run; Y06 2,017 from 04:27:00Z instead of 1,816 from 07:26:58Z), presented as the run asked for | P1 | **verified offline; Live unverified** (below). v5's FAIL verdict and Y05/Y06's scores are unchanged |
 | I-5 | **Known safety-language limitations** | See the list below. Each is recorded with its risk. None is being worked on, to avoid an open-ended wording cycle | P3 | recorded; revisit only with a new concrete failure |
 
 ### I-1a: F04, the causal question not answered directly
@@ -1473,6 +1473,68 @@ that governs the same thing in the cited passage.
    - the safety suite;
    - frozen evaluation material, scores and verdicts.
    - **Live is unverified.**
+
+**Result: verified offline; Live unverified** (evidence in `artifacts/logs/forecast_run_selection.log`). All four
+checks are met.
+1. **Y05 and Y06, from their saved drafts and saved repairs:**
+   - **Rejected:** each is rejected with `FORECAST_RUN_SUBSTITUTED`, naming the run asked for (20:56:59Z and
+     07:26:58Z).
+   - **Fallback:** the saved repairs kept the other run, so both fall back. The fallback shows no forecast value,
+     only the actual.
+   - **The controller's comparison:** it compares the run asked for (status ok).
+   - **A scripted answer citing that comparison passes:** Y05 shows POE50 11,082 against actual 11,178, and Y06
+     shows 1,816 against 1,872.
+2. **Controls, each tested:**
+   - **Named issue times with a half-hour:** W07 and W08 (first drafts) are bound, the named run is compared, and no
+     substitution is found. Their saved replays are unchanged. The half-hour is read in all five questions' forms
+     (H05, V07, V08, W07, W08).
+   - **As-of questions** (W05, W06, Y07, Y08): nothing is bound, and their replays are unchanged.
+   - **Ambiguous requests** (no zone, no date, an hour, or two half-hours): no run is chosen, no controller call is
+     made, and nothing is bound. The context asks the answer to say which run it uses.
+   - **Unavailable runs:** the context says no such run is held. Any forecast value for the half-hour is rejected,
+     and the fallback shows only the actual.
+   - **Other half-hours in a wider comparison** are not bound.
+3. **No case-specific code:** no case ID, run ID or expected value.
+4. **Unchanged:**
+   - **Saved replays:** 176 of the 181 saved Live records with a draft replay identically to `main`. Five differ:
+     - **Y05 and Y06:** as intended.
+     - **Three earlier answers** that each showed a different run from the one their question named by issue time.
+       Held-out v2 H05 and v3 V08 already fell back on `main`. Held-out v3 V07 passed on `main`: a substitution that
+       had been shown. Their original verdicts stand.
+   - **Replay evaluation:** identical to `main`.
+   - **Safety suite:** identical to `main`.
+   - **Tests:** the full suite passes (1,080, of which 28 are new).
+   - **Frozen evaluation material:** untouched.
+
+**How it works.**
+- **Request parsing** (`requested_forecast`) reads the run (an explicit issue time, or the last run issued before
+  the half-hour) and the half-hour, except in as-of questions.
+- **The controller:**
+  - looks the run up by issue time;
+  - names it to the model, with the note that `latest_before_target` gives an earlier run;
+  - compares it with the actual after the model's tool loop (call `controller_requested_run`), so its evidence IDs
+    are there to cite;
+  - records it on the resolution.
+- **The validator** rejects any forecast value for that half-hour, shown or cited, whose source rows are another
+  run's.
+- **The facts-only fallback** leaves those values out.
+
+**Still open for I-9:**
+- **Phrasings are a fixed set.**
+  - **The run:** "issued, published, produced, made or released before the half-hour, interval or period";
+    "pre-interval"; "last, latest, final or most recent … before the half-hour".
+  - **The half-hour:** a clock range with a stated zone on one date; "ending HH:MM <zone> on <date>"; an ISO end
+    time.
+  - **Not covered:** other wording ("the forecast just before the peak") or a time without a zone. These are not
+    bound. An ambiguous request only gets the note asking the answer to name its run, which is not enforced.
+- **A named issue time without a half-hour** is unchanged: context only, no binding.
+- **`latest_before_target` keeps its availability meaning;** the model is told it gives an earlier run.
+- **The controller's comparison uses one of the three calls** allowed per required tool. If the model has used all
+  three, it is blocked. No other run can then be shown, but the run's values may be missing.
+- **Window figures are not bound.** MAE and mean error over a wider window have no source rows; only values for the
+  half-hour asked about are bound.
+- **Evaluation scoring:** the controller's comparison counts as the required tool executed.
+- **Live is unverified;** no paid run was made.
 
 ### I-3a: F03, a notice time shown without its zone
 
