@@ -33,7 +33,7 @@ capture. The same question in Replay mode, which uses no language model and is l
 | Approved-bytes store: builds that restore every approved publisher file, verified by SHA-256, without contacting AEMO/NASA | built, verified 2026-09-27 (fresh machine, no cache) | [`docs/pinned-store.md`](docs/pinned-store.md) |
 | Separate day-ahead quantile experiment (our model, not AEMO's) | built, measured | G8, [`artifacts/ml/report.md`](artifacts/ml/report.md) |
 | Live answer in the UI (real model, real data) | verified 2026-09-28: the model's answer passed validation, and the screenshot and redacted trace come from the same run | [`docs/live-gates.md`](docs/live-gates.md) L4, `artifacts/live/L4/` |
-| **Live evaluation (hosted model)** | **Experimental; the full L3 rule is unverified.** On the third independent held-out set (v4, 20 cases, frozen before the run and run once) Live met every pre-registered v4 criterion, narrowly: safety H1–H5 all 0; expected status 18/20 (bar 16); intent and tools 20/20 (bar 18); gold labels 15/18 (bar 15, met exactly); relevance 17/20 (bar 16, counting two answers with gaps). 3 of 20 answers were not usable (2 facts-only fallbacks, 1 non-answer). The rule's regression safety condition was **not run**. v2 and v3 failed. The 40-case hosted evaluation is **UNVERIFIED** (not run) | [`docs/live-gates.md`](docs/live-gates.md) L3, [`eval/holdout_v4/`](eval/holdout_v4/) |
+| **Live evaluation (hosted model)** | **Experimental.** v4 narrowly met its held-out criteria, but its full L3 rule was not verified (its regression run was not done). v5 **failed** L3. The latest evaluated code, `6413076`, **failed** L3 on held-out v6: gold labels 11/18 (bar 15), relevance 14/20 (bar 16), and a reviewer-confirmed value/time mismatch. v2 and v3 also failed. The 40-case hosted evaluation is **UNVERIFIED** (not run) | [`docs/live-gates.md`](docs/live-gates.md) L3, [`eval/holdout_v4/`](eval/holdout_v4/), [`eval/holdout_v5/`](eval/holdout_v5/), [`eval/holdout_v6/`](eval/holdout_v6/) |
 | **GitHub Actions CI** | configured (lint, mypy, real-data build, tests, eval, safety on Python 3.12 and 3.14); the result is shown in the pull request checks | [`.github/workflows/ci.yml`](.github/workflows/ci.yml) |
 
 ## The question it answers
@@ -222,15 +222,38 @@ gpt-5-mini through the OpenAI Responses API. Each held-out set was written and g
 frozen by SHA-256 with its pass rule before any paid call, and run once. Per-case records, costs and a manual check of
 every answer are in [`docs/live-gates.md`](docs/live-gates.md), L3.
 
-**Current status (v1.0): experimental.**
-- On held-out v4, Live met every pre-registered v4 criterion, narrowly.
-- **The full L3 rule is unverified.** It also requires a regression run with no safety violation, and that run was not
-  done.
-- Live is not fully validated. Replay results are never evidence of Live quality.
+**Current status: experimental.**
+- **v4 (v1.0 code):** Live met every pre-registered v4 criterion, narrowly. **Its full L3 rule was not verified:** it
+  also requires a regression run with no safety violation, and that run was not done.
+- **v5 failed L3.** It was run on the code after the post-v1.0 fixes.
+- **The latest evaluated code, `6413076`, failed L3 on held-out v6** (2026-10-02). It fell short on quality (gold labels
+  and relevance), and an independent reviewer confirmed a value/time mismatch: a demand value stated for the wrong
+  half-hour.
+- **Development-case improvements do not establish generalisation.** Fixes that held when re-run on the cases they were
+  built from did not prevent failures on fresh v6 questions. For example, the forecast-run fix held on v5's Y05 and Y06,
+  but fresh question Z05 still used the wrong forecast run.
+- **Live is not fully validated.** Replay results are never evidence of Live quality.
+- **Detailed reports:** [`docs/live-gates.md`](docs/live-gates.md) ("Results: held-out v5 and regression"; "Results:
+  runs A, B and C"), with the per-case records in `artifacts/live/`.
 - **Post-v1.0 check (2026-09-29; not an L3 result):** after PRs #10–#14, the development case W20 now answers with
   the cited definition. Four fresh questions had no fallback and no safety or evidence failure, but only one fully
   answered its question: F04 did not directly answer it, and F01 and F03 have wording and time-zone gaps. See
   [`artifacts/live/live-check-2026-09-29/REVIEW.md`](artifacts/live/live-check-2026-09-29/REVIEW.md).
+
+**Held-out v5 and v6 (both FAIL):**
+
+| Criterion (bar) | v5, 20 cases (2026-10-02) | v6, 20 cases, code `6413076` (2026-10-02) |
+| --- | --- | --- |
+| Safety H1–H3, H5 (0) | 0 | 0 |
+| Numbers traced, H4 (100%) | 100% | **missed:** a reviewer-confirmed value/time mismatch (Z03) |
+| Expected status (≥ 16/20) | 17/20 | 16/20 |
+| Correct intent and required tools (≥ 18/20) | 18/20 | 19/20 |
+| Gold labels in the model's own answer (≥ 15/18) | **13/18** | **11/18** |
+| Relevant, independent reviewer (≥ 16/20) | **13/20** | **14/20** |
+| Regression run (no H1–H5 violation) | met | no automatic violation; 2 strict-reading notice-count flags |
+| L3 | **FAIL** | **FAIL** |
+
+**Held-out v4 (v1.0 code; criteria met narrowly, full L3 rule not verified):**
 
 | Criterion (bar) | **Held-out v4, 20 cases (prompts v11)** |
 | --- | --- |
@@ -311,10 +334,12 @@ Fixed during the evaluation, each with tests:
 
 - Replay measures tools, retrieval, validators and templates, not a language model. Live quality is measured
   separately (above).
-  - **Live is experimental.** It met every safety criterion in every run. On independent held-out sets it failed the
-    declared quality bars twice (v2: gold 8/13, relevance 10/14; v3: gold 13/18, relevance 15/20), then met them
-    narrowly on v4 (gold 15/18 at the bar, relevance 17/20 by the developer's judgement). The full L3 rule is
-    unverified: its regression condition was not run. 3 of 20 v4 answers were not usable.
+  - **Live is experimental.**
+    - **On independent held-out sets,** it failed the declared quality bars on v2, v3, v5 and v6. It met them narrowly
+      only on v4, whose full L3 rule was not verified (its regression condition was not run).
+    - **The latest evaluated code (`6413076`)** failed L3 on v6 (gold 11/18, relevance 14/20).
+    - **Safety:** H1–H3 and H5 were 0 in every run. On v6, an independent reviewer found a number stated for the
+      wrong half-hour (H4).
   - Validators check numbers, quotes, times, units, interval lengths and wording, not whether an explanation is apt
     or whether a description such as "immediately before" is true.
   - The full hosted evaluation is **UNVERIFIED**.
