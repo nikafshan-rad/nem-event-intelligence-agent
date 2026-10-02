@@ -53,17 +53,19 @@ paid call:** the runs need the owner's separate approval (see Budget). The agree
       TO REVIEW");
     - exactly 1 `market_event` or `forecast` case, on TAS1 on 29 July 2026 (local time), using only that day's data.
   - **Familiar (14):** every other case: new questions on the 8 pinned events, and on documents already used.
-- **The unused pool,** fixed before the writer starts:
-  - the 112 market notices that no tracked file outside `data/` names (tests, docs, logs, eval files, saved Live
-    records and traces): 87 routine price-review notices and 25 others;
+- **The unused pool,** fixed before the writer starts by `provenance_check.py --pool`. It searches every tracked file
+  outside `data/` as the repository stood at the frozen code commit `6413076` (tests, docs, logs, eval files, saved Live
+  records and traces, and code). Later commits only define the pool and this protocol, and name pool members to do so.
+  - the 112 market notices that no such file names: 87 routine price-review notices and 25 others;
   - one region-day with a full day of prices that is never named with its region: TAS1, local 29 July 2026
     (2026-07-28T14:00Z to 2026-07-29T14:00Z).
   - **Not "wholly unseen":** corpus-wide automatic checks in development ran over every notice, and the pool shares the
     snapshot, sources and document templates of the used material.
 - **Provenance check at the freeze:**
-  - The developer re-runs the repository-wide search with `provenance_check.py` (IDs only, never questions or answers).
-    It confirms that each unused case's gold document is in the pool and still named nowhere outside `data/` and run
-    B's own files, and that the TAS1 case's gold rows fall on that day.
+  - The developer re-runs the search with `provenance_check.py --check` (IDs only, never questions or answers). It
+    confirms that each unused case's gold document is in the pool, that the TAS1 case's gold rows fall on that day, and
+    that no file other than this protocol, `docs/live-gates.md` and `docs/issue-tracker.md` has changed since
+    `6413076`.
   - The independent verifier checks, inside the kit, that each unused case's material is in the pool list.
   - **Deviation from the PR #47 wording** ("the verifier re-runs the provenance search"): the verifier works only
     inside the kit. Searching the repository would show it earlier questions, prompts and development records, and end
