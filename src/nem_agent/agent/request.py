@@ -60,6 +60,9 @@ class Resolution:
     status: Literal["ok", "needs_clarification", "refused"] = "ok"
     reasons: list[str] = field(default_factory=list)
     routing: dict[str, object] = field(default_factory=dict)
+    # the forecast run a question names for the half-hour it asks about, as the controller resolved it (I-9); the
+    # validator holds the answer to it
+    forecast_run: dict[str, object] | None = None
 
 
 def extract_regions(text: str) -> list[str]:
@@ -171,6 +174,74 @@ def forecast_issue_time(question: str) -> datetime | None:
     """The issue time of a forecast run the question names, when it names one and asks nothing 'as of'."""
     m = ISSUED_AT_RE.search(question)
     return parse_iso(m.group(1)) if m and not AS_OF_Q_RE.search(question) else None
+
+
+# "the final forecast issued before the half-hour from 21:00 to 21:30 UTC", "the last pre-interval forecast for the
+# 07:30 to 08:00 UTC half-hour": a forecast run named by when it was issued relative to the half-hour asked about. It is
+# the last run issued before that half-hour starts, not the last one available by then (held-out v5 Y05, Y06 were given
+# the run available by then, issued three hours earlier). Wording about availability or publication ("the latest
+# forecast available before the half-hour", "published before") asks for another selection and is not read here.
+_NOT_ISSUE_TIME = r"(?!\w*(?:availab|public|publish|known|released))"
+ISSUED_BEFORE_RE = re.compile(
+    r"\b(?:issued|produced|made)\s+(?:just\s+|immediately\s+|right\s+)?(?:before|ahead of|prior to)"
+    r"\s+(?:the|that|this)\s+(?:half[- ]hour|interval|target|period)\b|\bpre[- ]?interval\b|"
+    rf"\b(?:last|latest|final|most recent)\b(?:\s+{_NOT_ISSUE_TIME}[\w'’-]+){{0,8}}?\s+(?:before|ahead of|prior to)\s+"
+    r"(?:the|that|this)\s+(?:half[- ]hour|interval|period)\b", re.I)
+_ZONE = r"(UTC|AEST|AEDT|ACST|ACDT|NEM time|market time)"
+_HALF_HOUR_RANGE_RE = re.compile(rf"(?<![\d:T])([01]?\d|2[0-3]):([0-5]\d)\s*{_ZONE}?\s*(?:to|-|–|—|until)\s*"
+                                 rf"([01]?\d|2[0-3]):([0-5]\d)\s*{_ZONE}?", re.I)
+_HALF_HOUR_ENDING_RE = re.compile(rf"\b(?:ending|ends)\s+(?:at\s+)?([01]?\d|2[0-3]):([0-5]\d)\s*{_ZONE}", re.I)
+_HALF_HOUR_ENDING_ISO_RE = re.compile(r"\b(?:ending|ends)\s+(?:at\s+)?(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?Z)", re.I)
+
+
+@dataclass(frozen=True)
+class ForecastRequest:
+    """The forecast run a question names: by its issue time ("issued at …Z") or as the last one issued before the
+    half-hour asked about; with that half-hour (start, end UTC), or None when the question does not pin it down."""
+    run: Literal["issued_at", "last_issued_before"]
+    issued_at: datetime | None
+    half_hour: tuple[datetime, datetime] | None
+
+
+def half_hour_asked(question: str) -> tuple[datetime, datetime] | None:
+    """The one half-hour a question asks about (start, end UTC): a clock range with its zone on one date ("from 21:00
+    to 21:30 UTC on 2026-07-30"), "the half-hour ending HH:MM <zone> on <date>", or an ISO end time ("ends at
+    2026-07-30T21:30:00Z"). None when it is not pinned down: no zone, not one date, not 30 minutes, or several."""
+    issued = ISSUED_AT_RE.search(question)
+    text = question if issued is None else question[:issued.start()] + " " * (issued.end() - issued.start()) + \
+        question[issued.end():]
+    days = extract_dates(text)
+    found: set[tuple[datetime, datetime]] = set()
+
+    def at(day: date, hh: str, mm: str, zone: str) -> datetime:
+        tz = timezone(timedelta(minutes=_CLOCK_ZONE_MIN[zone.lower()]))
+        return datetime.combine(day, time(int(hh), int(mm)), tzinfo=tz).astimezone(UTC)
+
+    for m in _HALF_HOUR_ENDING_ISO_RE.finditer(text):
+        end = parse_iso(m.group(1))
+        found.add((end - timedelta(minutes=30), end))
+    if len(days) == 1:
+        for m in _HALF_HOUR_RANGE_RE.finditer(text):
+            zone = m.group(6) or m.group(3)
+            if zone:
+                a, b = at(days[0], m.group(1), m.group(2), zone), at(days[0], m.group(4), m.group(5), zone)
+                found.add((a, b if b > a else b + timedelta(days=1)))
+        for m in _HALF_HOUR_ENDING_RE.finditer(text):
+            end = at(days[0], m.group(1), m.group(2), m.group(3))
+            found.add((end - timedelta(minutes=30), end))
+    found = {(a, b) for a, b in found if b - a == timedelta(minutes=30) and b.minute in (0, 30) and b.second == 0}
+    return next(iter(found)) if len(found) == 1 else None
+
+
+def requested_forecast(question: str) -> ForecastRequest | None:
+    """The forecast run a question names, for the half-hour it asks about. An as-of question names none: the run public
+    by then is chosen by availability."""
+    if AS_OF_Q_RE.search(question):
+        return None
+    issued = forecast_issue_time(question)
+    if issued is None and not ISSUED_BEFORE_RE.search(question):
+        return None
+    return ForecastRequest("issued_at" if issued else "last_issued_before", issued, half_hour_asked(question))
 
 
 def asks_forecast_as_of(question: str) -> bool:

@@ -21,6 +21,7 @@ One list of known defects, so that each fix is weighed against the whole. Eviden
 | I-6 | **A valid controller answer lost to a fallback** | W19 (Live, 2026-09-30): the controller's cancellation sentence was correct, but the model's own lines quoted notice titles in single quotes ('… Lack Of Reserve Level 2 (LOR2) …'). `NUMERIC_UNTRACKED` counted the "2", and one line failed `TIME_NOT_IN_EVIDENCE`. The scoped repair did not clear them, so the answer fell back and nothing was shown | P1 | **fixed offline** in PR `#21` (below). The frozen run's outcome for W19 stays failed. **Second development check (2026-09-30, PR `#28`, one run per case):** **held** on W19: the model named cited notices by their exact titles, and the answer was shown with the cancellation sentence |
 | I-7 | **An explanation kept open that the answer's own timing rules out** | W18 (Live, 2026-09-30): the opening says timing rules the Hazelwood bus-tie outage out. The notice gives 1100 hrs 20/08, after every high-price interval. A hedged hypothesis resting on that notice [c1] still offers it as a possible influence | P2 | **fixed offline** in PR `#22` (below); Live-unverified when merged. Offline, W18's actual saved repair now falls back, and only a scripted repair that deletes the hypothesis passes. W18's Live verdict (held) is unchanged. **Second development check (2026-09-30, PR `#28`, one run per case):** **failed** on W18: it fired on a hypothesis that doubted the post-event notice; the scoped repair turned that hypothesis into an unhedged statement (HYPOTHESIS_UNHEDGED), and the answer fell back. **I-7b** (a doubting hypothesis flagged; the repair's evidence-backed exclusion rejected as unhedged): **verified offline; Live unverified** (PR `#30`, below). The second check's W18 verdict stays failed; its passing offline replay does not replace it. **I-7c** (a validated exclusion shown apart from hypotheses): **verified offline; Live unverified** (PR `#36`, below) |
 | I-8 | **A definition shown with its meaning reversed** | Y20 (held-out v5, Live, 2026-10-02): asked whether operational demand counts scheduled loads, the answer said it *includes* "local demand of scheduled loads and scheduled bidirectional units" [c1], citing figure text that subtracts them; the definition excludes them. It passed validation and was shown | P1 | **verified offline; Live unverified** (PR `#40`, below). v5's FAIL verdict and Y20's scores are unchanged |
+| I-9 | **The forecast run asked for, replaced by another** | Y05, Y06 (held-out v5, Live, 2026-10-02): asked for the last forecast issued before a named half-hour, both answers gave a run issued about three hours earlier (Y05 POE50 10,972 MW from the 17:56:59Z run instead of 11,082 from the 20:56:59Z run; Y06 2,017 from 04:27:00Z instead of 1,816 from 07:26:58Z), presented as the run asked for | P1 | **verified offline; Live unverified** (PR `#41`, below). v5's FAIL verdict and Y05/Y06's scores are unchanged |
 | I-5 | **Known safety-language limitations** | See the list below. Each is recorded with its risk. None is being worked on, to avoid an open-ended wording cycle | P3 | recorded; revisit only with a new concrete failure |
 
 ### I-1a: F04, the causal question not answered directly
@@ -1396,6 +1397,192 @@ that governs the same thing in the cited passage.
   Y20-like Live run would now be repaired or fall back. Whether a Live repair gives the faithful definition from the
   figure text alone is unverified.
 - **Only document answers** (`source_explanation`) are checked.
+- **Live is unverified;** no paid run was made.
+
+### I-9: Y05, Y06, the forecast run asked for replaced by another
+
+**What happened** (held-out v5, Live, 2026-10-02, traces `tr-7b72bbb9c6b9` (Y05) and `tr-1b74d206b793` (Y06) in
+`artifacts/live/L3-holdout-v5/traces/`):
+- **Y05:** "what POE10, POE50 and POE90 values did AEMO's final operational demand forecast issued before the
+  half-hour from 21:00 to 21:30 UTC on 2026-07-30 carry …?"
+- **Y06:** "How close did AEMO's last pre-interval forecast of SA operational demand land to the actual figure for the
+  07:30 to 08:00 UTC half-hour on 2026-07-29?"
+- **The runs:**
+
+  | | Run asked for: the last issued before the half-hour starts | Run shown |
+  | --- | --- | --- |
+  | Y05 (NSW1) | issued 20:56:59Z, POE10/50/90 11,255 / 11,082 / 10,909 MW | issued 17:56:59Z, 11,316 / 10,972 / 10,629 MW |
+  | Y06 (SA1) | issued 07:26:58Z, POE50 1,816 MW | issued 04:27:00Z, POE50 2,017 MW |
+
+- **How it was presented:** both answers gave the run shown as the run asked for. The values are traced to their
+  own rows, so validation passed.
+
+**Where the requested issue time was lost** (from the traces, and the store's rows for both half-hours):
+- **Request parsing: it was never captured.**
+  - **What is recognised:** only an explicit issue time ("issued at 2026-07-30T20:56:59Z", `forecast_issue_time`).
+    That is looked up by code, and given to the model as `requested_forecast_run`.
+  - **What is not:** a run named relative to the half-hour asked about ("issued before the half-hour", "last
+    pre-interval forecast"), and that half-hour itself.
+  - **What the model got instead:** the context gave it the 24 half-hours around the window.
+- **Tool arguments:** both answers compared a 12-hour window with `run_selector="latest_before_target"`. Y06 first
+  tried `latest_available_as_of` without a cutoff, which was blocked.
+- **Run selection: where the other run came from.** `latest_before_target` takes, for each half-hour, the latest
+  run that was *available* by its start, where `available_at` = published + 166 minutes (the "provably public"
+  margin). It does not take the last run *issued* before it. So every run issued in the 2 h 46 min before the
+  half-hour is skipped: Y05 got the 17:56:59Z run, and Y06 the 04:27:00Z run.
+- **Synthesis and validation:** the answer named that run "the final forecast issued before the half-hour". Nothing
+  checks that the forecast values shown for the half-hour asked about come from the run asked for.
+
+**Fix (one, binding the comparison to the requested run and half-hour).**
+- **Request parsing:** for a forecast question that is not "as of", read:
+  - the half-hour asked about: a clock range with its zone and one date ("from 21:00 to 21:30 UTC on
+    2026-07-30"), "the half-hour ending HH:MM <zone> on <date>", or an ISO end time;
+  - and the run it names: the explicit issue time (existing), or the last run issued before that half-hour starts
+    ("issued before the half-hour", "pre-interval", "last … before the half-hour").
+  - **Ambiguous:** a run named relative to a half-hour that is not pinned down (no date, no zone, not 30 minutes).
+- **Controller:** it looks the run up by issue time (never by availability), and runs
+  `compare_forecast_actual(run_selector="run_id")` itself for that half-hour.
+  - **The context:** it gives the run, its issue and publication times, and the pair's values and evidence IDs.
+  - **When none is held:** the context says so, and never names another run.
+  - **Ambiguous requests:** no run is chosen; the context asks the answer to state which run it used.
+- **Validation:** for that half-hour, a forecast value (POE10/50/90, or forecast error) shown or cited from another
+  run, or any forecast value when no such run is held, is `FORECAST_RUN_SUBSTITUTED` (critical). The existing
+  repair applies, and the facts-only fallback leaves those observations out, so another run is never shown in place
+  of the one asked for.
+- **Unchanged:** the tool's selectors, and the as-of path.
+
+**Acceptance check** (offline, written before the code change):
+1. **Y05 and Y06, from their saved drafts:**
+   - each is rejected with `FORECAST_RUN_SUBSTITUTED`, naming the run asked for;
+   - without a valid repair, the fallback shows no value from the substituted run;
+   - a scripted repair citing the controller's comparison passes, with Y05 showing POE50 11,082 against actual
+     11,178, and Y06 POE50 1,816 against 1,872.
+2. **Controls, each tested:**
+   - **A named issue time with a half-hour** (as in W07, W08, H05, V07, V08) is bound to the named run. Without a
+     half-hour, behaviour is unchanged.
+   - **As-of questions** (as in W05, W06, Y07, Y08) keep availability selection; nothing is bound.
+   - **Ambiguous requests:** no date, no zone, or not a half-hour. No run is chosen, no controller call is made, and
+     nothing is bound.
+   - **Unavailable runs:** no run issued before the half-hour holds it, or no run at the named time. The context
+     says so, and any forecast value shown for that half-hour is rejected.
+   - **Other half-hours in a wider comparison** are not affected.
+3. **No case-specific code:** no case ID, run ID or expected value.
+4. **Unchanged:**
+   - validation outcomes of every saved Live record's replay, except where the check fires; each firing is reviewed;
+   - the Replay evaluation (or any change explained);
+   - the safety suite;
+   - frozen evaluation material, scores and verdicts.
+   - **Live is unverified.**
+
+**Result: verified offline; Live unverified** (PR `#41`; evidence in `artifacts/logs/forecast_run_selection.log`). All four
+checks are met.
+1. **Y05 and Y06, from their saved drafts and saved repairs:**
+   - **Rejected:** each is rejected with `FORECAST_RUN_SUBSTITUTED`, naming the run asked for (20:56:59Z and
+     07:26:58Z).
+   - **Fallback:** the saved repairs kept the other run, so both fall back. The fallback shows no forecast value,
+     only the actual.
+   - **The controller's comparison:** it compares the run asked for (status ok).
+   - **A scripted answer citing that comparison passes:** Y05 shows POE50 11,082 against actual 11,178, and Y06
+     shows 1,816 against 1,872.
+2. **Controls, each tested:**
+   - **Named issue times with a half-hour:** W07 and W08 (first drafts) are bound, the named run is compared, and no
+     substitution is found. Their saved replays are unchanged. The half-hour is read in all five questions' forms
+     (H05, V07, V08, W07, W08).
+   - **As-of questions** (W05, W06, Y07, Y08): nothing is bound, and their replays are unchanged.
+   - **Ambiguous requests** (no zone, no date, an hour, or two half-hours): no run is chosen, no controller call is
+     made, and nothing is bound. The context asks the answer to say which run it uses.
+   - **Unavailable runs:** the context says no such run is held. Any forecast value for the half-hour is rejected,
+     and the fallback shows only the actual.
+   - **Other half-hours in a wider comparison** are not bound.
+3. **No case-specific code:** no case ID, run ID or expected value.
+4. **Unchanged:**
+   - **Saved replays:** 176 of the 181 saved Live records with a draft replay identically to `main`. Five differ:
+     - **Y05 and Y06:** as intended.
+     - **Three earlier answers** that each showed a different run from the one their question named by issue time.
+       Held-out v2 H05 and v3 V08 already fell back on `main`. Held-out v3 V07 passed on `main`: a substitution that
+       had been shown. Their original verdicts stand.
+   - **Replay evaluation:** identical to `main`.
+   - **Safety suite:** identical to `main`.
+   - **Tests:** the full suite passes (1,101, of which 49 are new, including the reviews' 21 below).
+   - **Frozen evaluation material:** untouched.
+
+**How it works.**
+- **Request parsing** (`requested_forecast`) reads the run (an explicit issue time, or the last run issued before
+  the half-hour) and the half-hour, except in as-of questions.
+- **The controller:**
+  - looks the run up by issue time;
+  - names it to the model, with the note that `latest_before_target` gives an earlier run;
+  - compares it with the actual after the model's tool loop (call `controller_requested_run`), so its evidence IDs
+    are there to cite;
+  - records it on the resolution.
+- **The validator** rejects any forecast value for that half-hour, shown or cited, whose source rows are another
+  run's.
+- **The facts-only fallback** leaves those values out.
+
+**Review before merge** (offline; `artifacts/logs/forecast_run_review.log`). Three boundaries, and an exhausted tool
+budget, were checked. Faithful controls were included throughout.
+1. **A run named alongside an as-of cutoff given with the request** (not in the question's words).
+   - **Defect at the first head (`01ab054`):** the lookup ignored the cutoff, so the context named a run public only
+     after it (ID, issue and publication times). The comparison itself leaked no values.
+   - **First fix (`af65b3e`) and its defect:** it filtered the lookup by availability. That turned "the last run issued
+     before the half-hour" into the last run public by the cutoff: an earlier run, named as the run asked for, and an
+     answer giving it passed. This is a silent substitution: issue-time and availability-time selection are different
+     requests.
+   - **Fixed (second review):** the run asked for is always chosen by issue time. If it was not public by the cutoff,
+     it cannot be supplied. The context says so without its ID or times, no earlier run is named or bound in its
+     place, and any forecast value for the half-hour is rejected. The controller's comparison runs under the cutoff.
+   - **Wording:** availability or publication wording ("the latest forecast available before the half-hour",
+     "published before", "publicly known", "latest available") is not read as issue time. Those requests keep the
+     existing availability selection, and an explicit "latest available" request still works (tested).
+   - **A cutoff in the question's own words:** only this binding is skipped. The existing as-of protection still
+     applies: the cutoff is injected into every tool call that takes one, a later one is blocked, and the as-of
+     validation runs (tested).
+2. **Every forecast value for the half-hour comes from the bound run.** This already held at the first head, and is
+   now tested:
+   - **Mixed-run answers:** POE50 from the run asked for with POE10 and POE90 from another are rejected, and the
+     fallback keeps only the bound run's value.
+   - **The same value from two runs:** held in the store, NSW1 2026-07-28 21:30Z, POE50 10,243 MW from the
+     20:56:59Z and the 02:27:03Z runs. They are told apart by their source rows.
+3. **A window MAE or mean error from another run.** **Defect at the first head:** these carry no source rows, so they
+   were not checked. Two cases passed:
+   - a one-half-hour MAE from another run, cited as the error;
+   - a 12-hour comparison (`latest_before_target`) given as the answer's comparison.
+
+   Y05's and Y06's fallbacks still showed such a window MAE (250.38 and 139.71 MW).
+
+   **Fixed:** the binding also covers an MAE or mean error whose comparison's pairs include another run for the
+   half-hour asked about, whether shown, cited or given as the comparison. The fallback leaves it out. Window figures
+   of the run asked for, and windows without that half-hour, are not affected.
+4. **The tool budget used up by the model** (three comparisons). This already held: the controller's comparison is
+   blocked (the limit holds, and no fourth call runs), a substituted answer is still rejected, and an answer citing
+   the model's own comparison of the run asked for passes.
+- **Test results:** at the first head, 6 of the review's tests fail. At `af65b3e`, 6 of the 49 now in the file fail
+  (the substitution under a cutoff, and the wording). All pass after the fixes.
+- **Unchanged:** the saved replays (the same 5 differ from `main`; against the first head only Y05's and Y06's
+  fallbacks change), the Replay evaluation, the safety suite and the call limits.
+
+**Still open for I-9:**
+- **Phrasings are a fixed set.**
+  - **The run:** "issued, published, produced, made or released before the half-hour, interval or period";
+    "pre-interval"; "last, latest, final or most recent … before the half-hour".
+  - **The half-hour:** a clock range with a stated zone on one date; "ending HH:MM <zone> on <date>"; an ISO end
+    time.
+  - **Not covered:** other wording ("the forecast just before the peak") or a time without a zone. These are not
+    bound. An ambiguous request only gets the note asking the answer to name its run, which is not enforced.
+- **A named issue time without a half-hour** is unchanged: context only, no binding.
+- **`latest_before_target` keeps its availability meaning;** the model is told it gives an earlier run.
+- **The controller's comparison uses one of the three calls** allowed per required tool. If the model has used all
+  three, it is blocked. No other run can then be shown, but the run's values may be missing.
+- **Window figures are bound only through the half-hour asked about.** An MAE whose pairs use the run asked for at
+  that half-hour, but other runs at other half-hours, is not rejected, although it is not that run's error alone.
+- **The check reads structure, not wording.** A correctly labelled window figure that uses another run for the
+  half-hour ("the runs available by each half-hour had MAE …") is rejected too.
+- **Under a cutoff given with the request,** a run asked for that was not public by then cannot be supplied. The
+  answer can only say so. When it is public, the controller's comparison may still be unavailable, because actuals
+  after the cutoff are hidden.
+- **Saying "cannot be supplied"** reveals only that the run asked for was not public by the cutoff. It names no ID,
+  issue time or publication time.
+- **Evaluation scoring:** the controller's comparison counts as the required tool executed.
 - **Live is unverified;** no paid run was made.
 
 ### I-3a: F03, a notice time shown without its zone
