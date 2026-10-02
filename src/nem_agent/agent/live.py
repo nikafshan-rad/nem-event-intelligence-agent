@@ -44,6 +44,7 @@ from ..timeutil import half_hour_end_for, iso_utc, local_str, parse_iso
 from ..tools import openai_function_tools
 from ..tools.args import strict_json_schema
 from ..tools.impl import NOTICE_TIME_RE
+from . import demand_max
 from .dispatcher import Dispatcher
 from .playbook import PLAYBOOKS
 from .replay import forecast_focus
@@ -55,6 +56,7 @@ from .request import (
     asks_if_notice_event_caused,
     named_instants,
     requested_forecast,
+    requested_maxima,
     requested_measures,
 )
 
@@ -924,6 +926,10 @@ class LiveController:
             if compared is not None:
                 items.append({"role": "user", "content": "Requested forecast run, compared by the controller (JSON):\n" +
                               json.dumps(compared, indent=1, ensure_ascii=False)})
+            maxima = self._requested_maxima(res, trace)
+            if maxima is not None:
+                items.append({"role": "user", "content": "Requested demand maximum, computed by the controller (JSON):\n"
+                              + json.dumps(maxima, indent=1, ensure_ascii=False)})
             timing = self._notice_timing(res)
             if timing is not None:
                 trace.add("model", "notice_timing", required=timing["required_in_summary"],
@@ -943,7 +949,7 @@ class LiveController:
         from ..validation import validate
 
         first = validate(report, self.reg, as_of=res.as_of, window=res.window, records=self.d.records,
-                         forecast_run=res.forecast_run,
+                         forecast_run=res.forecast_run, demand_max=res.demand_max,
                          required_tools=pb.required, event_kind=res.kind)
         if first.critical and self.usage.model_calls < config.MAX_MODEL_CALLS:
             # scoped when every violation names a draft item: the model may change only those items
@@ -1354,6 +1360,45 @@ class LiveController:
                for ev in (item, a, b) if ev.value is not None and ev.valid_at_utc]
         return line, claims, obs
 
+    def _requested_maxima(self, res: Resolution, trace: Any) -> list[dict[str, Any]] | None:
+        """Each demand measure whose maximum the question asks for, over the requested window, computed by code from the
+        controller's own call after the model's tools (``demand_max``; I-17: held-out v6 Z04 was given TOTALDEMAND at
+        the price peak and operational demand's maximum, not TOTALDEMAND's maximum). Recorded for the validator."""
+        if self.d is None or res.intent not in ("market_event_review", "forecast_review") or not res.region:
+            return None
+        measures = [m for m in requested_maxima(res.request.question) if m in demand_max.MEASURES]
+        if not measures:
+            return None
+        res.demand_max = [demand_max.compute(self.d, res, m) for m in measures]
+        for b in res.demand_max:
+            trace.add("model", "requested_maximum", **{k: b.get(k) for k in (
+                "measure", "window_utc", "value", "evidence_ids", "interval_ends_utc", "complete", "unavailable")})
+        return [{**b, "note": "Computed by the controller over the whole requested window, from its own call; the "
+                              "controller states it in the summary. A value at the price peak, or another demand "
+                              "measure's maximum, is not this maximum. If you mention it, claim it with these evidence "
+                              "IDs."} for b in res.demand_max]
+
+    def _max_answer(self, res: Resolution) -> tuple[list[str], list[NumericClaim], list[Observation]] | None:
+        """The computed maxima as sentences (``demand_max.sentence``), with a claim and an observation for each value."""
+        if not res.demand_max or not res.region:
+            return None
+        claims: list[NumericClaim] = []
+        obs: list[Observation] = []
+
+        def num(eid: str) -> str:
+            ev = self.reg.get(eid)
+            assert ev is not None and ev.value is not None and ev.valid_at_utc is not None
+            claims.append(NumericClaim(claim_id=f"controller_max_{eid}", text=ev.label or ev.metric, value=ev.value,
+                                       unit=ev.unit, evidence_id=eid, rounding=0.005))
+            obs.append(Observation(metric=ev.metric, value=float(ev.value), unit=ev.unit, valid_at_utc=ev.valid_at_utc,
+                                   valid_at_local=local_str(parse_iso(ev.valid_at_utc), res.region or ""),
+                                   interval_minutes=ev.interval_minutes, evidence_id=eid,
+                                   source_row_ids=ev.source_row_ids[:12],
+                                   evidence_class=ev.evidence_class, label=(ev.label or ev.metric)[:300]))
+            return f"{ev.value:.4f}".rstrip("0").rstrip(".") + f" {ev.unit}"
+        lines = [demand_max.sentence(b, res.region, num, res.as_of) for b in res.demand_max]
+        return lines, claims, obs
+
     def _cancellation_answer(self, res: Resolution, cited: list[str]) -> str | None:
         """For an event review citing market notices that a later retrieved notice cancelled before the price extreme,
         one sentence saying so, with when each was issued and when it was cancelled; otherwise None. Held-out v4 W19
@@ -1520,6 +1565,16 @@ class LiveController:
                 self._summary_origin.insert(0, ("controller", 0))
                 if self.d is not None:
                     self.d.trace.add("model", "cancellation_answer", text=status)
+            maxima = self._max_answer(res)
+            if maxima is not None:  # written by the controller from the maximum it computed (I-17)
+                lines, max_claims, max_obs = maxima
+                summary[0:0] = lines
+                self._summary_origin[0:0] = [("controller", 0)] * len(lines)
+                claimed = {(c.evidence_id, c.value) for c in m.numeric_claims}
+                extra_claims += [c for c in max_claims if (c.evidence_id, c.value) not in claimed]
+                obs += [o for o in max_obs if o.evidence_id not in {x.evidence_id for x in obs}]
+                if self.d is not None:
+                    self.d.trace.add("model", "max_answer", text=lines)
             change = self._change_answer(res)
             if change is not None:  # written by the controller from the change it computed; the direct answer
                 line, change_claims, change_obs = change

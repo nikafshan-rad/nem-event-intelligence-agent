@@ -1,0 +1,181 @@
+# I-17: a demand measure's requested maximum, computed by code over the requested window, stated by the controller,
+# and required of the answer (held-out v6 Z04). Offline only: saved Live records replayed through the SYNTHETIC fake
+# transport (no network, no key; scratch ledger), on main 45e5203 and on fix/requested-demand-maximum. Live is unverified.
+
+## What Z04 asked for, and the evidence its own tool calls returned (TAS1, 29 July 2026 AEST = 2026-07-28T14:00Z..2026-07-29T14:00Z)
+   question: Looking at Tasmania across 29 July 2026 in Hobart local time, what was the day's highest 5-minute dispatch price and when did it happen, and when did TAS1 total demand peak and at what level?
+   the model's get_price_timeline call: 288 five-minute intervals, each with TOTALDEMAND and its evidence ID
+      TOTALDEMAND  1367.32 MW  interval ending 2026-07-28T21:55:00Z = 2026-07-29 07:55 AEST  ev0284 DISPATCHIS:PUBLIC_DISPATCHIS_202607290755_0000000529809198:L91
+      TOTALDEMAND  1362.37 MW  interval ending 2026-07-29T09:00:00Z = 2026-07-29 19:00 AEST  ev0683 DISPATCHIS:PUBLIC_DISPATCHIS_202607291900_0000000529893324:L30
+      TOTALDEMAND  1362.25 MW  interval ending 2026-07-28T22:00:00Z = 2026-07-29 08:00 AEST  ev0287 DISPATCHIS:PUBLIC_DISPATCHIS_202607290800_0000000529809591:L99
+      TOTALDEMAND  1361.42 MW  interval ending 2026-07-28T21:50:00Z = 2026-07-29 07:50 AEST  ev0281 DISPATCHIS:PUBLIC_DISPATCHIS_202607290750_0000000529808500:L114
+   its model-facing view gives TOTALDEMAND only at the price peak (1321.81 MW, 2026-07-29T10:05:00Z) and the price minimum; no maximum; the series is not sent
+   get_actual_demand's view max is OPERATIONAL demand: 1452.0 MW, half-hour ending 2026-07-28T22:00:00Z (a different measure)
+   the controller's requested_measures note for 'total demand': dispatch TOTALDEMAND, 5-minute: get_price_timeline fields totaldemand_at_peak, totaldemand_at_minimum, totaldemand_around_peak, totaldemand_around_minimum
+
+## Probe, the same script on main and on the branch
+### main 45e5203
+## Z04, saved route, tool calls and draft (Live controller path)
+   status answered_with_caveats, fallback False, codes []
+   shown: TAS1 highest five-minute dispatch price 126.45599 $/MWh at 2026-07-29 20:05 AEST (2026-07-29T10:05:00Z); TAS1 dispatch TOTALDEMAND 1321.81 MW at the same interval end.
+   shown: Dispatch TOTALDEMAND (five-minute) at that interval end: 1321.81 MW (interval ending 2026-07-29 20:05 AEST / 2026-07-29T10:05:00Z).
+   shown: Window maximum half-hour operational demand (different measure): 1452.0 MW, interval ending 2026-07-29 08:00 AEST (2026-07-28T22:00:00Z).
+   TOTALDEMAND observations shown: [(1321.81, '2026-07-29T10:05:00Z')]
+## a draft stating TOTALDEMAND at the price peak (1321.81, ev0722) as total demand's peak
+   status answered_with_caveats, fallback False, codes []
+   shown: TAS1 highest five-minute dispatch price 126.45599 $/MWh at 2026-07-29 20:05 AEST (2026-07-29T10:05:00Z); TAS1 dispatch TOTALDEMAND 1321.81 MW at the same interval end.
+   shown: TAS1 total demand peaked at 1321.81 MW in the interval ending 2026-07-29T10:05:00Z.
+   shown: Dispatch TOTALDEMAND (five-minute) at that interval end: 1321.81 MW (interval ending 2026-07-29 20:05 AEST / 2026-07-29T10:05:00Z).
+   shown: Window maximum half-hour operational demand (different measure): 1452.0 MW, interval ending 2026-07-29 08:00 AEST (2026-07-28T22:00:00Z).
+   TOTALDEMAND observations shown: [(1321.81, '2026-07-29T10:05:00Z')]
+## a draft stating operational demand's maximum (1452.0, ev0885) as total demand's peak
+   status answered_with_caveats, fallback False, codes []
+   shown: TAS1 highest five-minute dispatch price 126.45599 $/MWh at 2026-07-29 20:05 AEST (2026-07-29T10:05:00Z); TAS1 dispatch TOTALDEMAND 1321.81 MW at the same interval end.
+   shown: TAS1 total demand peaked at 1452.0 MW in the interval ending 2026-07-28T22:00:00Z.
+   shown: Dispatch TOTALDEMAND (five-minute) at that interval end: 1321.81 MW (interval ending 2026-07-29 20:05 AEST / 2026-07-29T10:05:00Z).
+   shown: Window maximum half-hour operational demand (different measure): 1452.0 MW, interval ending 2026-07-29 08:00 AEST (2026-07-28T22:00:00Z).
+   TOTALDEMAND observations shown: [(1321.81, '2026-07-29T10:05:00Z')]
+## a faithful draft stating TOTALDEMAND's maximum (1367.32, ev0284, the model's own evidence)
+   status answered_with_caveats, fallback False, codes []
+   shown: TAS1 highest five-minute dispatch price 126.45599 $/MWh at 2026-07-29 20:05 AEST (2026-07-29T10:05:00Z); TAS1 dispatch TOTALDEMAND 1321.81 MW at the same interval end.
+   shown: TAS1 dispatch total demand peaked at 1367.32 MW in the interval ending 2026-07-28T21:55:00Z.
+   shown: Dispatch TOTALDEMAND (five-minute) at that interval end: 1321.81 MW (interval ending 2026-07-29 20:05 AEST / 2026-07-29T10:05:00Z).
+   shown: Window maximum half-hour operational demand (different measure): 1452.0 MW, interval ending 2026-07-29 08:00 AEST (2026-07-28T22:00:00Z).
+   TOTALDEMAND observations shown: [(1321.81, '2026-07-29T10:05:00Z')]
+## Replay mode (scripted controller), Z04's question
+   status answered, fallback False, codes []
+   shown: At that interval, dispatch TOTALDEMAND (AEMO: 'Demand (less loads)', a dispatch quantity that is not operational demand) was 1,322 MW and NETINTERCHANGE ('Net interconnector flow from the regional reference node') was +409 MW.
+   shown: Actual operational demand (updated values) was 1,379 MW in the half-hour containing the price peak; the window maximum was 1,452 MW (half-hour ending 2026-07-29 08:00 AEST (UTC+1000)).
+   shown: Definitions used: [s01] “Total Demand is the forecast demand at the Regional Reference Node (RRN) that is met by local generation from scheduled and semi-scheduled generating units and scheduled BDUs plus interconnector imports, excluding the local demand of s
+   TOTALDEMAND observations shown: [(1321.81, '2026-07-29T10:05:00Z')]
+## Replay mode, Z04's question with a request-level as-of cutoff 2026-07-29T05:00:00Z
+   status answered, fallback False, codes []
+   shown: At that interval, dispatch TOTALDEMAND (AEMO: 'Demand (less loads)', a dispatch quantity that is not operational demand) was 1,323 MW and NETINTERCHANGE ('Net interconnector flow from the regional reference node') was +290 MW.
+   shown: Actual operational demand (initial values) was 1,399 MW in the half-hour containing the price peak; the window maximum was 1,452 MW (half-hour ending 2026-07-29 08:00 AEST (UTC+1000)).
+   shown: Definitions used: [s01] “Total Demand is the forecast demand at the Regional Reference Node (RRN) that is met by local generation from scheduled and semi-scheduled generating units and scheduled BDUs plus interconnector imports, excluding the local demand of s
+   TOTALDEMAND observations shown: [(1323.38, '2026-07-28T21:30:00Z')]
+## Replay mode, the same question for operational demand
+   status answered, fallback False, codes []
+   shown: At that interval, dispatch TOTALDEMAND (AEMO: 'Demand (less loads)', a dispatch quantity that is not operational demand) was 1,322 MW and NETINTERCHANGE ('Net interconnector flow from the regional reference node') was +409 MW.
+   shown: Actual operational demand (updated values) was 1,379 MW in the half-hour containing the price peak; the window maximum was 1,452 MW (half-hour ending 2026-07-29 08:00 AEST (UTC+1000)).
+   shown: Definitions used: [s01] “Total Demand is the forecast demand at the Regional Reference Node (RRN) that is met by local generation from scheduled and semi-scheduled generating units and scheduled BDUs plus interconnector imports, excluding the local demand of s
+   TOTALDEMAND observations shown: [(1321.81, '2026-07-29T10:05:00Z')]
+## Live, the same question with no measure named ('when did demand peak')
+   status answered_with_caveats, fallback False, codes []
+   shown: TAS1 highest five-minute dispatch price 126.45599 $/MWh at 2026-07-29 20:05 AEST (2026-07-29T10:05:00Z); TAS1 dispatch TOTALDEMAND 1321.81 MW at the same interval end.
+   shown: Dispatch TOTALDEMAND (five-minute) at that interval end: 1321.81 MW (interval ending 2026-07-29 20:05 AEST / 2026-07-29T10:05:00Z).
+   shown: Window maximum half-hour operational demand (different measure): 1452.0 MW, interval ending 2026-07-29 08:00 AEST (2026-07-28T22:00:00Z).
+   TOTALDEMAND observations shown: [(1321.81, '2026-07-29T10:05:00Z')]
+
+### branch fix/requested-demand-maximum
+## Z04, saved route, tool calls and draft (Live controller path)
+   status answered_with_caveats, fallback False, codes []
+   shown: TAS1 highest five-minute dispatch price 126.45599 $/MWh at 2026-07-29 20:05 AEST (2026-07-29T10:05:00Z); TAS1 dispatch TOTALDEMAND 1321.81 MW at the same interval end.
+   shown: TAS1 dispatch total demand (TOTALDEMAND) was highest at 1367.32 MW in the 5-minute interval ending 2026-07-28T21:55:00Z = 2026-07-29 07:55 AEST, over all of 2026-07-29 (AEST).
+   shown: Dispatch TOTALDEMAND (five-minute) at that interval end: 1321.81 MW (interval ending 2026-07-29 20:05 AEST / 2026-07-29T10:05:00Z).
+   shown: Window maximum half-hour operational demand (different measure): 1452.0 MW, interval ending 2026-07-29 08:00 AEST (2026-07-28T22:00:00Z).
+   TOTALDEMAND observations shown: [(1321.81, '2026-07-29T10:05:00Z'), (1367.32, '2026-07-28T21:55:00Z')]
+## a draft stating TOTALDEMAND at the price peak (1321.81, ev0722) as total demand's peak
+   status answered_with_caveats, fallback True, codes ['REQUESTED_MAXIMUM_MISMATCH']
+   TOTALDEMAND observations shown: [(1321.81, '2026-07-29T10:05:00Z'), (1367.32, '2026-07-28T21:55:00Z')]
+## a draft stating operational demand's maximum (1452.0, ev0885) as total demand's peak
+   status answered_with_caveats, fallback True, codes ['REQUESTED_MAXIMUM_MISMATCH']
+   TOTALDEMAND observations shown: [(1321.81, '2026-07-29T10:05:00Z'), (1367.32, '2026-07-28T21:55:00Z')]
+## a faithful draft stating TOTALDEMAND's maximum (1367.32, ev0284, the model's own evidence)
+   status answered_with_caveats, fallback False, codes []
+   shown: TAS1 highest five-minute dispatch price 126.45599 $/MWh at 2026-07-29 20:05 AEST (2026-07-29T10:05:00Z); TAS1 dispatch TOTALDEMAND 1321.81 MW at the same interval end.
+   shown: TAS1 dispatch total demand (TOTALDEMAND) was highest at 1367.32 MW in the 5-minute interval ending 2026-07-28T21:55:00Z = 2026-07-29 07:55 AEST, over all of 2026-07-29 (AEST).
+   shown: TAS1 dispatch total demand peaked at 1367.32 MW in the interval ending 2026-07-28T21:55:00Z.
+   shown: Dispatch TOTALDEMAND (five-minute) at that interval end: 1321.81 MW (interval ending 2026-07-29 20:05 AEST / 2026-07-29T10:05:00Z).
+   shown: Window maximum half-hour operational demand (different measure): 1452.0 MW, interval ending 2026-07-29 08:00 AEST (2026-07-28T22:00:00Z).
+   TOTALDEMAND observations shown: [(1321.81, '2026-07-29T10:05:00Z'), (1367.32, '2026-07-28T21:55:00Z')]
+## Replay mode (scripted controller), Z04's question
+   status answered, fallback False, codes []
+   shown: At that interval, dispatch TOTALDEMAND (AEMO: 'Demand (less loads)', a dispatch quantity that is not operational demand) was 1,322 MW and NETINTERCHANGE ('Net interconnector flow from the regional reference node') was +409 MW.
+   shown: TAS1 dispatch total demand (TOTALDEMAND) was highest at 1367.32 MW in the 5-minute interval ending 2026-07-28T21:55:00Z = 2026-07-29 07:55 AEST, over all of 2026-07-29 (AEST).
+   shown: Actual operational demand (updated values) was 1,379 MW in the half-hour containing the price peak; the window maximum was 1,452 MW (half-hour ending 2026-07-29 08:00 AEST (UTC+1000)).
+   shown: Definitions used: [s01] “Total Demand is the forecast demand at the Regional Reference Node (RRN) that is met by local generation from scheduled and semi-scheduled generating units and scheduled BDUs plus interconnector imports, excluding the local demand of s
+   TOTALDEMAND observations shown: [(1321.81, '2026-07-29T10:05:00Z'), (1367.32, '2026-07-28T21:55:00Z')]
+## Replay mode, Z04's question with a request-level as-of cutoff 2026-07-29T05:00:00Z
+   status answered, fallback False, codes []
+   shown: At that interval, dispatch TOTALDEMAND (AEMO: 'Demand (less loads)', a dispatch quantity that is not operational demand) was 1,323 MW and NETINTERCHANGE ('Net interconnector flow from the regional reference node') was +290 MW.
+   shown: Not every 5-minute interval of all of 2026-07-29 (AEST) is held and public by the as-of cutoff, so the maximum of TAS1 dispatch total demand (TOTALDEMAND) over it cannot be established; the highest value held and public by the as-of cutoff is 1367.32 MW, in th
+   shown: Actual operational demand (initial values) was 1,399 MW in the half-hour containing the price peak; the window maximum was 1,452 MW (half-hour ending 2026-07-29 08:00 AEST (UTC+1000)).
+   shown: Definitions used: [s01] “Total Demand is the forecast demand at the Regional Reference Node (RRN) that is met by local generation from scheduled and semi-scheduled generating units and scheduled BDUs plus interconnector imports, excluding the local demand of s
+   TOTALDEMAND observations shown: [(1323.38, '2026-07-28T21:30:00Z'), (1367.32, '2026-07-28T21:55:00Z')]
+## Replay mode, the same question for operational demand
+   status answered, fallback False, codes []
+   shown: At that interval, dispatch TOTALDEMAND (AEMO: 'Demand (less loads)', a dispatch quantity that is not operational demand) was 1,322 MW and NETINTERCHANGE ('Net interconnector flow from the regional reference node') was +409 MW.
+   shown: TAS1 operational demand was highest at 1452 MW in the half-hour ending 2026-07-28T22:00:00Z = 2026-07-29 08:00 AEST, over all of 2026-07-29 (AEST).
+   shown: Actual operational demand (updated values) was 1,379 MW in the half-hour containing the price peak; the window maximum was 1,452 MW (half-hour ending 2026-07-29 08:00 AEST (UTC+1000)).
+   shown: Definitions used: [s01] “Total Demand is the forecast demand at the Regional Reference Node (RRN) that is met by local generation from scheduled and semi-scheduled generating units and scheduled BDUs plus interconnector imports, excluding the local demand of s
+   TOTALDEMAND observations shown: [(1321.81, '2026-07-29T10:05:00Z')]
+## Live, the same question with no measure named ('when did demand peak')
+   status needs_clarification, fallback False, codes []
+   headline: Clarification needed: Which demand measure is the peak asked about: dispatch total demand (TOTALDEMAND, a dispatch quantity) or operational demand (half-hourly)? They are different measures with diffe
+
+## Every question in the repository (frozen eval sets and saved Live records, 138): only held-out v6 Z04 asks for a
+## demand measure's maximum; none asks for a demand peak without naming the measure. Values at the price peak asked
+## for as such (8 questions) are not read as maximum requests.
+
+## Saved Live records replayed, main vs branch (222 records each)
+   with each record's synthesis draft and saved repair: shown answer differs on 1 (Z04), validation codes differ on 0
+   with each record's final (repaired) draft as the only draft: shown answer differs on 1 (Z04), codes differ on 0
+     Z04 gains: TAS1 dispatch total demand (TOTALDEMAND) was highest at 1367.32 MW in the 5-minute interval ending
+                2026-07-28T21:55:00Z = 2026-07-29 07:55 AEST, over all of 2026-07-29 (AEST).
+
+## Replay evaluation: EVAL: PASS on both, identical (latencies, trace ids, timestamps, version stripped)
+## Safety suite: SAFETY-SUITE: PASS on both, log identical
+## Tests (at eb51139): tests/provider/test_requested_maximum.py, 29 new, all pass; full suite 1387 passed (scratch
+## ledger); ruff and mypy clean. On main the new module and names do not exist (the probe above is the before evidence).
+
+## Review before merge: the requested window. The same probe on the PR's first head eb51139 and on the branch (Replay mode)
+## At eb51139 every maximum used the request window or else the question date's whole local day, whatever the wording;
+## now: explicit request window exactly; event wording -> the held event's window (else sent back); a whole-day marker
+## with no narrowing wording -> that day; anything else -> sent back, nothing computed.
+### PR head eb51139
+## whole day, Z04 (TAS1 29 July): status answered
+   window used ['2026-07-28T14:00:00Z', '2026-07-29T14:00:00Z'] -> 1367.32 MW at ['2026-07-28T21:55:00Z'], complete True
+   shown: TAS1 dispatch total demand (TOTALDEMAND) was highest at 1367.32 MW in the 5-minute interval ending 2026-07-28T21:55:00Z = 2026-07-29 07:55 AEST, over all of 2026-07-29 (AEST).
+## whole day, VIC1 29 July: status answered
+   window used ['2026-07-28T14:00:00Z', '2026-07-29T14:00:00Z'] -> 8700.91 MW at ['2026-07-29T08:30:00Z'], complete True
+   shown: VIC1 dispatch total demand (TOTALDEMAND) was highest at 8700.91 MW in the 5-minute interval ending 2026-07-29T08:30:00Z = 2026-07-29 18:30 AEST, over all of 2026-07-29 (AEST).
+## event, VIC1 low-price event into 29 July: status answered
+   window used ['2026-07-28T14:00:00Z', '2026-07-29T14:00:00Z'] -> 8700.91 MW at ['2026-07-29T08:30:00Z'], complete True
+   shown: VIC1 dispatch total demand (TOTALDEMAND) was highest at 8700.91 MW in the 5-minute interval ending 2026-07-29T08:30:00Z = 2026-07-29 18:30 AEST, over all of 2026-07-29 (AEST).
+## explicit request window 00:00-06:00Z, Z04's question: status answered
+   window used ['2026-07-29T00:00:00Z', '2026-07-29T06:00:00Z'] -> 1164.48 MW at ['2026-07-29T00:10:00Z'], complete True
+   shown: TAS1 dispatch total demand (TOTALDEMAND) was highest at 1164.48 MW in the 5-minute interval ending 2026-07-29T00:10:00Z = 2026-07-29 10:10 AEST, over the requested window, 2026-07-29T00:00:00Z to 2026-07-29T06:00:00Z.
+## words: 'during the morning': status answered
+   window used ['2026-07-28T14:00:00Z', '2026-07-29T14:00:00Z'] -> 1367.32 MW at ['2026-07-28T21:55:00Z'], complete True
+   shown: TAS1 dispatch total demand (TOTALDEMAND) was highest at 1367.32 MW in the 5-minute interval ending 2026-07-28T21:55:00Z = 2026-07-29 07:55 AEST, over all of 2026-07-29 (AEST).
+## words: 'between 06:00 and 09:00 AEST': status answered
+   window used ['2026-07-28T14:00:00Z', '2026-07-29T14:00:00Z'] -> 1367.32 MW at ['2026-07-28T21:55:00Z'], complete True
+   shown: TAS1 dispatch total demand (TOTALDEMAND) was highest at 1367.32 MW in the 5-minute interval ending 2026-07-28T21:55:00Z = 2026-07-29 07:55 AEST, over all of 2026-07-29 (AEST).
+## event-relative, no event held (TAS1 29 July): status answered
+   window used ['2026-07-28T14:00:00Z', '2026-07-29T14:00:00Z'] -> 1367.32 MW at ['2026-07-28T21:55:00Z'], complete True
+   shown: TAS1 dispatch total demand (TOTALDEMAND) was highest at 1367.32 MW in the 5-minute interval ending 2026-07-28T21:55:00Z = 2026-07-29 07:55 AEST, over all of 2026-07-29 (AEST).
+
+### branch (this review)
+## whole day, Z04 (TAS1 29 July): status answered
+   window used ['2026-07-28T14:00:00Z', '2026-07-29T14:00:00Z'] -> 1367.32 MW at ['2026-07-28T21:55:00Z'], complete True
+   shown: TAS1 dispatch total demand (TOTALDEMAND) was highest at 1367.32 MW in the 5-minute interval ending 2026-07-28T21:55:00Z = 2026-07-29 07:55 AEST, over all of 2026-07-29 (AEST).
+## whole day, VIC1 29 July: status answered
+   window used ['2026-07-28T14:00:00Z', '2026-07-29T14:00:00Z'] -> 8700.91 MW at ['2026-07-29T08:30:00Z'], complete True
+   shown: VIC1 dispatch total demand (TOTALDEMAND) was highest at 8700.91 MW in the 5-minute interval ending 2026-07-29T08:30:00Z = 2026-07-29 18:30 AEST, over all of 2026-07-29 (AEST).
+## event, VIC1 low-price event into 29 July: status answered
+   window used ['2026-07-27T23:00:00Z', '2026-07-28T23:30:00Z'] -> 7867.57 MW at ['2026-07-28T22:10:00Z'], complete True
+   shown: VIC1 dispatch total demand (TOTALDEMAND) was highest at 7867.57 MW in the 5-minute interval ending 2026-07-28T22:10:00Z = 2026-07-29 08:10 AEST, over the event window, 2026-07-27T23:00:00Z to 2026-07-28T23:30:00Z.
+## explicit request window 00:00-06:00Z, Z04's question: status answered
+   window used ['2026-07-29T00:00:00Z', '2026-07-29T06:00:00Z'] -> 1164.48 MW at ['2026-07-29T00:10:00Z'], complete True
+   shown: TAS1 dispatch total demand (TOTALDEMAND) was highest at 1164.48 MW in the 5-minute interval ending 2026-07-29T00:10:00Z = 2026-07-29 10:10 AEST, over the requested window, 2026-07-29T00:00:00Z to 2026-07-29T06:00:00Z.
+## words: 'during the morning': status needs_clarification
+   nothing computed; Clarification needed: Over which window is the demand peak asked: the whole local day of the date given, the price event's window, or an explicit start and end with their time zone? The question does
+## words: 'between 06:00 and 09:00 AEST': status needs_clarification
+   nothing computed; Clarification needed: Over which window is the demand peak asked: the whole local day of the date given, the price event's window, or an explicit start and end with their time zone? The question does
+## event-relative, no event held (TAS1 29 July): status needs_clarification
+   nothing computed; Clarification needed: The question asks for the demand peak during an event, but no event is held for that region and date, so its window cannot be established. Give the window's start and end with th
+
+## After the review: saved replays (222, both ways) - only Z04 differs from main, the same as at eb51139; Replay
+## evaluation identical to main (EVAL: PASS); safety suite identical (SAFETY-SUITE: PASS); 49 tests in
+## tests/provider/test_requested_maximum.py; full suite 1407 passed (scratch ledger); ruff and mypy clean

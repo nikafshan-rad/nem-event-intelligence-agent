@@ -65,6 +65,9 @@ class Resolution:
     forecast_run: dict[str, object] | None = None
     # the half-hour a forecast question asks about (start, end UTC), when it is pinned down (I-10)
     target: tuple[datetime, datetime] | None = None
+    # each demand measure's maximum the question asks for, as the controller computed it (I-17); the validator holds
+    # the answer to it
+    demand_max: list[dict[str, object]] | None = None
 
 
 def extract_regions(text: str) -> list[str]:
@@ -122,6 +125,71 @@ ISSUED_AT_RE = re.compile(r"\bissued\s+(?:at\s+|on\s+)?(?:(?:about|around|approx
 
 TOTAL_DEMAND_Q_RE = re.compile(r"\btotal[- ]?demand\b", re.I)
 OPERATIONAL_DEMAND_Q_RE = re.compile(r"\boperational[- ]demand\b", re.I)
+
+
+# "when did TAS1 total demand peak", "peak total demand", "the highest operational demand": a demand measure's
+# maximum (held-out v6 Z04); not a value at the (price) peak ("total demand at the peak"). The peak or maximum word must
+# be attached to the measure. A bare "demand" names no measure.
+_MAX_MEASURES = {"total demand": r"(?:dispatch\s+)?(?:total[- ]?demand|TOTALDEMAND)",
+                 "operational demand": r"(?:actual\s+)?operational[- ]demand",
+                 "demand": r"(?<!total )(?<!total-)(?<!operational )(?<!operational-)\bdemand"}
+
+
+def _max_of_re(m: str) -> re.Pattern[str]:
+    return re.compile(
+        rf"\bwhen\s+did\s+(?:[\w'’]+\s+){{0,3}}?{m}\s+(?:peak|top out|max out|reach (?:its|a) (?:peak|maximum|high))\b"
+        rf"|\b{m}\s+(?:peaked|peaks|topped out|maxed out)\b"
+        rf"|\b(?:peak|highest|maximum|max|top)\s+(?:(?:5-minute|five-minute|half-hour(?:ly)?|30-minute|daily|day's|"
+        rf"dispatch)\s+)*{m}\b|\b{m}\s+(?:peak|maximum|max)\b(?!\s+(?:price|interval))", re.I)
+
+
+_MAX_OF_RES = {k: _max_of_re(v) for k, v in _MAX_MEASURES.items()}
+MAXIMUM_CLARIFICATION = (
+    "Which demand measure is the peak asked about: dispatch total demand (TOTALDEMAND, a dispatch quantity) or "
+    "operational demand (half-hourly)? They are different measures with different peaks.")
+
+
+# The window a maximum is asked over (I-17 review). Only these are taken as given; anything else is sent back:
+# - an explicit window in the request's own fields: exactly that window;
+# - "during the event / spike / episode", "the event window": the event's window, when the resolution holds one;
+# - a whole day ("the day's", "across 29 July 2026", "on 2026-07-29", "the whole day", "daily") with no wording that
+#   narrows it (parts of the day, "between … and", "from … to", "around the peak" …): that local day.
+_EVENT_WINDOW_RE = re.compile(r"\b(?:during|in|over|within|across|throughout|for)\s+(?:the|that|this)\s+(?:[\w$/-]+\s+){0,3}?"
+                              r"(?:event|spike|episode|excursion)(?:'s)?(?:\s+window)?\b|\bevent(?:'s)?\s+window\b", re.I)
+_WHOLE_DAY_RE = re.compile(r"\b(?:the|that) day's\b|\b(?:whole|entire|full)\s+day\b|\ball\s+(?:of\s+)?(?:the\s+)?day\b|"
+                           r"\bdaily\b|\bthroughout\s+the\s+day\b|\b(?:on|across|for|throughout|over)\s+(?:\d{1,2}(?:st|nd|rd|th)?\s+"
+                           r"[A-Za-z]{3,9}|[A-Za-z]{3,9}\s+\d{1,2}(?:st|nd|rd|th)?|20\d\d-\d\d-\d\d)\b", re.I)
+_SUB_WINDOW_RE = re.compile(r"\bbetween\b[^?.;]{0,40}?\band\b|\bfrom\s+[^?.;]{0,30}?\b(?:to|until|till)\b|\b(?:morning|"
+                            r"afternoon|evening|night|overnight|midday|noon|midnight|early hours|peak hours|business hours)\b|"
+                            r"\b(?:around|near|before|after|leading up to|following)\s+(?:the\s+)?(?:price\s+)?(?:peak|spike|"
+                            r"event|extreme)\b|\b(?:first|last|next|previous)\s+(?:\d+\s+)?(?:hours?|minutes?|intervals?)\b|"
+                            r"\bhours?\s+(?:before|after|around)\b", re.I)
+MAXIMUM_WINDOW_CLARIFICATION = (
+    "Over which window is the demand peak asked: the whole local day of the date given, the price event's window, or "
+    "an explicit start and end with their time zone? The question does not pin it down, so no maximum is given in "
+    "place of the one asked for.")
+MAXIMUM_EVENT_CLARIFICATION = (
+    "The question asks for the demand peak during an event, but no event is held for that region and date, so its "
+    "window cannot be established. Give the window's start and end with their time zone, or ask for the whole day.")
+
+
+def maximum_window_kind(question: str, req: InvestigateRequest) -> str:
+    """How the window of a requested maximum is given: "explicit" (the request's window fields), "event" (relative to
+    the event), "day" (a whole local day, with nothing narrowing it) or "unresolved"."""
+    if req.window_start_utc and req.window_end_utc:
+        return "explicit"
+    if _EVENT_WINDOW_RE.search(question):
+        return "event"
+    if _WHOLE_DAY_RE.search(question) and not _SUB_WINDOW_RE.search(question):
+        return "day"
+    return "unresolved"
+
+
+def requested_maxima(question: str) -> list[str]:
+    """The demand measures whose maximum a question asks for ("total demand", "operational demand"), or ["demand"]
+    when it asks for a demand peak without naming the measure."""
+    named = [k for k in ("total demand", "operational demand") if _MAX_OF_RES[k].search(question)]
+    return named or (["demand"] if _MAX_OF_RES["demand"].search(question) else [])
 
 
 def requested_measures(question: str) -> dict[str, str]:
@@ -501,6 +569,18 @@ def resolve(req: InvestigateRequest, sel: Selection) -> Resolution:
         # the run is named relative to a half-hour that is not pinned down: no run can be chosen without a guess, and
         # any run the answer used would stand in for the one asked for (held-out v6 Z05, I-16)
         reasons.append(HALF_HOUR_CLARIFICATION)
+    maxima = requested_maxima(q) if intent in ("market_event_review", "forecast_review") else []
+    if maxima == ["demand"]:
+        # a demand peak without its measure: total demand and operational demand peak differently, so it is sent back
+        # rather than guessed (I-17)
+        reasons.append(MAXIMUM_CLARIFICATION)
+    elif maxima:
+        # a maximum over a window that is not given: never the whole day in its place (I-17 review)
+        window_kind = maximum_window_kind(q, req)
+        if window_kind == "unresolved":
+            reasons.append(MAXIMUM_WINDOW_CLARIFICATION)
+        elif window_kind == "event" and event is None:
+            reasons.append(MAXIMUM_EVENT_CLARIFICATION)
     needs_data = intent in ("market_event_review", "forecast_review")
     if needs_data and region is None and not reasons:
         reasons.append("Which NEM region (NSW1, QLD1, SA1, TAS1 or VIC1)?")
