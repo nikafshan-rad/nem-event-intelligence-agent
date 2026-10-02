@@ -1,0 +1,110 @@
+# I-8 before/after: each statement from tests/validation/test_definition_polarity.py, as the only summary line of a
+# source_explanation answer citing the passage named in the test, through the full validator (validate). Codes
+# shown are the DOC_CLAIM_* ones. Base answer: Y20's offline replay (SYNTHETIC fake transport, scratch ledger, no API
+# call). Lines marked UNSUPPORTED on both come from the existing lexical support check, which is unchanged.
+
+## main 6ff53fe
+Y20 saved draft: status=answered fallback=False codes_before_repair=[]
+  shown headline: AEMO’s operational demand composition includes local demand of scheduled loads and scheduled bidirectional units (schedu
+
+# test_faithful_definitions_pass
+  pass | Operational demand excludes the demand of local scheduled loads and scheduled bidirectional units [c1].
+  pass | Operational demand includes Wholesale Demand Response [c1].
+  pass | Native demand does not include the demand met by behind-the-meter generation such as rooftop PV [c1].
+  pass | Scheduled demand excludes the demand met by non-scheduled generation [c1].
+  pass | Sent-out energy excludes generating unit auxiliary loads and transmission losses [c1].
+  pass | Aggregated dispatch conformance excludes any wholesale demand response or scheduled network services [c1].
+  pass | Operational demand adjustments include activated RERT and involuntary load shedding [c1].
+  pass | The figure subtracts the local demand of scheduled loads and scheduled BDUs [c1].
+
+# test_legitimate_paraphrases_pass
+  ['DOC_CLAIM_UNSUPPORTED'] | Operational demand leaves out what local scheduled loads draw [c1].
+  pass | Scheduled loads are not counted in operational demand [c1].
+  pass | Scheduled loads aren't included in operational demand [c1].
+  pass | Operational demand is measured net of the demand of local scheduled loads [c1].
+  ['DOC_CLAIM_UNSUPPORTED'] | Operational demand counts WDR [c1].
+  pass | Wholesale Demand Response is also included [c1].
+
+# test_reversing_includes_and_excludes_fails
+  pass | Operational demand includes the demand of local scheduled loads and scheduled bidirectional units [c1].
+  pass | Operational demand excludes Wholesale Demand Response [c1].
+  pass | Scheduled loads are counted in operational demand [c1].
+  pass | Scheduled demand includes the demand met by non-scheduled generation [c1].
+  pass | Sent-out energy includes generating unit auxiliary loads and transmission losses [c1].
+  pass | Aggregated dispatch conformance includes any wholesale demand response or scheduled network services [c1].
+  pass | Operational demand adjustments include under frequency load shedding [c1].
+
+# test_dropping_or_adding_a_negation_fails
+  pass | Native demand includes the demand met by behind-the-meter generation [c1].
+  pass | Native demand does include the demand met by behind-the-meter generation [c1].
+  pass | Wholesale Demand Response is not counted in operational demand [c1].
+
+# test_citing_a_passage_that_does_not_mention_it_fails
+  ['DOC_CLAIM_UNSUPPORTED'] | Operational demand excludes the demand of local scheduled loads [c1].
+  ['DOC_CLAIM_UNSUPPORTED'] | Native demand does not include rooftop solar exports to neighbouring regions [c1].
+
+# test_faithful_lines_from_saved_answers_pass
+  pass | The Dispatch formula shows TotalDemand includes regional scheduled and semi-scheduled generation, subtracts sc
+  pass | Total Demand is the forecast demand at the Regional Reference Node that is met by local scheduled and semi-sch
+  pass | The MMS data model includes distinct fields OPERATIONAL_DEMAND_POE10, OPERATIONAL_DEMAND_POE50 and OPERATIONAL
+  pass | Operational demand includes scheduled, semi-scheduled and significant non-scheduled generation [c1].
+
+# test_lines_without_an_inclusion_claim_are_not_checked
+  pass | Measured operational demand is field OPERATIONAL_DEMAND in the EMMS Data Model [c1].
+  ['DOC_CLAIM_UNSUPPORTED'] | The passage does not say whether pumped-hydro pumps are included [c1].
+  ['DOC_CLAIM_UNSUPPORTED'] | It is unclear whether Tumut 3 pumping is counted [c1].
+  ['DOC_CLAIM_UNSUPPORTED'] | The definition reads “excluding the demand of local scheduled loads” [c1].
+  pass | “Operational demand adjustments exclude all other events” [c1].
+
+## fix/definition-polarity
+Y20 saved draft: status=abstained fallback=True codes_before_repair=['DOC_CLAIM_CONTRADICTED']
+  shown headline: Validated facts only: the generated narrative failed independent validation. Observations below are retrieved values wit
+
+# test_faithful_definitions_pass
+  pass | Operational demand excludes the demand of local scheduled loads and scheduled bidirectional units [c1].
+  pass | Operational demand includes Wholesale Demand Response [c1].
+  pass | Native demand does not include the demand met by behind-the-meter generation such as rooftop PV [c1].
+  pass | Scheduled demand excludes the demand met by non-scheduled generation [c1].
+  pass | Sent-out energy excludes generating unit auxiliary loads and transmission losses [c1].
+  pass | Aggregated dispatch conformance excludes any wholesale demand response or scheduled network services [c1].
+  pass | Operational demand adjustments include activated RERT and involuntary load shedding [c1].
+  pass | The figure subtracts the local demand of scheduled loads and scheduled BDUs [c1].
+
+# test_legitimate_paraphrases_pass
+  ['DOC_CLAIM_UNSUPPORTED'] | Operational demand leaves out what local scheduled loads draw [c1].
+  pass | Scheduled loads are not counted in operational demand [c1].
+  pass | Scheduled loads aren't included in operational demand [c1].
+  pass | Operational demand is measured net of the demand of local scheduled loads [c1].
+  ['DOC_CLAIM_UNSUPPORTED'] | Operational demand counts WDR [c1].
+  pass | Wholesale Demand Response is also included [c1].
+
+# test_reversing_includes_and_excludes_fails
+  ['DOC_CLAIM_CONTRADICTED'] | Operational demand includes the demand of local scheduled loads and scheduled bidirectional units [c1].
+  ['DOC_CLAIM_CONTRADICTED'] | Operational demand excludes Wholesale Demand Response [c1].
+  ['DOC_CLAIM_CONTRADICTED'] | Scheduled loads are counted in operational demand [c1].
+  ['DOC_CLAIM_CONTRADICTED'] | Scheduled demand includes the demand met by non-scheduled generation [c1].
+  ['DOC_CLAIM_CONTRADICTED'] | Sent-out energy includes generating unit auxiliary loads and transmission losses [c1].
+  ['DOC_CLAIM_CONTRADICTED'] | Aggregated dispatch conformance includes any wholesale demand response or scheduled network services [c1].
+  ['DOC_CLAIM_CONTRADICTED'] | Operational demand adjustments include under frequency load shedding [c1].
+
+# test_dropping_or_adding_a_negation_fails
+  ['DOC_CLAIM_CONTRADICTED'] | Native demand includes the demand met by behind-the-meter generation [c1].
+  ['DOC_CLAIM_CONTRADICTED'] | Native demand does include the demand met by behind-the-meter generation [c1].
+  ['DOC_CLAIM_CONTRADICTED'] | Wholesale Demand Response is not counted in operational demand [c1].
+
+# test_citing_a_passage_that_does_not_mention_it_fails
+  ['DOC_CLAIM_UNSUPPORTED'] | Operational demand excludes the demand of local scheduled loads [c1].
+  ['DOC_CLAIM_UNSUPPORTED'] | Native demand does not include rooftop solar exports to neighbouring regions [c1].
+
+# test_faithful_lines_from_saved_answers_pass
+  pass | The Dispatch formula shows TotalDemand includes regional scheduled and semi-scheduled generation, subtracts sc
+  pass | Total Demand is the forecast demand at the Regional Reference Node that is met by local scheduled and semi-sch
+  pass | The MMS data model includes distinct fields OPERATIONAL_DEMAND_POE10, OPERATIONAL_DEMAND_POE50 and OPERATIONAL
+  pass | Operational demand includes scheduled, semi-scheduled and significant non-scheduled generation [c1].
+
+# test_lines_without_an_inclusion_claim_are_not_checked
+  pass | Measured operational demand is field OPERATIONAL_DEMAND in the EMMS Data Model [c1].
+  ['DOC_CLAIM_UNSUPPORTED'] | The passage does not say whether pumped-hydro pumps are included [c1].
+  ['DOC_CLAIM_UNSUPPORTED'] | It is unclear whether Tumut 3 pumping is counted [c1].
+  ['DOC_CLAIM_UNSUPPORTED'] | The definition reads “excluding the demand of local scheduled loads” [c1].
+  pass | “Operational demand adjustments exclude all other events” [c1].

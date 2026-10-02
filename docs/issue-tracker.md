@@ -20,7 +20,7 @@ One list of known defects, so that each fix is weighed against the whole. Eviden
 | I-4 | **Internal details in user-facing text** | Tool names (W20: "API functions named get_actual_demand / get_forecast_runs"), controller notes ("Market notices were not searched…" on document questions, F01), and evidence IDs (F04: "ev0878 … is not a time-stamped observation"). W04 (Live, 2026-09-30): "Controller-computed dispatch TOTALDEMAND (5-minute) change … [ev0975]" | P2 | **Verified offline** (PR `#27`, below). **Second development check (2026-09-30, PR `#28`, one run per case):** **held** on W18, W19 and F04; not triggered on F01 and F03 (nothing to rewrite). Found in that check: "(threshold ev0878)" became "(threshold the listed observation)" on F04, and model wording such as "returned to the controller" (W19) was not rewritten. **Both fixed later, verified offline only (Live unverified):** I-4b (PR `#31`) and I-4c (PR `#32`) |
 | I-6 | **A valid controller answer lost to a fallback** | W19 (Live, 2026-09-30): the controller's cancellation sentence was correct, but the model's own lines quoted notice titles in single quotes ('… Lack Of Reserve Level 2 (LOR2) …'). `NUMERIC_UNTRACKED` counted the "2", and one line failed `TIME_NOT_IN_EVIDENCE`. The scoped repair did not clear them, so the answer fell back and nothing was shown | P1 | **fixed offline** in PR `#21` (below). The frozen run's outcome for W19 stays failed. **Second development check (2026-09-30, PR `#28`, one run per case):** **held** on W19: the model named cited notices by their exact titles, and the answer was shown with the cancellation sentence |
 | I-7 | **An explanation kept open that the answer's own timing rules out** | W18 (Live, 2026-09-30): the opening says timing rules the Hazelwood bus-tie outage out. The notice gives 1100 hrs 20/08, after every high-price interval. A hedged hypothesis resting on that notice [c1] still offers it as a possible influence | P2 | **fixed offline** in PR `#22` (below); Live-unverified when merged. Offline, W18's actual saved repair now falls back, and only a scripted repair that deletes the hypothesis passes. W18's Live verdict (held) is unchanged. **Second development check (2026-09-30, PR `#28`, one run per case):** **failed** on W18: it fired on a hypothesis that doubted the post-event notice; the scoped repair turned that hypothesis into an unhedged statement (HYPOTHESIS_UNHEDGED), and the answer fell back. **I-7b** (a doubting hypothesis flagged; the repair's evidence-backed exclusion rejected as unhedged): **verified offline; Live unverified** (PR `#30`, below). The second check's W18 verdict stays failed; its passing offline replay does not replace it. **I-7c** (a validated exclusion shown apart from hypotheses): **verified offline; Live unverified** (PR `#36`, below) |
-| I-8 | **A definition shown with its meaning reversed** | Y20 (held-out v5, Live, 2026-10-02): asked whether operational demand counts scheduled loads, the answer said it *includes* "local demand of scheduled loads and scheduled bidirectional units" [c1], citing figure text that subtracts them; the definition excludes them. It passed validation and was shown | P1 | **in progress** (below); v5's FAIL verdict and Y20's scores are unchanged |
+| I-8 | **A definition shown with its meaning reversed** | Y20 (held-out v5, Live, 2026-10-02): asked whether operational demand counts scheduled loads, the answer said it *includes* "local demand of scheduled loads and scheduled bidirectional units" [c1], citing figure text that subtracts them; the definition excludes them. It passed validation and was shown | P1 | **verified offline; Live unverified** (below). v5's FAIL verdict and Y20's scores are unchanged |
 | I-5 | **Known safety-language limitations** | See the list below. Each is recorded with its risk. None is being worked on, to avoid an open-ended wording cycle | P3 | recorded; revisit only with a new concrete failure |
 
 ### I-1a: F04, the causal question not answered directly
@@ -1301,6 +1301,67 @@ must agree with its cited passage. The scope is the same lines as the document-c
    - the earlier fixes' tests.
    - **Live is unverified.**
 
+**Result: verified offline; Live unverified** (evidence in `artifacts/logs/definition_polarity_*`). All five checks
+are met.
+1. **Y20, from its saved draft:**
+   - **Rejected:** its `summary[0]` and headline are rejected with `DOC_CLAIM_CONTRADICTED`: "says “local demand of
+     scheduled loads and scheduled bidirectional units” is included, but [c1] (aemo_demand_terms#p10c16) leaves it
+     out: “− local demand of scheduled loads scheduled BDUs”".
+   - **Not shown:** a scoped repair is requested. Without a valid repair the answer falls back, so the reversed
+     definition is not shown.
+   - **Repairs:** a scripted faithful repair ("… subtracts the local demand of scheduled loads and scheduled BDUs
+     [c1]") passes and is shown. One that keeps the reversal ("counts …") falls back.
+2. **Faithful definitions pass.**
+   - **Passages:** six, from two documents: the operational, native, scheduled and sent-out definitions, the
+     operational-demand adjustments, and SO_OP_3705.
+   - **Paraphrases:** passive voice, "aren't included", "net of", "also included", "counts WDR" (an acronym matched to
+     its words) and "leaves out".
+   - **Lists from saved answers** that an earlier draft of this check rejected (H09, DOC03, H07, ADV04) also pass.
+3. **What fails, each tested:**
+   - 7 reversals, in both directions;
+   - 3 added or dropped negations;
+   - 4 citations of a passage that does not mention the thing. Two of these share 71% and 60% of their words with
+     the passage, so the unchanged lexical check alone accepts them.
+4. **Not affected:**
+   - lines with no inclusion or exclusion claim;
+   - "whether" and "unclear" statements;
+   - wording inside quotations;
+   - a claim naming a single plain word;
+   - market-event and forecast answers, where the check does not run.
+   - **No case-specific code:** no case ID, passage ID or expected answer.
+5. **Unchanged:**
+   - **Saved replays:** 180 of the 181 saved Live records with a draft replay identically to `main`; only Y20 differs.
+   - **Saved answers:** 105 inclusion or exclusion claims, in 81 cited lines of 38 answers, were checked; only Y20's
+     (shown and draft) were rejected.
+   - **Replay evaluation:** identical to `main`.
+   - **Safety suite:** PASS, with output identical to `main`.
+   - **Tests:** the full suite passes (1,017, of which 49 are new).
+   - **Frozen evaluation material, v5 scores and the FAIL verdict:** untouched.
+
+**How it works:** the statement's inclusion or exclusion wording (outside quotations) is compared with the wording
+that governs the same thing in the cited passage.
+- **The statement's side:** that wording comes from a fixed list: include, comprise, incorporate, count; exclude,
+  omit, subtract, deduct, minus, "−", net of, leave out. A negation within three words reverses it, and passive voice
+  is read.
+- **The passage's side:** the governing wording is the nearest such wording within 12 words before the mention, or a
+  passive right after it.
+- **Matching:** a listed item is matched by its content words, with plural and footnote-digit tolerance and
+  acronyms; a match stops at the next such wording.
+- **Outcomes:** an item mentioned only with the opposite wording is contradicted. A claim with no listed item in any
+  cited passage is unsupported.
+
+**Still open for I-8:**
+- **Lexical, not semantic.** Other wording is not read, so a reversal phrased that way is not caught: "is part of",
+  "met by", "less", "other than", "without", or an en dash used as a minus. A claim that names a single plain word is
+  not checked.
+- **Two of the tested paraphrases** ("leaves out what local scheduled loads draw", "counts WDR") pass the new check,
+  but the existing lexical support check (unchanged, the same on `main`) rejects them.
+- **Retrieval is unchanged** (the contributing cause). The defining passage still ranks below 40 for Y20's query. A
+  Y20-like Live run would now be repaired or fall back. Whether a Live repair gives the faithful definition from the
+  figure text alone is unverified.
+- **Only document answers** (`source_explanation`) are checked.
+- **Live is unverified;** no paid run was made.
+
 ### I-3a: F03, a notice time shown without its zone
 
 **What happened** (Live check 2026-09-29, `artifacts/live/live-check-2026-09-29/F03.json`, trace `tr-77c70c8d1482`):
@@ -1860,7 +1921,8 @@ progress.
   - **Y07:** an as-of half-hour without a date was sent for clarification.
   - **Y17:** out of scope and needing clarification at once, shown as a clarification, not a refusal.
   - **Y18:** "forecast lack of reserve" routed as a forecast question.
-  - **Y20:** operational demand's composition inverted (it says scheduled loads are included).
+  - **Y20:** operational demand's composition inverted (it says scheduled loads are included). Now I-8: verified
+    offline, Live unverified; Y20's scores and v5's verdict are unchanged.
   - **Y14:** two check elements omitted.
   - **Wording leftovers:** internal names, repeated fragments, "[c1]. [c1]".
 - **Ledger:** USD 5.704473 committed.
