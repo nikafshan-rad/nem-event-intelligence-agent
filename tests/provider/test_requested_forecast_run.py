@@ -21,7 +21,13 @@ from pathlib import Path
 
 import pytest
 
-from nem_agent.agent.request import ISSUED_BEFORE_RE, InvestigateRequest, half_hour_asked, requested_forecast
+from nem_agent.agent.request import (
+    HALF_HOUR_CLARIFICATION,
+    ISSUED_BEFORE_RE,
+    InvestigateRequest,
+    half_hour_asked,
+    requested_forecast,
+)
 from nem_agent.service import investigate
 from nem_agent.validation import validate
 from tests.provider.fake_model import FakeModel
@@ -203,14 +209,32 @@ def test_a_named_issue_time_is_bound_and_an_answer_using_that_run_is_not_rejecte
     assert any(e["name"] == "requested_forecast_run" for e in res.trace.as_dict()["events"])
 
 
-def test_an_ambiguous_request_binds_nothing_and_asks_the_answer_to_name_its_run():
-    q = "What POE10, POE50 and POE90 did the final NSW forecast issued before the half-hour from 21:00 to 21:30 carry?"
-    res, fake, _ = _replay("Y05", question=q)
+AMBIGUOUS_Q = "What POE10, POE50 and POE90 did the final NSW forecast issued before the half-hour from 21:00 to 21:30 carry?"
+
+
+def test_an_ambiguous_request_binds_nothing_and_is_sent_back_for_its_half_hour():
+    """No zone and no date: no run is chosen and nothing is bound. Since I-16 (held-out v6 Z05) a forecast review is
+    sent back for the half-hour, instead of being answered with a note asking the answer to name its run, which the
+    answer could ignore."""
+    res, fake, _ = _replay("Y05", question=AMBIGUOUS_Q)
+    assert res.report.status == "needs_clarification" and HALF_HOUR_CLARIFICATION in res.report.headline
+    assert not res.records and len(fake.requests) == 1  # the routing call only
+    assert res.resolution is not None and res.resolution.forecast_run is None
+
+
+def test_outside_a_forecast_review_an_ambiguous_request_still_gets_the_note():
+    """The I-9 note is unchanged for a question routed as an event review: nothing is bound, and the answer is asked
+    to say which run it uses (not enforced; recorded under I-16)."""
+    rec = json.loads((V5 / "Y05.json").read_text())
+    draft = rec["drafts"]["synthesis:draft"]
+    calls = [(t["name"], json.loads(t["args"]) if isinstance(t["args"], str) else t["args"]) for t in rec["tools"]
+             if not str(t["call_id"]).startswith("controller_") and t["status"] != "blocked"]
+    fake = FakeModel({**rec["route"], "intent": "market_event_review"}, [calls], lambda kw: copy.deepcopy(draft))
+    res = investigate(InvestigateRequest(question=AMBIGUOUS_Q, mode="live"), live_client=fake, write_trace=False)
     ctx = json.loads(fake.requests[1]["input"][0]["content"].split("\n", 1)[1])["requested_forecast_run"]
     assert "run_id" not in ctx and "say which run you use" in ctx["note"]
     assert not any(r.call_id == "controller_requested_run" for r in res.records)
     assert "requested_forecast_run" not in res.report.validation.get("initial", {}).get("checks_run", [])
-    assert res.report.validation["final_passed"]  # nothing bound: the saved answer is judged as before
 
 
 def test_an_unavailable_run_is_said_and_no_other_run_stands_in():

@@ -1671,6 +1671,9 @@ def validate(report: InvestigationReport, registry: EvidenceRegistry, *, as_of: 
         res.checks_run.append("requested_forecast_run")
         hh_end = parse_iso(str(forecast_run["half_hour_end_utc"]))
         want = forecast_run.get("run_id")
+        # why no run is bound: none holds the half-hour, or two cannot be told apart (I-16)
+        none = str(forecast_run.get("unavailable") or "no run the question asks for holds this half-hour").rstrip(".")
+        none = none[0].lower() + none[1:]
         used = {o.evidence_id for o in report.observations} | {c.evidence_id for c in report.numeric_claims}
         # a mean (absolute) error over a comparison whose pairs include another run for the half-hour is not this run's
         # error, whether shown, cited or given as the comparison (I-9 review: such figures carry no source rows)
@@ -1690,7 +1693,7 @@ def validate(report: InvestigationReport, registry: EvidenceRegistry, *, as_of: 
                                    f"{eid}: {key} over {len(pairs)} half-hour(s) includes another forecast run for the "
                                    f"half-hour ending {iso_utc(hh_end)}, so it is not the error of " +
                                    (f"the run the question asks for ({want})" if want else
-                                    "a run the question asks for: no run the question asks for holds this half-hour")))
+                                    f"a run the question asks for: {none}")))
         for eid in sorted(used):
             ev = registry.get(eid)
             if ev is None or not ev.valid_at_utc or parse_iso(ev.valid_at_utc) != hh_end:
@@ -1701,8 +1704,7 @@ def validate(report: InvestigationReport, registry: EvidenceRegistry, *, as_of: 
                                    f"{eid}: {ev.metric} for the half-hour ending {iso_utc(hh_end)} comes from another "
                                    "forecast run; " + (f"the question asks for the run issued "
                                                        f"{forecast_run.get('issued_at_utc')} ({want})" if want else
-                                                       "no run the question asks for holds this half-hour, so no "
-                                                       "forecast value may stand in for it")))
+                                                       f"{none}, so no forecast value may stand in for it")))
 
     # -- published findings: event-specific, same region/window, verbatim quote
     res.checks_run.append("published_findings")

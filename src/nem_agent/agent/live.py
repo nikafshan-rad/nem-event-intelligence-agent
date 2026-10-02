@@ -748,6 +748,12 @@ def _replayable(item: dict[str, Any]) -> dict[str, Any] | None:
 
 
 # ------------------------------------------------------------------------------------ controller
+# two runs the question's rule cannot tell apart: the same latest issue time before the half-hour, or two equally near a
+# named issue time (I-16). Neither is chosen.
+TIED_RUNS = ("Two forecast runs fit the run the question asks for equally (the same issue time, or equally near the "
+             "time named), so it cannot be told which one is meant")
+
+
 class LiveController:
     def __init__(self, dispatcher: Dispatcher | None, registry: EvidenceRegistry, versions: Versions,
                  client: Transport | None = None, model: str | None = None) -> None:
@@ -976,14 +982,16 @@ class LiveController:
         time, or the last run issued before the half-hour asked about starts that forecasts it. When the half-hour is
         pinned down, the run is recorded for the validator, so no other run stands in for it, and the controller
         compares it with the actual before synthesis (I-9: held-out v5 Y05 and Y06 were given the run available by
-        then, issued three hours earlier). A question naming a run without pinning down the half-hour is told to say
-        which run it uses."""
+        then, issued three hours earlier). A run that cannot be told apart from another (the same issue time, or two
+        equally near a named one) is not chosen (I-16). A forecast review naming a run relative to a half-hour it does not
+        pin down is sent back by ``resolve`` (I-16); any other question doing so is told to say which run it uses."""
         assert self.d is not None and res.region is not None
         hh = wanted.half_hour
         if wanted.run == "issued_at":
             assert wanted.issued_at is not None
             out = self._run_issued_at(res.region, wanted.issued_at, res.as_of)
             if hh is None:
+                out.pop("unavailable", None)
                 return out  # no half-hour named: as before
         elif hh is None:
             return {"rule": "the last run issued before the half-hour asked about",
@@ -996,14 +1004,18 @@ class LiveController:
             rows = self.d.store.query(
                 "SELECT run_id, MIN(issued_at_utc) AS issued_at_utc, MIN(published_at_utc) AS published_at_utc, "
                 "MAX(available_at_utc) AS available_at_utc FROM opdemand_forecast WHERE region=? AND target_end_utc=? "
-                "AND issued_at_utc < ? GROUP BY run_id ORDER BY issued_at_utc DESC LIMIT 1", [res.region, hh[1], hh[0]])
+                "AND issued_at_utc < ? GROUP BY run_id ORDER BY issued_at_utc DESC LIMIT 2", [res.region, hh[1], hh[0]])
             best = rows[0] if rows else None
+            out = {}
+            if len(rows) > 1 and rows[1]["issued_at_utc"] == rows[0]["issued_at_utc"]:  # not one run: none is chosen
+                best, out["unavailable"] = None, TIED_RUNS
             if best is not None and res.as_of is not None and best["available_at_utc"] > res.as_of:
                 best = None
-            out = {"rule": "the last run issued before the half-hour starts (by issue time, not availability)",
-                   "issued_at_utc": iso_utc(best["issued_at_utc"]) if best else None,
-                   "published_at_utc": iso_utc(best["published_at_utc"]) if best else None,
-                   "run_id": best["run_id"] if best else None}
+            out |= {"rule": "the last run issued before the half-hour starts (by issue time, not availability)",
+                    "issued_at_utc": iso_utc(best["issued_at_utc"]) if best else None,
+                    "published_at_utc": iso_utc(best["published_at_utc"]) if best else None,
+                    "run_id": best["run_id"] if best else None}
+        unavailable = out.pop("unavailable", None)
         run_id = out.get("run_id")
         if run_id and not self.d.store.query("SELECT 1 FROM opdemand_forecast WHERE region=? AND run_id=? AND "
                                              "target_end_utc=? LIMIT 1", [res.region, run_id, hh[1]]):
@@ -1012,13 +1024,15 @@ class LiveController:
                 "half_hour_local": [local_str(hh[0], res.region), local_str(hh[1], res.region)], "run_id": run_id}
         res.forecast_run = {"half_hour_utc": [iso_utc(hh[0]), iso_utc(hh[1])], "half_hour_end_utc": iso_utc(hh[1]),
                             "run_id": run_id, "issued_at_utc": out.get("issued_at_utc")}
+        if unavailable and not run_id:
+            res.forecast_run["unavailable"] = unavailable
         out["note"] = (
             "The question asks for this run for this half-hour: give no other run's values for it. Compare it with "
             "compare_forecast_actual(run_selector='run_id', run_id=<run_id>); run_selector='latest_before_target' "
             "gives the run available by then (published + a margin), an earlier run. The controller also compares it "
             "before you write the answer." if run_id else
-            ("The run the question asks for cannot be supplied as public by the as-of cutoff" if res.as_of else
-             "No forecast run the question asks for holds this half-hour") +
+            (unavailable or ("The run the question asks for cannot be supplied as public by the as-of cutoff"
+                             if res.as_of else "No forecast run the question asks for holds this half-hour")) +
             ": say so, give no other run's values for this half-hour, and do not present an earlier run as that "
             "run.")
         return out
@@ -1045,22 +1059,26 @@ class LiveController:
         """The forecast run a question names by its issue time, looked up by code (the issue time is not an as-of
         cutoff): the run issued nearest that time, within 10 minutes ("issued at about 07:57Z" is the run issued
         07:57:01Z). Under an as-of cutoff given with the request, a run not public by then cannot be supplied, and no
-        other run is chosen instead (I-9 review)."""
+        other run is chosen instead (I-9 review). Two runs equally near that time cannot be told apart: neither is
+        chosen (I-16)."""
         assert self.d is not None
         rows = self.d.store.query(
             "SELECT run_id, MIN(issued_at_utc) AS issued_at_utc, MAX(available_at_utc) AS available_at_utc FROM "
             "opdemand_forecast WHERE region=? AND issued_at_utc BETWEEN ? AND ? GROUP BY run_id",
             [region, issued - timedelta(minutes=10), issued + timedelta(minutes=10)])
         best = min(rows, key=lambda r: abs(r["issued_at_utc"] - issued)) if rows else None
-        if best is not None and as_of is not None and best["available_at_utc"] > as_of:
+        tied = best is not None and sum(abs(r["issued_at_utc"] - issued) == abs(best["issued_at_utc"] - issued)
+                                        for r in rows) > 1
+        if tied or (best is not None and as_of is not None and best["available_at_utc"] > as_of):
             best = None
-        return {"issued_at_utc_asked": iso_utc(issued),
+        return {"issued_at_utc_asked": iso_utc(issued), **({"unavailable": TIED_RUNS} if tied else {}),
                 "issued_at_utc": iso_utc(best["issued_at_utc"]) if best else None,
                 "run_id": best["run_id"] if best else None,
                 "note": ("The question names a forecast by its issue time. It is not an as-of cutoff: actuals may be "
                          "used. Select this run with compare_forecast_actual(run_selector='run_id', run_id=<run_id>); "
                          "its pairs give POE10, POE50 and POE90, and where the actual falls against that range."
-                         if best else ("The run the question names cannot be supplied as public by the as-of cutoff"
+                         if best else (TIED_RUNS if tied else
+                                       "The run the question names cannot be supplied as public by the as-of cutoff"
                                        if as_of else "No forecast run issued within 10 minutes of that time is held") +
                          "; say so rather than use another run.")}
 
