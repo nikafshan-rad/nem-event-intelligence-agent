@@ -1,0 +1,128 @@
+{
+ "verified_by": "independent verifier (agent)",
+ "generated_at": "2026-10-02T14:40:06Z",
+ "file_sha256": "9f0da7bf3f4fa6b79abf258604611bec61ce173e48dd209cf0b99d51a8e04ed9",
+ "result": "PASS",
+ "cases": [
+  {
+   "case_id": "K01",
+   "verdict": "PASS",
+   "checks": "Two different intervals, two measures each. 'Began at 02:30 UTC' -> interval end 02:35Z (end-labelled); '6:25 pm Adelaide time' closing -> ACST UTC+9:30 -> 08:55Z, same local and UTC date (6 Aug). Each source_row_id looked up by row_id: region SA1, correct table/measure, interval end, value within tolerance, unit. Expected fields per brief.",
+   "recomputed": "SA1 price_5min end 2026-08-06T02:35Z rrp 53.95302 (row ...531261904:L69); regionsum_5min same interval totaldemand 1076.97 (L75); end 08:55Z rrp 144.27082 (...531315728:L7), totaldemand 2022.71 (L13). Decoys differ: end 02:30Z rrp 40.67249 / TD 1027.16; end 08:25Z (18:25 market time) rrp 130.44 / TD 1989.08.",
+   "development_overlap": "none",
+   "note": ""
+  },
+  {
+   "case_id": "K02",
+   "verdict": "PASS",
+   "checks": "Three different half-hours of one measure. 20:00Z taken as end; 'opened at 8:30 am AEST 20 Aug' -> (22:30Z, 23:00Z] 19 Aug; 'finishing at 5:30 pm AEST' 20 Aug -> 07:30Z. Latest revision ('updated', available 2026-08-20T21:26:01Z) is the cited row for each; initial and updated values are identical. Rows looked up by row_id: TAS1, correct interval, value, unit.",
+   "recomputed": "TAS1 opdemand latest revision: end 2026-08-19T20:00Z 1116 (DAILY ...044001:L150); end 2026-08-19T23:00Z 1249 (L156); end 2026-08-20T07:30Z 1214 (L173). Decoy end 22:30Z = 1293 (differs).",
+   "development_overlap": "none",
+   "note": ""
+  },
+  {
+   "case_id": "K03",
+   "verdict": "PASS",
+   "checks": "07:15 AEST (UTC+10) Wed 29 Jul -> interval end 2026-07-28T21:15Z (29 Jul 2026 confirmed a Wednesday). Trap exists: an interval with UTC clock time 07:15 on 29 Jul (2026-07-29T07:15Z) is held for QLD1 with a different price; the gold value occurs at no other QLD1 interval. Row looked up by row_id.",
+   "recomputed": "QLD1 rrp at end 2026-07-28T21:15Z = 101.74393 (...529804386:L85). Decoy 2026-07-29T07:15Z = 102.55; neighbours 21:10Z = 88.78809, 21:20Z = 93.83004.",
+   "development_overlap": "none",
+   "note": ""
+  },
+  {
+   "case_id": "K04",
+   "verdict": "PASS",
+   "checks": "Cutoff 2026-08-20T02:30:00Z is in the question. 9:00/9:30 am AEST 20 Aug -> half-hours ending 23:00Z and 23:30Z on 19 Aug; price interval end 23:30Z 19 Aug. Every gold row has available_at_utc <= cutoff; for operational demand the cited row is the 'initial' revision, the only one public by then (the 'updated' revision is available 2026-08-20T21:26:01Z and published 18:40:01Z, both after the cutoff), so the reading is the same whether 'published' is read as published_at_utc or available_at_utc.",
+   "recomputed": "NSW1 opdemand end 23:00Z initial 8390, available 2026-08-20T01:46:06Z (HH_202608200900...:L3); end 23:30Z initial 8034, available 02:16:06Z (HH_202608200930...:L3); NSW1 rrp end 23:30Z 23.9901, available 00:18:09Z (...533537958:L37).",
+   "development_overlap": "none",
+   "note": "Writer's flag checked: initial and updated revisions have equal values here, so the as-of rule changes the cited row but not the number; this meets the brief (it asks for the revision public by the cutoff, not for differing values). The 23:30Z half-hour became public only 14 min before the cutoff, which is fine."
+  },
+  {
+   "case_id": "K05",
+   "verdict": "PASS",
+   "checks": "17:30-18:00 AEST 6 Aug QLD1 -> target (07:30Z, 08:00Z]; unambiguous. Listed all runs for that target with issued < 07:30Z ordered by issue time: greatest is the gold run. No run_id/target duplicates. Values from that run's row; actual from latest revision.",
+   "recomputed": "Gold run issued 2026-08-06T07:27:01Z, published 07:32:22Z, available 10:18:22Z; POE50 7598 (L400). Previous run issued 06:56:59Z (POE50 7689). Actual: updated 7608 (DAILY ...044001:L78), initial also 7608.",
+   "development_overlap": "none",
+   "note": ""
+  },
+  {
+   "case_id": "K06",
+   "verdict": "PASS",
+   "checks": "07:30-08:00 ACST 20 Aug SA1 -> (22:00Z, 22:30Z] 19 Aug; unambiguous. Greatest issued < 22:00Z among SA1 runs for target 22:30Z is the gold run. Region and half-hour differ from K05. Market-time decoy (target end 22:00Z) is a different half-hour.",
+   "recomputed": "Gold run issued 2026-08-19T21:57:01Z, published 22:01:31Z, available 2026-08-20T00:47:31Z; POE10/50/90 1663/1594/1525 (L835). Actual updated 1567 (DAILY ...044001:L107).",
+   "development_overlap": "none",
+   "note": ""
+  },
+  {
+   "case_id": "K07",
+   "verdict": "PASS",
+   "checks": "17:00-17:30 AEST 6 Aug NSW1 -> target (07:00Z, 07:30Z]. Last run issued before 07:00Z = gold run. Request cutoff 2026-08-06T09:00Z is after its issue time and before its available_at_utc. Latest earlier run public by the cutoff = must_not_substitute. Question text does not mention the cutoff. Half-hour fully identified, so not a clarification; the asked run is not public, so not supplied. The actual for the half-hour is also not public by the cutoff, reinforcing 'unavailable'. request = {as_of_utc} equals expected.as_of_utc.",
+   "recomputed": "Gold run issued 2026-08-06T06:56:59Z, published 07:02:05Z, available 09:48:05Z. Run issued 06:26:59Z also not public (available 09:18:18Z). must_not_substitute issued 05:56:58Z, available 08:48:18Z (POE50 10377). 127 runs for the target public by cutoff. Actual initial 10335 available 10:16:06Z (after cutoff).",
+   "development_overlap": "none",
+   "note": "Writer's flag checked: the gold run's published_at_utc is before the cutoff but its available_at_utc is after; under the brief's rule (public iff available_at_utc <= cutoff) it is not public, so 'unavailable' is the only correct outcome. The run immediately before it is also non-public, and must_not_substitute correctly skips it."
+  },
+  {
+   "case_id": "K08",
+   "verdict": "PASS",
+   "checks": "Question names the region and 'the 6 pm half-hour' but no date. VIC1 has a forecast run issued before the start and an actual for half-hours ending 08:00Z and 08:30Z (18:00/18:30 AEST) on six dates; 'the 6 pm half-hour' also leaves open ending vs starting at 18:00. A careful analyst could not tell which half-hour is meant. Expected fields for clarification correct (answerable false, needs_clarification, empty gold).",
+   "recomputed": "Candidate half-hour ends: 2026-07-28, 07-29, 07-30, 07-31, 08-06, 08-20, each at 08:00Z and 08:30Z; each has a last-run-before and 2 actual revisions.",
+   "development_overlap": "none (no gold); one candidate date (VIC1 29 Jul) is development material, as the writer notes",
+   "note": "Writer's flag checked: genuinely ambiguous."
+  },
+  {
+   "case_id": "K09",
+   "verdict": "PASS",
+   "checks": "NSW1 local day 29 Jul AEST = (2026-07-28T14:00Z, 2026-07-29T14:00Z]: 288 distinct intervals held. Max of totaldemand_mw over exactly that window, tie check, next-highest. Measure is dispatch total demand; region not TAS1/VIC1.",
+   "recomputed": "Max 10954.2 at end 2026-07-29T09:05Z (19:05 AEST) (...529893888:L27); no ties; next-highest 10928.72 at 08:55Z (...529892847:L27); third 10923.63 at 09:00Z.",
+   "development_overlap": "none",
+   "note": ""
+  },
+  {
+   "case_id": "K10",
+   "verdict": "PASS",
+   "checks": "Event VIC1-20260728T2120-lo is listed; trough 2026-07-28T11:20Z = 21:20 AEST 28 Jul confirmed in price_5min. Window (2026-07-27T23:00Z, 2026-07-28T23:30Z]: 294 intervals held. Max, ties, next-highest. Recomputed day_max_for_comparison over VIC1 local day 29 Jul AEST (288 intervals). Also recomputed, for every listed event, the window max and the max of each local day it overlaps: 29 Jul is the only fully held day; the only other event overlapping it (SA1-20260729T1755-hi) has window max equal to the SA1 29 Jul (ACST) day max (2162.0 at the same interval), so the writer's reason for using development material holds.",
+   "recomputed": "Window max 7867.57 at end 2026-07-28T22:10Z (08:10 AEST 29 Jul) (...529811184:L95); no ties; next-highest 7835.99 at 22:05Z (...529810154:L95). VIC1 29 Jul day max 8700.91 at 2026-07-29T08:30Z (...529889940:L31), outside the window and different.",
+   "development_overlap": "yes: the gold, next-highest and comparison rows fall in the VIC1 event window and VIC1 local day 29 Jul listed in development_material.json; the writer says why in provenance.note, and I confirmed no other listed event meets the scenario",
+   "note": "Writer's flag checked: development-material use is justified and disclosed."
+  },
+  {
+   "case_id": "K11",
+   "verdict": "PASS",
+   "checks": "QLD1 local day 29 Jul AEST: 48 distinct half-hours, each with initial and updated revisions. Latest revision per half-hour (updated) used; max, tie check, next-highest. Initial and updated values are identical for all 48 half-hours, so revision choice cannot change the result. Region QLD1 is not TAS1/VIC1 and differs from K09 (NSW1).",
+   "recomputed": "Max 7548 at half-hour ending 2026-07-29T08:30Z (18:00-18:30 AEST) (DAILY_20260729...:L79); no ties; next-highest 7547 at 09:00Z (L80); third 7478 at 09:30Z.",
+   "development_overlap": "none",
+   "note": "Writer's flag checked: the runner-up is only 1 MW lower, but the gold tolerance (0.5 MW) and the interval separate them; the gold is correct."
+  },
+  {
+   "case_id": "K12",
+   "verdict": "PASS",
+   "checks": "events.json lists two SA1 high_price events (29 Jul and 30-31 Jul) with non-overlapping windows; the question names the measure but not which event, so the window is open. Recomputed both window maxima: they differ in value and interval, so the ambiguity is material. A careful analyst could not tell which peak is meant. Clarification fields correct.",
+   "recomputed": "SA1-20260729T1755-hi window max 2162.0 at 2026-07-29T09:15Z; SA1-20260731T0235-hi window max 2196.16 at 2026-07-30T09:20Z (not gold).",
+   "development_overlap": "none (no gold); one candidate window (SA1 30-31 Jul event) is development material, as the writer notes",
+   "note": "Writer's flag checked: genuinely ambiguous over the window."
+  },
+  {
+   "case_id": "K13",
+   "verdict": "PASS",
+   "checks": "Event VIC1-20260820T0910-hi is the only VIC1 event on 20 Aug. Max rrp over (window_start, window_end] is unique and matches events.json peak. Dispatch total demand read at that same interval (value at the price peak, not a maximum).",
+   "recomputed": "Peak rrp 406.00544 at end 2026-08-19T23:10Z (...533535901:L49); next price 349.9 at 23:05Z. totaldemand at 23:10Z 6639.92 (L55); neighbours 6655.24 (23:05Z) and 6619.56 (23:15Z); window demand max 7361.73 at 2026-08-20T08:35Z differs.",
+   "development_overlap": "none",
+   "note": ""
+  },
+  {
+   "case_id": "K14",
+   "verdict": "PASS",
+   "checks": "2026-07-30T18:56:59Z is a real issued_at_utc (one run, all five regions); that run forecasts TAS1 target ending 2026-07-30T22:00Z (08:00 AEST 31 Jul). It is not the last run before that half-hour (issued 21:27:02Z), so it tests the stated-time lookup.",
+   "recomputed": "Run ...202607310530_20260731050135: published 19:01:35Z, available 21:47:35Z; POE10/50/90 1458/1413/1369 (L1274). Actual updated 1455 (DAILY_20260731...:L154), initial also 1455.",
+   "development_overlap": "none",
+   "note": ""
+  },
+  {
+   "case_id": "K15",
+   "verdict": "PASS",
+   "checks": "Snippet (343 chars) is an exact substring of exactly one passage, aemo_so_op_3710#p7c12 (doc aemo_so_op_3710, 'SO_OP_3710 Load Forecasting', section 4). That passage gives the SA pre-dispatch threshold and the review trigger, answering both parts. The only 'Load Forecasting' document in the corpus is this one; other threshold passages are in SO_OP_3705 (dispatch conformance) and do not compete.",
+   "recomputed": "doc_id aemo_so_op_3710, chunk p7c12; Table 5 lists South Australia 50 MW; review when error exceeds threshold for two consecutive 30-minute periods.",
+   "development_overlap": "none",
+   "note": ""
+  }
+ ]
+}

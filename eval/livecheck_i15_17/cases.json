@@ -1,0 +1,830 @@
+{
+ "version": "livecheck-i15-17",
+ "authored_by": "independent writer (agent)",
+ "generated_at": "2026-10-02T14:34:14Z",
+ "cases": [
+  {
+   "case_id": "K01",
+   "category": "value_time",
+   "split": "livecheck_i15_17",
+   "question": "For South Australia on 6 August 2026, I need the dispatch price and the dispatch total demand for two five-minute intervals: the one that began at 02:30 UTC, and the one that closed at 6:25 pm Adelaide time.",
+   "request": {},
+   "expected": {
+    "area": "value_time",
+    "expected_outcome": "supplied",
+    "intent": "market_event_review",
+    "answerable": true,
+    "status_in": [
+     "answered",
+     "answered_with_caveats"
+    ],
+    "required_tools": [
+     "find_market_events",
+     "get_price_timeline",
+     "get_actual_demand",
+     "retrieve_public_evidence"
+    ],
+    "gold_numbers": [
+     {
+      "metric": "dispatch_rrp",
+      "value": 53.95302,
+      "unit": "$/MWh",
+      "valid_at_utc": "2026-08-06T02:35:00Z",
+      "source_row_id": "DISPATCHIS:PUBLIC_DISPATCHIS_202608061235_0000000531261904:L69",
+      "tolerance": 0.01,
+      "label": "SA1 RRP, interval starting 02:30Z (ending 02:35Z) on 6 Aug"
+     },
+     {
+      "metric": "dispatch_totaldemand",
+      "value": 1076.97,
+      "unit": "MW",
+      "valid_at_utc": "2026-08-06T02:35:00Z",
+      "source_row_id": "DISPATCHIS:PUBLIC_DISPATCHIS_202608061235_0000000531261904:L75",
+      "tolerance": 0.5,
+      "label": "SA1 dispatch total demand, interval ending 02:35Z on 6 Aug"
+     },
+     {
+      "metric": "dispatch_rrp",
+      "value": 144.27082,
+      "unit": "$/MWh",
+      "valid_at_utc": "2026-08-06T08:55:00Z",
+      "source_row_id": "DISPATCHIS:PUBLIC_DISPATCHIS_202608061855_0000000531315728:L7",
+      "tolerance": 0.01,
+      "label": "SA1 RRP, interval ending 18:25 ACST (08:55Z) on 6 Aug"
+     },
+     {
+      "metric": "dispatch_totaldemand",
+      "value": 2022.71,
+      "unit": "MW",
+      "valid_at_utc": "2026-08-06T08:55:00Z",
+      "source_row_id": "DISPATCHIS:PUBLIC_DISPATCHIS_202608061855_0000000531315728:L13",
+      "tolerance": 0.5,
+      "label": "SA1 dispatch total demand, interval ending 18:25 ACST (08:55Z) on 6 Aug"
+     }
+    ],
+    "check": "A correct answer gives SA1 price and dispatch total demand for the intervals ending 02:35Z and 08:55Z (18:25 ACST = 08:55Z); it must not use the interval ending 02:30Z (start/end confusion) or the one ending 08:25Z (18:25 read as market time)."
+   },
+   "provenance": {
+    "gold_method": "Interval 'began at 02:30 UTC' -> interval_end_utc 02:35Z (end-labelled 5-min intervals). 6:25 pm ACST (UTC+9:30) -> 08:55Z. RRP from price_5min and totaldemand_mw from regionsum_5min at those interval ends; neighbouring decoy intervals (02:30Z, 08:25Z) queried only to confirm they differ.",
+    "queries": [
+     "SELECT row_id, region, interval_end_utc, interval_start_utc, rrp, price_status FROM price_5min WHERE region='SA1' AND interval_end_utc IN (TIMESTAMPTZ '2026-08-06 02:35:00+00', TIMESTAMPTZ '2026-08-06 08:55:00+00') ORDER BY interval_end_utc",
+     "SELECT row_id, region, interval_end_utc, interval_start_utc, totaldemand_mw FROM regionsum_5min WHERE region='SA1' AND interval_end_utc IN (TIMESTAMPTZ '2026-08-06 02:35:00+00', TIMESTAMPTZ '2026-08-06 08:55:00+00') ORDER BY interval_end_utc",
+     "SELECT interval_end_utc, rrp FROM price_5min WHERE region='SA1' AND interval_end_utc IN (TIMESTAMPTZ '2026-08-06 02:30:00+00', TIMESTAMPTZ '2026-08-06 08:25:00+00') ORDER BY interval_end_utc"
+    ],
+    "note": ""
+   }
+  },
+  {
+   "case_id": "K02",
+   "category": "value_time",
+   "split": "livecheck_i15_17",
+   "question": "I'd like Tasmania's operational demand for three half-hours: one closing at 2026-08-19T20:00Z, one that opened at 8:30 am AEST on 20 August, and one finishing at 5:30 pm AEST that afternoon.",
+   "request": {},
+   "expected": {
+    "area": "value_time",
+    "expected_outcome": "supplied",
+    "intent": "market_event_review",
+    "answerable": true,
+    "status_in": [
+     "answered",
+     "answered_with_caveats"
+    ],
+    "required_tools": [
+     "find_market_events",
+     "get_price_timeline",
+     "get_actual_demand",
+     "retrieve_public_evidence"
+    ],
+    "gold_numbers": [
+     {
+      "metric": "opdemand_actual",
+      "value": 1116.0,
+      "unit": "MW",
+      "valid_at_utc": "2026-08-19T20:00:00Z",
+      "source_row_id": "OPDEM_ACTUAL_DAILY:PUBLIC_ACTUAL_OPERATIONAL_DEMAND_DAILY_20260820_20260821044001:L150",
+      "tolerance": 0.5,
+      "label": "TAS1 operational demand, half-hour ending 2026-08-19T20:00Z (latest revision)"
+     },
+     {
+      "metric": "opdemand_actual",
+      "value": 1249.0,
+      "unit": "MW",
+      "valid_at_utc": "2026-08-19T23:00:00Z",
+      "source_row_id": "OPDEM_ACTUAL_DAILY:PUBLIC_ACTUAL_OPERATIONAL_DEMAND_DAILY_20260820_20260821044001:L156",
+      "tolerance": 0.5,
+      "label": "TAS1 operational demand, half-hour 08:30-09:00 AEST 20 Aug = ending 23:00Z on 19 Aug (latest revision)"
+     },
+     {
+      "metric": "opdemand_actual",
+      "value": 1214.0,
+      "unit": "MW",
+      "valid_at_utc": "2026-08-20T07:30:00Z",
+      "source_row_id": "OPDEM_ACTUAL_DAILY:PUBLIC_ACTUAL_OPERATIONAL_DEMAND_DAILY_20260820_20260821044001:L173",
+      "tolerance": 0.5,
+      "label": "TAS1 operational demand, half-hour ending 17:30 AEST 20 Aug = 07:30Z (latest revision)"
+     }
+    ],
+    "check": "A correct answer gives TAS1 operational demand for the half-hours ending 20:00Z and 23:00Z on 19 Aug and 07:30Z on 20 Aug; it must not give the half-hour ending 22:30Z (08:30 AEST read as an end time) for the second."
+   },
+   "provenance": {
+    "gold_method": "Half-hour ending 20:00Z taken as given. 'Started at 8:30 am AEST 20 Aug' -> covers 08:30-09:00 AEST -> end 23:00Z 19 Aug. 'Ending 5:30 pm AEST 20 Aug' -> 07:30Z. Latest revision = greatest available_at_utc per half-hour (the 'updated' daily row); initial and updated values are identical here. Decoy half-hour ending 22:30Z queried to confirm it differs.",
+    "queries": [
+     "SELECT row_id, region, interval_end_utc, revision, operational_demand_mw, published_at_utc, available_at_utc FROM opdemand_actual WHERE region='TAS1' AND interval_end_utc IN (TIMESTAMPTZ '2026-08-19 20:00:00+00', TIMESTAMPTZ '2026-08-19 23:00:00+00', TIMESTAMPTZ '2026-08-20 07:30:00+00') QUALIFY row_number() OVER (PARTITION BY interval_end_utc ORDER BY available_at_utc DESC) = 1 ORDER BY interval_end_utc",
+     "SELECT row_id, region, interval_end_utc, revision, operational_demand_mw, published_at_utc, available_at_utc FROM opdemand_actual WHERE region='TAS1' AND interval_end_utc IN (TIMESTAMPTZ '2026-08-19 22:30:00+00') QUALIFY row_number() OVER (PARTITION BY interval_end_utc ORDER BY available_at_utc DESC) = 1 ORDER BY interval_end_utc"
+    ],
+    "note": ""
+   }
+  },
+  {
+   "case_id": "K03",
+   "category": "value_time",
+   "split": "livecheck_i15_17",
+   "question": "What was the Queensland dispatch price (RRP) for the five-minute interval ending 7:15 am Brisbane time on Wednesday 29 July 2026?",
+   "request": {},
+   "expected": {
+    "area": "value_time",
+    "expected_outcome": "supplied",
+    "intent": "market_event_review",
+    "answerable": true,
+    "status_in": [
+     "answered",
+     "answered_with_caveats"
+    ],
+    "required_tools": [
+     "find_market_events",
+     "get_price_timeline",
+     "get_actual_demand",
+     "retrieve_public_evidence"
+    ],
+    "gold_numbers": [
+     {
+      "metric": "dispatch_rrp",
+      "value": 101.74393,
+      "unit": "$/MWh",
+      "valid_at_utc": "2026-07-28T21:15:00Z",
+      "source_row_id": "DISPATCHIS:PUBLIC_DISPATCHIS_202607290715_0000000529804386:L85",
+      "tolerance": 0.01,
+      "label": "QLD1 RRP, interval ending 07:15 AEST 29 Jul = 2026-07-28T21:15Z"
+     }
+    ],
+    "check": "A correct answer gives the QLD1 price for the interval ending 2026-07-28T21:15Z (07:15 AEST on 29 July); it must not give the price at 2026-07-29T07:15Z, which is the same clock time read as UTC and is a different interval held in the data."
+   },
+   "provenance": {
+    "gold_method": "07:15 AEST (UTC+10) on 29 Jul -> interval_end_utc 2026-07-28T21:15Z; RRP read from price_5min. The interval whose UTC clock time is also 07:15 on 29 Jul (2026-07-29T07:15Z) is held in the data with a different price, as are both neighbours; recorded as decoys.",
+    "queries": [
+     "SELECT row_id, region, interval_end_utc, rrp, price_status FROM price_5min WHERE region='QLD1' AND interval_end_utc = TIMESTAMPTZ '2026-07-28 21:15:00+00'",
+     "SELECT row_id, region, interval_end_utc, rrp FROM price_5min WHERE region='QLD1' AND interval_end_utc IN (TIMESTAMPTZ '2026-07-29 07:15:00+00', TIMESTAMPTZ '2026-07-28 21:10:00+00', TIMESTAMPTZ '2026-07-28 21:20:00+00') ORDER BY interval_end_utc"
+    ],
+    "note": "Scenario variant used: the question's local clock time coincides with a different interval's UTC clock time in the data. Decoy rows (not gold): 2026-07-28T21:10:00Z rrp=88.78809 (DISPATCHIS:PUBLIC_DISPATCHIS_202607290710_0000000529803749:L83); 2026-07-28T21:20:00Z rrp=93.83004 (DISPATCHIS:PUBLIC_DISPATCHIS_202607290720_0000000529804927:L83); 2026-07-29T07:15:00Z rrp=102.55 (DISPATCHIS:PUBLIC_DISPATCHIS_202607291715_0000000529880696:L15)."
+   }
+  },
+  {
+   "case_id": "K04",
+   "category": "value_time",
+   "split": "livecheck_i15_17",
+   "question": "Working only from what had been published as of 2026-08-20T02:30:00Z, give me New South Wales operational demand for the half-hours ending 9:00 am and 9:30 am AEST on 20 August, plus the NSW dispatch price for the 5-minute period that closed at 23:30 UTC, 19 August.",
+   "request": {},
+   "expected": {
+    "area": "value_time",
+    "expected_outcome": "supplied",
+    "intent": "market_event_review",
+    "answerable": true,
+    "status_in": [
+     "answered",
+     "answered_with_caveats"
+    ],
+    "required_tools": [
+     "find_market_events",
+     "get_price_timeline",
+     "get_actual_demand",
+     "retrieve_public_evidence"
+    ],
+    "as_of_utc": "2026-08-20T02:30:00Z",
+    "gold_numbers": [
+     {
+      "metric": "opdemand_actual",
+      "value": 8390.0,
+      "unit": "MW",
+      "valid_at_utc": "2026-08-19T23:00:00Z",
+      "source_row_id": "OPDEM_ACTUAL_HH:PUBLIC_ACTUAL_OPERATIONAL_DEMAND_HH_202608200900_20260820090006:L3",
+      "tolerance": 0.5,
+      "label": "NSW1 operational demand, half-hour ending 09:00 AEST 20 Aug (23:00Z), initial revision available 2026-08-20T01:46:06Z"
+     },
+     {
+      "metric": "opdemand_actual",
+      "value": 8034.0,
+      "unit": "MW",
+      "valid_at_utc": "2026-08-19T23:30:00Z",
+      "source_row_id": "OPDEM_ACTUAL_HH:PUBLIC_ACTUAL_OPERATIONAL_DEMAND_HH_202608200930_20260820093006:L3",
+      "tolerance": 0.5,
+      "label": "NSW1 operational demand, half-hour ending 09:30 AEST 20 Aug (23:30Z), initial revision available 2026-08-20T02:16:06Z"
+     },
+     {
+      "metric": "dispatch_rrp",
+      "value": 23.9901,
+      "unit": "$/MWh",
+      "valid_at_utc": "2026-08-19T23:30:00Z",
+      "source_row_id": "DISPATCHIS:PUBLIC_DISPATCHIS_202608200930_0000000533537958:L37",
+      "tolerance": 0.01,
+      "label": "NSW1 RRP, interval ending 2026-08-19T23:30Z, available 2026-08-20T00:18:09Z"
+     }
+    ],
+    "check": "A correct answer gives the two NSW1 operational demand values from the initial revision (the only one public by 02:30Z; the updated rows only became available at 21:26Z on 20 Aug) and the NSW1 price at 23:30Z; it must not cite the later 'updated' revision rows as the as-of source or use data not public by the cutoff."
+   },
+   "provenance": {
+    "gold_method": "09:00 and 09:30 AEST on 20 Aug -> half-hours ending 23:00Z and 23:30Z on 19 Aug. For each, the revision with the greatest available_at_utc <= cutoff (the 'initial' HH row; the 'updated' daily row is available 2026-08-20T21:26:01Z, after the cutoff; values equal). Price row from price_5min at 23:30Z with available_at_utc <= cutoff.",
+    "queries": [
+     "SELECT row_id, region, interval_end_utc, revision, operational_demand_mw, available_at_utc FROM opdemand_actual WHERE region='NSW1' AND interval_end_utc IN (TIMESTAMPTZ '2026-08-19 23:00:00+00', TIMESTAMPTZ '2026-08-19 23:30:00+00') AND available_at_utc <= TIMESTAMPTZ '2026-08-20 02:30:00+00' QUALIFY row_number() OVER (PARTITION BY interval_end_utc ORDER BY available_at_utc DESC) = 1 ORDER BY interval_end_utc",
+     "SELECT row_id, interval_end_utc, revision, operational_demand_mw, available_at_utc FROM opdemand_actual WHERE region='NSW1' AND interval_end_utc IN (TIMESTAMPTZ '2026-08-19 23:00:00+00', TIMESTAMPTZ '2026-08-19 23:30:00+00') ORDER BY interval_end_utc, available_at_utc",
+     "SELECT row_id, region, interval_end_utc, rrp, available_at_utc FROM price_5min WHERE region='NSW1' AND interval_end_utc = TIMESTAMPTZ '2026-08-19 23:30:00+00' AND available_at_utc <= TIMESTAMPTZ '2026-08-20 02:30:00+00'"
+    ],
+    "note": ""
+   }
+  },
+  {
+   "case_id": "K05",
+   "category": "forecast_run",
+   "split": "livecheck_i15_17",
+   "question": "Looking at the 5:30 to 6:00 pm (AEST) half-hour in Queensland on 6 August 2026: what POE50 operational demand did the most recent forecast run issued before that half-hour predict, and how close did actual operational demand come to it?",
+   "request": {},
+   "expected": {
+    "area": "forecast_run",
+    "expected_outcome": "supplied",
+    "intent": "forecast_review",
+    "answerable": true,
+    "status_in": [
+     "answered",
+     "answered_with_caveats"
+    ],
+    "required_tools": [
+     "get_forecast_runs",
+     "get_actual_demand",
+     "compare_forecast_actual",
+     "retrieve_public_evidence"
+    ],
+    "gold_run": {
+     "run_id": "PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202608061800_20260806173222",
+     "issued_at_utc": "2026-08-06T07:27:01Z",
+     "published_at_utc": "2026-08-06T07:32:22Z",
+     "available_at_utc": "2026-08-06T10:18:22Z",
+     "target_end_utc": "2026-08-06T08:00:00Z"
+    },
+    "gold_numbers": [
+     {
+      "metric": "opdemand_forecast_poe50",
+      "value": 7598.0,
+      "unit": "MW",
+      "valid_at_utc": "2026-08-06T08:00:00Z",
+      "source_row_id": "OPDEM_FORECAST_HH:PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202608061800_20260806173222:L400",
+      "tolerance": 0.5,
+      "label": "QLD1 POE50 from last run issued before 07:30Z, for half-hour ending 08:00Z 6 Aug"
+     },
+     {
+      "metric": "opdemand_actual",
+      "value": 7608.0,
+      "unit": "MW",
+      "valid_at_utc": "2026-08-06T08:00:00Z",
+      "source_row_id": "OPDEM_ACTUAL_DAILY:PUBLIC_ACTUAL_OPERATIONAL_DEMAND_DAILY_20260806_20260807044001:L78",
+      "tolerance": 0.5,
+      "label": "QLD1 actual operational demand, half-hour ending 08:00Z 6 Aug (latest revision)"
+     }
+    ],
+    "check": "A correct answer identifies the run issued at the gold issued_at_utc (the last before the 07:30Z start), gives its POE50 and the actual for the half-hour ending 08:00Z, and compares them; it must not use an earlier run or another half-hour."
+   },
+   "provenance": {
+    "gold_method": "17:30-18:00 AEST 6 Aug -> target_start 07:30Z, target_end 08:00Z. Run = greatest issued_at_utc < target_start among QLD1 rows for that target. Actual = latest-available revision for that half-hour.",
+    "queries": [
+     "SELECT row_id, run_id, region, target_start_utc, target_end_utc, issued_at_utc, published_at_utc, available_at_utc, poe10_mw, poe50_mw, poe90_mw FROM opdemand_forecast WHERE region='QLD1' AND target_end_utc = TIMESTAMPTZ '2026-08-06 08:00:00+00' AND issued_at_utc < target_start_utc ORDER BY issued_at_utc DESC LIMIT 1",
+     "SELECT row_id, region, interval_end_utc, revision, operational_demand_mw, published_at_utc, available_at_utc FROM opdemand_actual WHERE region='QLD1' AND interval_end_utc IN (TIMESTAMPTZ '2026-08-06 08:00:00+00') QUALIFY row_number() OVER (PARTITION BY interval_end_utc ORDER BY available_at_utc DESC) = 1 ORDER BY interval_end_utc"
+    ],
+    "note": ""
+   }
+  },
+  {
+   "case_id": "K06",
+   "category": "forecast_run",
+   "split": "livecheck_i15_17",
+   "question": "Taking South Australia's 7:30-8:00 am half-hour (Adelaide time, ACST) on 20 August 2026: what POE10, POE50 and POE90 operational demand values were in the final forecast run issued ahead of it, and what operational demand was actually measured?",
+   "request": {},
+   "expected": {
+    "area": "forecast_run",
+    "expected_outcome": "supplied",
+    "intent": "forecast_review",
+    "answerable": true,
+    "status_in": [
+     "answered",
+     "answered_with_caveats"
+    ],
+    "required_tools": [
+     "get_forecast_runs",
+     "get_actual_demand",
+     "compare_forecast_actual",
+     "retrieve_public_evidence"
+    ],
+    "gold_run": {
+     "run_id": "PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202608200830_20260820080131",
+     "issued_at_utc": "2026-08-19T21:57:01Z",
+     "published_at_utc": "2026-08-19T22:01:31Z",
+     "available_at_utc": "2026-08-20T00:47:31Z",
+     "target_end_utc": "2026-08-19T22:30:00Z"
+    },
+    "gold_numbers": [
+     {
+      "metric": "opdemand_forecast_poe10",
+      "value": 1663.0,
+      "unit": "MW",
+      "valid_at_utc": "2026-08-19T22:30:00Z",
+      "source_row_id": "OPDEM_FORECAST_HH:PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202608200830_20260820080131:L835",
+      "tolerance": 0.5,
+      "label": "SA1 POE10, last run before 22:00Z, half-hour ending 22:30Z 19 Aug"
+     },
+     {
+      "metric": "opdemand_forecast_poe50",
+      "value": 1594.0,
+      "unit": "MW",
+      "valid_at_utc": "2026-08-19T22:30:00Z",
+      "source_row_id": "OPDEM_FORECAST_HH:PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202608200830_20260820080131:L835",
+      "tolerance": 0.5,
+      "label": "SA1 POE50, last run before 22:00Z, half-hour ending 22:30Z 19 Aug"
+     },
+     {
+      "metric": "opdemand_forecast_poe90",
+      "value": 1525.0,
+      "unit": "MW",
+      "valid_at_utc": "2026-08-19T22:30:00Z",
+      "source_row_id": "OPDEM_FORECAST_HH:PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202608200830_20260820080131:L835",
+      "tolerance": 0.5,
+      "label": "SA1 POE90, last run before 22:00Z, half-hour ending 22:30Z 19 Aug"
+     },
+     {
+      "metric": "opdemand_actual",
+      "value": 1567.0,
+      "unit": "MW",
+      "valid_at_utc": "2026-08-19T22:30:00Z",
+      "source_row_id": "OPDEM_ACTUAL_DAILY:PUBLIC_ACTUAL_OPERATIONAL_DEMAND_DAILY_20260820_20260821044001:L107",
+      "tolerance": 0.5,
+      "label": "SA1 actual operational demand, half-hour ending 22:30Z 19 Aug (latest revision)"
+     }
+    ],
+    "check": "A correct answer converts 07:30-08:00 ACST (UTC+9:30) to the half-hour ending 2026-08-19T22:30Z, names the last run issued before 22:00Z and gives its POE10/50/90 and the actual; it must not treat the times as market time (UTC+10), which would select the half-hour ending 22:00Z."
+   },
+   "provenance": {
+    "gold_method": "07:30-08:00 ACST on 20 Aug -> 22:00Z-22:30Z on 19 Aug. Run = greatest issued_at_utc < target_start (22:00Z) among SA1 rows for target_end 22:30Z. Actual = latest-available revision.",
+    "queries": [
+     "SELECT row_id, run_id, region, target_start_utc, target_end_utc, issued_at_utc, published_at_utc, available_at_utc, poe10_mw, poe50_mw, poe90_mw FROM opdemand_forecast WHERE region='SA1' AND target_end_utc = TIMESTAMPTZ '2026-08-19 22:30:00+00' AND issued_at_utc < target_start_utc ORDER BY issued_at_utc DESC LIMIT 1",
+     "SELECT row_id, region, interval_end_utc, revision, operational_demand_mw, published_at_utc, available_at_utc FROM opdemand_actual WHERE region='SA1' AND interval_end_utc IN (TIMESTAMPTZ '2026-08-19 22:30:00+00') QUALIFY row_number() OVER (PARTITION BY interval_end_utc ORDER BY available_at_utc DESC) = 1 ORDER BY interval_end_utc"
+    ],
+    "note": ""
+   }
+  },
+  {
+   "case_id": "K07",
+   "category": "forecast_run",
+   "split": "livecheck_i15_17",
+   "question": "NSW, half-hour 5:00-5:30 pm AEST, 6 Aug 2026. What POE50 figure did the latest operational demand forecast run issued before it give, and how did that stack up against what actually happened?",
+   "request": {
+    "as_of_utc": "2026-08-06T09:00:00Z"
+   },
+   "expected": {
+    "area": "forecast_run",
+    "expected_outcome": "unavailable",
+    "intent": "forecast_review",
+    "answerable": true,
+    "status_in": [
+     "answered",
+     "answered_with_caveats"
+    ],
+    "required_tools": [
+     "get_forecast_runs",
+     "get_actual_demand",
+     "compare_forecast_actual",
+     "retrieve_public_evidence"
+    ],
+    "as_of_utc": "2026-08-06T09:00:00Z",
+    "gold_run": {
+     "run_id": "PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202608061730_20260806170205",
+     "issued_at_utc": "2026-08-06T06:56:59Z",
+     "published_at_utc": "2026-08-06T07:02:05Z",
+     "available_at_utc": "2026-08-06T09:48:05Z",
+     "target_end_utc": "2026-08-06T07:30:00Z",
+     "must_not_substitute": {
+      "run_id": "PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202608061630_20260806160218",
+      "issued_at_utc": "2026-08-06T05:56:58Z",
+      "available_at_utc": "2026-08-06T08:48:18Z"
+     }
+    },
+    "gold_numbers": [],
+    "check": "With the request cutoff 2026-08-06T09:00:00Z, a correct answer says the last run issued before the 07:00Z start (issued 06:56:59Z, available 09:48:05Z) was not yet public and cannot be supplied; it must not give the values of the latest run that was public (issued 05:56:58Z) or any other run in its place."
+   },
+   "provenance": {
+    "gold_method": "17:00-17:30 AEST 6 Aug -> target 07:00Z-07:30Z. Run asked for = greatest issued_at_utc < 07:00Z (06:56:59Z), whose available_at_utc 09:48:05Z is after the cutoff 09:00Z while its issue time is before it. Latest run public at the cutoff = greatest issued_at_utc with available_at_utc <= 09:00Z (must_not_substitute). The actual for the half-hour (initial revision available 10:16:06Z) is also not public at the cutoff.",
+    "queries": [
+     "SELECT row_id, run_id, region, target_start_utc, target_end_utc, issued_at_utc, published_at_utc, available_at_utc, poe10_mw, poe50_mw, poe90_mw FROM opdemand_forecast WHERE region='NSW1' AND target_end_utc = TIMESTAMPTZ '2026-08-06 07:30:00+00' AND issued_at_utc < target_start_utc ORDER BY issued_at_utc DESC LIMIT 1",
+     "SELECT row_id, run_id, issued_at_utc, published_at_utc, available_at_utc, poe50_mw FROM opdemand_forecast WHERE region='NSW1' AND target_end_utc = TIMESTAMPTZ '2026-08-06 07:30:00+00' AND issued_at_utc < target_start_utc AND available_at_utc <= TIMESTAMPTZ '2026-08-06 09:00:00+00' ORDER BY issued_at_utc DESC LIMIT 1",
+     "SELECT count(*) AS n_public_runs FROM opdemand_forecast WHERE region='NSW1' AND target_end_utc = TIMESTAMPTZ '2026-08-06 07:30:00+00' AND available_at_utc <= TIMESTAMPTZ '2026-08-06 09:00:00+00'"
+    ],
+    "note": "Runs for this half-hour public by the cutoff: 127. Must-not-substitute run POE50 = 10377.0 MW (recorded for the reviewer only)."
+   }
+  },
+  {
+   "case_id": "K08",
+   "category": "forecast_run",
+   "split": "livecheck_i15_17",
+   "question": "Victoria: what POE50 came out of the final forecast run issued prior to the 6 pm half-hour, and was actual operational demand higher or lower than that?",
+   "request": {},
+   "expected": {
+    "area": "forecast_run",
+    "expected_outcome": "clarification",
+    "intent": "forecast_review",
+    "answerable": false,
+    "status_in": [
+     "needs_clarification"
+    ],
+    "required_tools": [
+     "get_forecast_runs",
+     "get_actual_demand",
+     "compare_forecast_actual",
+     "retrieve_public_evidence"
+    ],
+    "gold_numbers": [],
+    "check": "A correct answer asks which date (and whether '6 pm half-hour' means the one ending or starting at 18:00 AEST) is meant, since several such VIC1 half-hours are held; it must not pick a date and give any run's values."
+   },
+   "provenance": {
+    "gold_method": "No gold values. Query lists VIC1 forecast targets ending 08:00Z or 08:30Z (18:00/18:30 AEST) to show that several dates qualify, so the half-hour is not identified.",
+    "queries": [
+     "SELECT DISTINCT target_end_utc FROM opdemand_forecast WHERE region='VIC1' AND (extract('hour' FROM target_end_utc) = 8 AND extract('minute' FROM target_end_utc) IN (0, 30)) ORDER BY 1"
+    ],
+    "note": "Ambiguity: no date given; 'the 6 pm half-hour' also leaves open start vs end. Candidate half-hour ends (UTC) with VIC1 forecasts: 2026-07-28T08:00:00Z, 2026-07-28T08:30:00Z, 2026-07-29T08:00:00Z, 2026-07-29T08:30:00Z, 2026-07-30T08:00:00Z, 2026-07-30T08:30:00Z, 2026-07-31T08:00:00Z, 2026-07-31T08:30:00Z, 2026-08-06T08:00:00Z, 2026-08-06T08:30:00Z, 2026-08-20T08:00:00Z, 2026-08-20T08:30:00Z. Candidates include VIC1 29 July (development material) but no gold is derived from it."
+   }
+  },
+  {
+   "case_id": "K09",
+   "category": "demand_max",
+   "split": "livecheck_i15_17",
+   "question": "On 29 July 2026, Sydney time, at which five-minute interval was NSW dispatch total demand highest across the whole day, and what was the level?",
+   "request": {},
+   "expected": {
+    "area": "demand_max",
+    "expected_outcome": "supplied",
+    "intent": "market_event_review",
+    "answerable": true,
+    "status_in": [
+     "answered",
+     "answered_with_caveats"
+    ],
+    "required_tools": [
+     "find_market_events",
+     "get_price_timeline",
+     "get_actual_demand",
+     "retrieve_public_evidence"
+    ],
+    "window_utc": [
+     "2026-07-28T14:00:00Z",
+     "2026-07-29T14:00:00Z"
+    ],
+    "gold_numbers": [
+     {
+      "metric": "dispatch_totaldemand",
+      "value": 10954.2,
+      "unit": "MW",
+      "valid_at_utc": "2026-07-29T09:05:00Z",
+      "source_row_id": "DISPATCHIS:PUBLIC_DISPATCHIS_202607291905_0000000529893888:L27",
+      "tolerance": 0.5,
+      "label": "NSW1 maximum dispatch total demand over 29 Jul AEST (interval ending 19:05 AEST)"
+     }
+    ],
+    "ties": [],
+    "next_highest": {
+     "source_row_id": "DISPATCHIS:PUBLIC_DISPATCHIS_202607291855_0000000529892847:L27",
+     "valid_at_utc": "2026-07-29T08:55:00Z",
+     "value": 10928.72
+    },
+    "check": "A correct answer gives the maximum over all 288 intervals of 29 July AEST (window (14:00Z 28 Jul, 14:00Z 29 Jul]) with its interval (ending 09:05Z = 19:05 AEST) and level; it must not report operational demand or a maximum over another window."
+   },
+   "provenance": {
+    "gold_method": "Window = local day 29 Jul AEST = (2026-07-28T14:00Z, 2026-07-29T14:00Z], 288 intervals confirmed. Max of totaldemand_mw; tie check by equality with the max (one row); next-highest = second row by value.",
+    "queries": [
+     "SELECT count(*) AS n FROM regionsum_5min WHERE region='NSW1' AND interval_end_utc > TIMESTAMPTZ '2026-07-28 14:00:00+00' AND interval_end_utc <= TIMESTAMPTZ '2026-07-29 14:00:00+00'",
+     "SELECT row_id, interval_end_utc, totaldemand_mw FROM regionsum_5min WHERE region='NSW1' AND interval_end_utc > TIMESTAMPTZ '2026-07-28 14:00:00+00' AND interval_end_utc <= TIMESTAMPTZ '2026-07-29 14:00:00+00' ORDER BY totaldemand_mw DESC, interval_end_utc LIMIT 3",
+     "SELECT row_id, interval_end_utc, totaldemand_mw FROM regionsum_5min WHERE region='NSW1' AND interval_end_utc > TIMESTAMPTZ '2026-07-28 14:00:00+00' AND interval_end_utc <= TIMESTAMPTZ '2026-07-29 14:00:00+00' AND totaldemand_mw = (SELECT max(totaldemand_mw) FROM regionsum_5min WHERE region='NSW1' AND interval_end_utc > TIMESTAMPTZ '2026-07-28 14:00:00+00' AND interval_end_utc <= TIMESTAMPTZ '2026-07-29 14:00:00+00')"
+    ],
+    "note": ""
+   }
+  },
+  {
+   "case_id": "K10",
+   "category": "demand_max",
+   "split": "livecheck_i15_17",
+   "question": "Across the full window of the Victorian negative-price event whose lowest price came at 9:20 pm AEST on 28 July 2026, when did dispatch total demand hit its highest point and what was it?",
+   "request": {},
+   "expected": {
+    "area": "demand_max",
+    "expected_outcome": "supplied",
+    "intent": "market_event_review",
+    "answerable": true,
+    "status_in": [
+     "answered",
+     "answered_with_caveats"
+    ],
+    "required_tools": [
+     "find_market_events",
+     "get_price_timeline",
+     "get_actual_demand",
+     "retrieve_public_evidence"
+    ],
+    "window_utc": [
+     "2026-07-27T23:00:00Z",
+     "2026-07-28T23:30:00Z"
+    ],
+    "gold_numbers": [
+     {
+      "metric": "dispatch_totaldemand",
+      "value": 7867.57,
+      "unit": "MW",
+      "valid_at_utc": "2026-07-28T22:10:00Z",
+      "source_row_id": "DISPATCHIS:PUBLIC_DISPATCHIS_202607290810_0000000529811184:L95",
+      "tolerance": 0.5,
+      "label": "VIC1 maximum dispatch total demand within event window (interval ending 08:10 AEST 29 Jul)"
+     }
+    ],
+    "ties": [],
+    "next_highest": {
+     "source_row_id": "DISPATCHIS:PUBLIC_DISPATCHIS_202607290805_0000000529810154:L95",
+     "valid_at_utc": "2026-07-28T22:05:00Z",
+     "value": 7835.99
+    },
+    "day_max_for_comparison": {
+     "source_row_id": "DISPATCHIS:PUBLIC_DISPATCHIS_202607291830_0000000529889940:L31",
+     "valid_at_utc": "2026-07-29T08:30:00Z",
+     "value": 8700.91,
+     "local_day": "2026-07-29 (Australia/Melbourne)"
+    },
+    "check": "A correct answer gives the maximum within the event window (2026-07-27T23:00Z, 2026-07-28T23:30Z] and its interval; it must not give the 29 July (AEST) whole-day maximum, which falls outside the window and is higher."
+   },
+   "provenance": {
+    "gold_method": "Event VIC1-20260728T2120-lo from events.json (window_start/end); trough interval confirmed in price_5min. Max of totaldemand_mw over (window_start, window_end] (294 intervals); one row at the max; next-highest = second row. Comparison: max over VIC1 local day 29 Jul AEST (288 intervals, the only fully held local day the window overlaps).",
+    "queries": [
+     "SELECT row_id, interval_end_utc, rrp FROM price_5min WHERE region='VIC1' AND interval_end_utc > TIMESTAMPTZ '2026-07-27T23:00:00Z' AND interval_end_utc <= TIMESTAMPTZ '2026-07-28T23:30:00Z' ORDER BY rrp ASC LIMIT 1",
+     "SELECT count(*) AS n FROM regionsum_5min WHERE region='VIC1' AND interval_end_utc > TIMESTAMPTZ '2026-07-27T23:00:00Z' AND interval_end_utc <= TIMESTAMPTZ '2026-07-28T23:30:00Z'",
+     "SELECT row_id, interval_end_utc, totaldemand_mw FROM regionsum_5min WHERE region='VIC1' AND interval_end_utc > TIMESTAMPTZ '2026-07-27T23:00:00Z' AND interval_end_utc <= TIMESTAMPTZ '2026-07-28T23:30:00Z' ORDER BY totaldemand_mw DESC, interval_end_utc LIMIT 3",
+     "SELECT row_id FROM regionsum_5min WHERE region='VIC1' AND interval_end_utc > TIMESTAMPTZ '2026-07-27T23:00:00Z' AND interval_end_utc <= TIMESTAMPTZ '2026-07-28T23:30:00Z' AND totaldemand_mw = (SELECT max(totaldemand_mw) FROM regionsum_5min WHERE region='VIC1' AND interval_end_utc > TIMESTAMPTZ '2026-07-27T23:00:00Z' AND interval_end_utc <= TIMESTAMPTZ '2026-07-28T23:30:00Z')",
+     "SELECT count(*) AS n FROM regionsum_5min WHERE region='VIC1' AND interval_end_utc > TIMESTAMPTZ '2026-07-28 14:00:00+00' AND interval_end_utc <= TIMESTAMPTZ '2026-07-29 14:00:00+00'",
+     "SELECT row_id, interval_end_utc, totaldemand_mw FROM regionsum_5min WHERE region='VIC1' AND interval_end_utc > TIMESTAMPTZ '2026-07-28 14:00:00+00' AND interval_end_utc <= TIMESTAMPTZ '2026-07-29 14:00:00+00' ORDER BY totaldemand_mw DESC LIMIT 1"
+    ],
+    "note": "Uses development material (VIC1 event window 2026-07-27T23:00Z-2026-07-28T23:30Z and VIC1 local day 29 July). It is the only listed event whose window maximum differs from the maximum of a fully held local day it overlaps: the other event overlapping 29 July (SA1-20260729T1755-hi) has a window maximum equal to the SA1 29 July maximum, and every other event's overlapped local days are not fully held. Window intervals: 294."
+   }
+  },
+  {
+   "case_id": "K11",
+   "category": "demand_max",
+   "split": "livecheck_i15_17",
+   "question": "Which half-hour on 29 July 2026 (Brisbane time) had Queensland's highest operational demand, and how many MW was it?",
+   "request": {},
+   "expected": {
+    "area": "demand_max",
+    "expected_outcome": "supplied",
+    "intent": "market_event_review",
+    "answerable": true,
+    "status_in": [
+     "answered",
+     "answered_with_caveats"
+    ],
+    "required_tools": [
+     "find_market_events",
+     "get_price_timeline",
+     "get_actual_demand",
+     "retrieve_public_evidence"
+    ],
+    "window_utc": [
+     "2026-07-28T14:00:00Z",
+     "2026-07-29T14:00:00Z"
+    ],
+    "gold_numbers": [
+     {
+      "metric": "opdemand_actual",
+      "value": 7548.0,
+      "unit": "MW",
+      "valid_at_utc": "2026-07-29T08:30:00Z",
+      "source_row_id": "OPDEM_ACTUAL_DAILY:PUBLIC_ACTUAL_OPERATIONAL_DEMAND_DAILY_20260729_20260730044001:L79",
+      "tolerance": 0.5,
+      "label": "QLD1 maximum operational demand over 29 Jul AEST (half-hour 18:00-18:30 AEST), latest revision"
+     }
+    ],
+    "ties": [],
+    "next_highest": {
+     "source_row_id": "OPDEM_ACTUAL_DAILY:PUBLIC_ACTUAL_OPERATIONAL_DEMAND_DAILY_20260729_20260730044001:L80",
+     "valid_at_utc": "2026-07-29T09:00:00Z",
+     "value": 7547.0
+    },
+    "check": "A correct answer gives the half-hour ending 08:30Z (18:00-18:30 AEST) and its operational demand from the latest revision; it must not give the runner-up half-hour ending 09:00Z (1 MW lower) or a dispatch total demand figure."
+   },
+   "provenance": {
+    "gold_method": "Window = 48 half-hours of 29 Jul AEST, (2026-07-28T14:00Z, 2026-07-29T14:00Z]. Latest revision per half-hour = greatest available_at_utc ('updated' daily row). Max, tie check by equality, next-highest = second row.",
+    "queries": [
+     "SELECT count(DISTINCT interval_end_utc) AS n FROM opdemand_actual WHERE region='QLD1' AND interval_end_utc > TIMESTAMPTZ '2026-07-28 14:00:00+00' AND interval_end_utc <= TIMESTAMPTZ '2026-07-29 14:00:00+00'",
+     "WITH latest AS (SELECT * FROM opdemand_actual WHERE region='QLD1' AND interval_end_utc > TIMESTAMPTZ '2026-07-28 14:00:00+00' AND interval_end_utc <= TIMESTAMPTZ '2026-07-29 14:00:00+00' QUALIFY row_number() OVER (PARTITION BY interval_end_utc ORDER BY available_at_utc DESC) = 1) SELECT row_id, interval_end_utc, revision, operational_demand_mw FROM latest ORDER BY operational_demand_mw DESC, interval_end_utc LIMIT 3",
+     "WITH latest AS (SELECT * FROM opdemand_actual WHERE region='QLD1' AND interval_end_utc > TIMESTAMPTZ '2026-07-28 14:00:00+00' AND interval_end_utc <= TIMESTAMPTZ '2026-07-29 14:00:00+00' QUALIFY row_number() OVER (PARTITION BY interval_end_utc ORDER BY available_at_utc DESC) = 1) SELECT row_id FROM latest WHERE operational_demand_mw = (SELECT max(operational_demand_mw) FROM latest)"
+    ],
+    "note": ""
+   }
+  },
+  {
+   "case_id": "K12",
+   "category": "demand_max",
+   "split": "livecheck_i15_17",
+   "question": "During the South Australian high-price event, at which interval did dispatch total demand top out, and how high did it go?",
+   "request": {},
+   "expected": {
+    "area": "demand_max",
+    "expected_outcome": "clarification",
+    "intent": "market_event_review",
+    "answerable": false,
+    "status_in": [
+     "needs_clarification"
+    ],
+    "required_tools": [
+     "find_market_events",
+     "get_price_timeline",
+     "get_actual_demand",
+     "retrieve_public_evidence"
+    ],
+    "gold_numbers": [],
+    "check": "A correct answer asks which SA1 high-price event (window) is meant, since two are listed; it must not choose one and report a peak, nor merge them into one window."
+   },
+   "provenance": {
+    "gold_method": "No gold values. events.json lists two SA1 high_price events (SA1-20260729T1755-hi and SA1-20260731T0235-hi), so the window over which the maximum is taken is not identified.",
+    "queries": [
+     "SELECT e.event_id, e.region, e.kind, e.window_start_utc, e.window_end_utc FROM (SELECT unnest(events) AS e FROM read_json_auto('/tmp/claude-1000/-workspaces-nem-event-intelligence-agent/3264e5da-d547-4fd5-b06e-1e395ac826ca/scratchpad/kit_lc/data/events.json')) WHERE e.region = 'SA1' AND e.kind = 'high_price' ORDER BY 4",
+     "SELECT interval_end_utc, totaldemand_mw FROM regionsum_5min WHERE region='SA1' AND interval_end_utc > TIMESTAMPTZ '2026-07-28 19:30:00' AND interval_end_utc <= TIMESTAMPTZ '2026-07-29 20:00:00' ORDER BY totaldemand_mw DESC LIMIT 1",
+     "SELECT interval_end_utc, totaldemand_mw FROM regionsum_5min WHERE region='SA1' AND interval_end_utc > TIMESTAMPTZ '2026-07-30 04:30:00' AND interval_end_utc <= TIMESTAMPTZ '2026-07-31 05:00:00' ORDER BY totaldemand_mw DESC LIMIT 1"
+    ],
+    "note": "Ambiguity is over the window (which of two listed events); the measure is stated. The two candidate windows give different maxima (not gold): SA1-20260729T1755-hi: max 2162.0 MW at 2026-07-29T09:15:00Z; SA1-20260731T0235-hi: max 2196.16 MW at 2026-07-30T09:20:00Z. One candidate window (SA1-20260731T0235-hi) is development material; no gold is derived from it."
+   }
+  },
+  {
+   "case_id": "K13",
+   "category": "control",
+   "split": "livecheck_i15_17",
+   "question": "Victoria's high-price event on 20 August 2026: what was its highest dispatch price, and what was VIC1 dispatch total demand during that same five-minute interval?",
+   "request": {},
+   "expected": {
+    "area": "control",
+    "expected_outcome": "supplied",
+    "intent": "market_event_review",
+    "answerable": true,
+    "status_in": [
+     "answered",
+     "answered_with_caveats"
+    ],
+    "required_tools": [
+     "find_market_events",
+     "get_price_timeline",
+     "get_actual_demand",
+     "retrieve_public_evidence"
+    ],
+    "gold_numbers": [
+     {
+      "metric": "dispatch_rrp",
+      "value": 406.00544,
+      "unit": "$/MWh",
+      "valid_at_utc": "2026-08-19T23:10:00Z",
+      "source_row_id": "DISPATCHIS:PUBLIC_DISPATCHIS_202608200910_0000000533535901:L49",
+      "tolerance": 0.01,
+      "label": "VIC1 peak RRP of event VIC1-20260820T0910-hi (interval ending 09:10 AEST 20 Aug)"
+     },
+     {
+      "metric": "dispatch_totaldemand",
+      "value": 6639.92,
+      "unit": "MW",
+      "valid_at_utc": "2026-08-19T23:10:00Z",
+      "source_row_id": "DISPATCHIS:PUBLIC_DISPATCHIS_202608200910_0000000533535901:L55",
+      "tolerance": 0.5,
+      "label": "VIC1 dispatch total demand in the peak-price interval (ending 23:10Z 19 Aug)"
+     }
+    ],
+    "check": "A correct answer gives the event's peak price and the dispatch total demand in that same interval (ending 2026-08-19T23:10Z); it must not substitute the window's maximum demand or a neighbouring interval's demand."
+   },
+   "provenance": {
+    "gold_method": "Event VIC1-20260820T0910-hi; max rrp over (window_start, window_end] (unique, matches peak_interval_end_utc). totaldemand_mw read at that interval_end_utc. The window's demand maximum was queried only to confirm it differs.",
+    "queries": [
+     "SELECT row_id, interval_end_utc, rrp FROM price_5min WHERE region='VIC1' AND interval_end_utc > TIMESTAMPTZ '2026-08-19T11:00:00Z' AND interval_end_utc <= TIMESTAMPTZ '2026-08-20T11:30:00Z' ORDER BY rrp DESC LIMIT 2",
+     "SELECT row_id, interval_end_utc, totaldemand_mw FROM regionsum_5min WHERE region='VIC1' AND interval_end_utc = TIMESTAMPTZ '2026-08-19 23:10:00+00'",
+     "SELECT interval_end_utc, totaldemand_mw FROM regionsum_5min WHERE region='VIC1' AND interval_end_utc > TIMESTAMPTZ '2026-08-19T11:00:00Z' AND interval_end_utc <= TIMESTAMPTZ '2026-08-20T11:30:00Z' ORDER BY totaldemand_mw DESC LIMIT 1"
+    ],
+    "note": "Window demand maximum (not the gold) is 7361.73 MW at 2026-08-20T08:35:00Z."
+   }
+  },
+  {
+   "case_id": "K14",
+   "category": "control",
+   "split": "livecheck_i15_17",
+   "question": "Take the forecast run issued at 2026-07-30T18:56:59Z. For Tasmania's half-hour ending at 8:00 am AEST, 31 July 2026, which POE10, POE50 and POE90 operational demand values did it give, and how much operational demand was actually recorded in that half-hour?",
+   "request": {},
+   "expected": {
+    "area": "control",
+    "expected_outcome": "supplied",
+    "intent": "forecast_review",
+    "answerable": true,
+    "status_in": [
+     "answered",
+     "answered_with_caveats"
+    ],
+    "required_tools": [
+     "get_forecast_runs",
+     "get_actual_demand",
+     "compare_forecast_actual",
+     "retrieve_public_evidence"
+    ],
+    "gold_run": {
+     "run_id": "PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607310530_20260731050135",
+     "issued_at_utc": "2026-07-30T18:56:59Z",
+     "published_at_utc": "2026-07-30T19:01:35Z",
+     "available_at_utc": "2026-07-30T21:47:35Z",
+     "target_end_utc": "2026-07-30T22:00:00Z"
+    },
+    "gold_numbers": [
+     {
+      "metric": "opdemand_forecast_poe10",
+      "value": 1458.0,
+      "unit": "MW",
+      "valid_at_utc": "2026-07-30T22:00:00Z",
+      "source_row_id": "OPDEM_FORECAST_HH:PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607310530_20260731050135:L1274",
+      "tolerance": 0.5,
+      "label": "TAS1 POE10, run issued 18:56:59Z, half-hour ending 22:00Z 30 Jul"
+     },
+     {
+      "metric": "opdemand_forecast_poe50",
+      "value": 1413.0,
+      "unit": "MW",
+      "valid_at_utc": "2026-07-30T22:00:00Z",
+      "source_row_id": "OPDEM_FORECAST_HH:PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607310530_20260731050135:L1274",
+      "tolerance": 0.5,
+      "label": "TAS1 POE50, run issued 18:56:59Z, half-hour ending 22:00Z 30 Jul"
+     },
+     {
+      "metric": "opdemand_forecast_poe90",
+      "value": 1369.0,
+      "unit": "MW",
+      "valid_at_utc": "2026-07-30T22:00:00Z",
+      "source_row_id": "OPDEM_FORECAST_HH:PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607310530_20260731050135:L1274",
+      "tolerance": 0.5,
+      "label": "TAS1 POE90, run issued 18:56:59Z, half-hour ending 22:00Z 30 Jul"
+     },
+     {
+      "metric": "opdemand_actual",
+      "value": 1455.0,
+      "unit": "MW",
+      "valid_at_utc": "2026-07-30T22:00:00Z",
+      "source_row_id": "OPDEM_ACTUAL_DAILY:PUBLIC_ACTUAL_OPERATIONAL_DEMAND_DAILY_20260731_20260801044001:L154",
+      "tolerance": 0.5,
+      "label": "TAS1 actual operational demand, half-hour ending 22:00Z 30 Jul (latest revision)"
+     }
+    ],
+    "check": "A correct answer uses exactly the run issued at 2026-07-30T18:56:59Z and the half-hour ending 2026-07-30T22:00Z, giving its POE10/50/90 and the actual; it must not use the last run before the half-hour or any other run."
+   },
+   "provenance": {
+    "gold_method": "08:00 AEST 31 Jul -> target_end 2026-07-30T22:00Z. Forecast row with issued_at_utc exactly 18:56:59Z for that target. Actual = latest-available revision.",
+    "queries": [
+     "SELECT row_id, run_id, region, target_start_utc, target_end_utc, issued_at_utc, published_at_utc, available_at_utc, poe10_mw, poe50_mw, poe90_mw FROM opdemand_forecast WHERE region='TAS1' AND target_end_utc = TIMESTAMPTZ '2026-07-30 22:00:00+00' AND issued_at_utc = TIMESTAMPTZ '2026-07-30 18:56:59+00'",
+     "SELECT row_id, region, interval_end_utc, revision, operational_demand_mw, published_at_utc, available_at_utc FROM opdemand_actual WHERE region='TAS1' AND interval_end_utc IN (TIMESTAMPTZ '2026-07-30 22:00:00+00') QUALIFY row_number() OVER (PARTITION BY interval_end_utc ORDER BY available_at_utc DESC) = 1 ORDER BY interval_end_utc"
+    ],
+    "note": ""
+   }
+  },
+  {
+   "case_id": "K15",
+   "category": "control",
+   "split": "livecheck_i15_17",
+   "question": "Under AEMO's Load Forecasting procedure, what pre-dispatch forecast error threshold applies to South Australia, and what triggers a review of a region's load forecast?",
+   "request": {},
+   "expected": {
+    "area": "control",
+    "expected_outcome": "supplied",
+    "intent": "source_explanation",
+    "answerable": true,
+    "status_in": [
+     "answered",
+     "answered_with_caveats"
+    ],
+    "required_tools": [
+     "retrieve_public_evidence"
+    ],
+    "gold_numbers": [],
+    "gold_citation": {
+     "doc_id": "aemo_so_op_3710",
+     "snippet": "Table 5 Pre-dispatch Load Forecasting Error Thresholds Region Forecast Error Threshold (MW) Queensland 100 New South Wales 150 Victoria 100 South Australia 50 Tasmania 50 The load forecast for a region will be reviewed, whenever the forecast error is greater than the forecast error threshold in a region for two consecutive 30-minute periods."
+    },
+    "check": "A correct answer cites SO_OP_3710 (Table 5) for a 50 MW threshold for South Australia and says the forecast is reviewed when the error exceeds the threshold for two consecutive 30-minute periods; it must not invent other thresholds or triggers."
+   },
+   "provenance": {
+    "gold_method": "Passage found with FTS search on 'threshold AND consecutive' / '\"error threshold\"' in chunks_fts; snippet copied programmatically from chunks.text of chunk aemo_so_op_3710#p7c12 (from 'Table 5 Pre-dispatch' to the end of the passage).",
+    "queries": [
+     "SELECT c.chunk_id, c.doc_id FROM chunks_fts f JOIN chunks c ON c.rowid=f.rowid WHERE chunks_fts MATCH 'threshold AND consecutive'",
+     "SELECT c.chunk_id, c.doc_id FROM chunks_fts f JOIN chunks c ON c.rowid=f.rowid WHERE chunks_fts MATCH '\"error threshold\"'",
+     "SELECT chunk_id, doc_id, title, doc_type, page, section, text FROM chunks WHERE chunk_id = 'aemo_so_op_3710#p7c12'"
+    ],
+    "note": ""
+   }
+  }
+ ]
+}
