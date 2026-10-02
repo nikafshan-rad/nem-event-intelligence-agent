@@ -23,7 +23,8 @@ One list of known defects, so that each fix is weighed against the whole. Eviden
 | I-8 | **A definition shown with its meaning reversed** | Y20 (held-out v5, Live, 2026-10-02): asked whether operational demand counts scheduled loads, the answer said it *includes* "local demand of scheduled loads and scheduled bidirectional units" [c1], citing figure text that subtracts them; the definition excludes them. It passed validation and was shown | P1 | **verified offline; Live unverified** (PR `#40`, below). v5's FAIL verdict and Y20's scores are unchanged |
 | I-9 | **The forecast run asked for, replaced by another** | Y05, Y06 (held-out v5, Live, 2026-10-02): asked for the last forecast issued before a named half-hour, both answers gave a run issued about three hours earlier (Y05 POE50 10,972 MW from the 17:56:59Z run instead of 11,082 from the 20:56:59Z run; Y06 2,017 from 04:27:00Z instead of 1,816 from 07:26:58Z), presented as the run asked for | P1 | **verified offline; Live unverified** (PR `#41`, merged as `0f0b5c9`; below). v5's FAIL verdict and Y05/Y06's scores are unchanged |
 | I-10 | **An as-of forecast question sent back for a date it already gives** | Y07 (held-out v5, Live, 2026-10-02): "As of 2026-08-19T20:00:00Z, … what was the newest Victorian operational demand forecast for the 23:00 to 23:30 UTC half-hour …?" was answered with "Which date (or UTC window) should be investigated?". The explicit cutoff dates the question | P2 | **verified offline; Live unverified** (PR `#42`, merged as `1eb4484`; below). Date-inference limits remain: only forecast questions; a cutoff dates only a clock-only half-hour later on its own date; a cutoff without its date is sent back. v5's FAIL verdict and Y07's scores are unchanged |
-| I-11 | **A causal price-event question routed as a forecast question** | Y18 (held-out v5, Live, 2026-10-02): "Was AEMO's forecast lack of reserve the reason South Australia's price spiked at 07:55 UTC on 29 July 2026?" was routed as `forecast_review`. `find_market_events` was not run, the answer gave a forecast-error comparison, and it omitted that the day's reserve (LOR) notices were each cancelled beforehand | P2 | **verified offline; Live unverified** (PR `#43`, below). v5's FAIL verdict and Y18's scores are unchanged |
+| I-11 | **A causal price-event question routed as a forecast question** | Y18 (held-out v5, Live, 2026-10-02): "Was AEMO's forecast lack of reserve the reason South Australia's price spiked at 07:55 UTC on 29 July 2026?" was routed as `forecast_review`. `find_market_events` was not run, the answer gave a forecast-error comparison, and it omitted that the day's reserve (LOR) notices were each cancelled beforehand | P2 | **verified offline; Live unverified** (PR `#43`, merged as `ad34e59`; below). The passing replay used W19's saved market-event tool calls and drafts under Y18's question and routing decision; Y18's own saved answer, replayed on the corrected route, still falls back (`NOTICE_TIMING_OMITTED`). v5's FAIL verdict and Y18's scores are unchanged |
+| I-12 | **A quoted decision shown without the reason its notice gives** | Y14 (held-out v5, Live, 2026-10-02): asked "what was AEMO's decision on reclassifying" a Victorian network trip, the answer quoted notice 144667's decision, "AEMO will not reclassify this event as a credible contingency event." [c1], but not the sentence before it: "The cause of this non credible contingency event has been identified and AEMO is satisfied that another occurrence of this event is unlikely under the current circumstances." The check's two elements, cause identified and recurrence unlikely, were missing | P2 | **verified offline; Live unverified** (PR `#44`, below). v5's FAIL verdict and Y14's scores are unchanged |
 | I-5 | **Known safety-language limitations** | See the list below. Each is recorded with its risk. None is being worked on, to avoid an open-ended wording cycle | P3 | recorded; revisit only with a new concrete failure |
 
 ### I-1a: F04, the causal question not answered directly
@@ -1792,6 +1793,16 @@ three checks are met.
    - **Tests:** the full suite passes (1,135, of which 14 are new).
    - **Frozen evaluation material:** untouched.
 
+**Merged** as `ad34e59` (PR `#43`); CI passed on `main` (Python 3.12 and 3.14). **Verified offline; Live
+unverified.** What the offline evidence is, and is not:
+- **The passing replay is not Y18's own answer.** It is W19's saved market-event tool calls and drafts (second
+  development check, same event), replayed under Y18's question and saved routing decision. It shows that the
+  corrected route runs the event review and its cancellation sentence; it does not show what the Live model would
+  write for Y18 on that route.
+- **Y18's own saved answer still falls back** when replayed on the corrected route (`NOTICE_TIMING_OMITTED`): it was
+  written for a forecast review and never set the notices' times against the event.
+- **Neither is a Live result.** No paid run was made; v5's FAIL verdict and Y18's scores are unchanged.
+
 **Still open for I-11:**
 - **Lexical recognition.** A causal question is recognised by its influence wording with price-event wording.
   - **Recognised:** "What was behind South Australia's price spike …?" and "Why did South Australia's prices jump …?".
@@ -1801,6 +1812,136 @@ three checks are met.
   question, keeps the model's route even when it asks about a cause.
 - **Only the forecast-to-event direction.** A non-causal price question that the model routes as a forecast question
   is not corrected by this rule.
+- **Live is unverified;** no paid run was made.
+
+### I-12: Y14, a quoted decision shown without the reason its notice gives
+
+**What happened** (held-out v5, Live, 2026-10-02, `artifacts/live/L3-holdout-v5/Y14.json`, trace `tr-0b7886fa2007`;
+reproduced offline on `main` `ad34e59` from the saved routing decision, tool calls, synthesis draft and repair patch
+through the SYNTHETIC fake transport: the same headline and summary, line for line):
+- **The question:** "Was there an AEMO market notice about an unplanned Victorian network trip dated 2026-07-28, and
+  what was AEMO's decision on reclassifying it?" It was routed as `source_explanation`, as expected.
+- **The check** (frozen): "Cite market notice 144667: the Moorabool No. 2 220 kV bus tripped at 1729 hrs (market
+  time); the cause was identified, a recurrence was considered unlikely, and AEMO would not reclassify it as a
+  credible contingency." The reviewer labelled the answer N, a close call: it "omits two elements the check names:
+  that the cause was identified and that a recurrence was considered unlikely".
+- **The answer** cited notice 144667 and quoted three of its sentences. It passed validation and was shown.
+
+| Check element | Notice 144667 | Y14's answer |
+| --- | --- | --- |
+| Cite notice 144667 | — | yes, [c1] |
+| The bus tripped at 1729 hrs (market time) | "At 1729 hrs the Moorabool No. 2 220 kV Bus tripped." | yes, with the NEM-time note |
+| The cause was identified | "The cause of this non credible contingency event has been identified" | **missing** |
+| A recurrence was considered unlikely | "and AEMO is satisfied that another occurrence of this event is unlikely under the current circumstances." | **missing** |
+| AEMO would not reclassify it | "AEMO will not reclassify this event as a credible contingency event." | yes, in the headline and summary |
+
+Both missing elements are in one sentence of the notice: the one directly before the decision, giving the
+assessment the decision rests on. The answer also leaves out "AEMO has not been advised of any disconnection of bulk
+electrical load.", which the check does not name.
+
+**Where it was lost** (each stage checked against the saved trace):
+- **Retrieval: not involved.** Notice 144667 was the first result of both the controller's question retrieval and the
+  model's own search. Its passage holds the full text, including the assessment sentence.
+- **Synthesis: here.** The model's draft has three `document_statements`: the trip, "AEMO did not instruct load
+  shedding." and the decision. The assessment sentence is not among them. The synthesis prompt asks for statements
+  copied from the passage, but says nothing about the reason a notice gives for a decision.
+- **Repair: not involved.** The one scoped repair changed only the headline (two numbers, `NUMERIC_UNTRACKED`). The
+  statements were unchanged.
+- **Display: not involved.** All three statements were shown. The headline became the quoted decision, the
+  statement the model's headline paraphrases.
+- **No check sees it.** Validation checks that what is shown is supported by its source. It does not look for what
+  the source says and the answer leaves out.
+
+**Root cause.** The controller shows the statements the model selects, and a selection can quote AEMO's decision
+without the assessment the same notice gives for it.
+- **How AEMO's notices state a decision:** directly after the assessment it rests on, or with a consequence link
+  ("Accordingly AEMO has reclassified it as a credible contingency event.", "AEMO has therefore cancelled the
+  reclassification …").
+- **In the corpus:** of the 198 market notices, seven state a decision this way, each a (re)classification
+  decision. Two more (144692, 144812) state an assessment ("The cause … is not known at this stage.") and no
+  decision.
+- **The same check element recurs:** held-out v3 V14 and v4 W14 asked about the same notice, and their checks also
+  name the cause being identified.
+
+**Fix (one, in how the controller shows document statements):** when a document answer quotes a market notice's
+sentence that follows from an assessment the notice states, the controller also shows that assessment. It is quoted
+verbatim from the same notice, with the same citation, directly before the decision.
+- **How it is recognised:** the quoted sentence directly follows a sentence stating AEMO's assessment ("The cause of
+  this …", "AEMO is satisfied …", "AEMO considers …", "Based on …"). A sentence that opens with a consequence link
+  ("Accordingly", "therefore" …) may follow it within two sentences.
+- **Only the notice's own text** is added, never written or paraphrased by the controller.
+- **Nothing is added** when the notice states no assessment for the quoted sentence, when the answer already quotes
+  it, or when the decision is paraphrased rather than quoted.
+- **The headline is unchanged:** it is still chosen from the model's own statements.
+
+**Acceptance check** (offline, written before the code change):
+1. **Y14, from its saved records:**
+   - the answer shows the assessment sentence, quoted with [c1], directly before the decision;
+   - all five check elements are present;
+   - validation passes with no fallback;
+   - the headline is still the quoted decision.
+2. **Controls, each tested:**
+   - **A complete notice answer** (the draft already quotes the assessment): unchanged; nothing is duplicated.
+   - **A multi-part question:**
+     - what tripped, whether load was shed, and the reclassification decision: every part the draft answered is
+       still shown, and the assessment is added only before the decision;
+     - across two notices (the Braemar busbar trip's first notice and its update): the assessment comes from the
+       decision's own notice only.
+   - **A notice without the requested information:**
+     - asked for AEMO's reclassification decision on the City West trip, where notice 144692 says the cause is not
+       known and gives no decision: nothing is added, no decision is shown, and the draft's caveat and status stand;
+     - a quoted decision whose notice states no assessment (a reserve-level declaration): nothing is added.
+   - **Event and forecast reviews:** unchanged (they have no document statements).
+3. **Unchanged:**
+   - the saved draft replays, except where this fires; each firing is reviewed;
+   - the Replay evaluation;
+   - the safety suite;
+   - frozen evaluation material, scores and verdicts.
+   - **Live is unverified.**
+
+**Result: verified offline; Live unverified** (PR `#44`; evidence in `artifacts/logs/decision_basis.log`). All three
+checks are met.
+1. **Y14, from its saved records:** the answer shows the assessment, quoted with [c1], directly before the decision.
+   - **All five check elements are present:** the notice, the trip at 1729 hrs with its NEM-time note, the cause
+     identified, a recurrence unlikely, and no reclassification.
+   - **Validation passes** with no fallback, and the headline is still the quoted decision.
+2. **Controls, each tested:**
+   - **A complete answer** (the assessment quoted before or after the decision): unchanged; nothing is repeated.
+   - **A multi-part question:**
+     - the trip, load shedding, bulk load and the decision are all shown, and the assessment is added once, before
+       the decision;
+     - across two notices (Braemar, 144812 and its update 144813): the assessment comes from the update and is cited
+       to it. The first notice's "The cause … is not known at this stage." is shown as quoted, with nothing added.
+   - **A notice without the requested information:**
+     - City West (144692): nothing is added and no decision is shown. The status (`answered_with_caveats`) and the
+       caveat stand.
+     - A forecast LOR1 declaration (144652): nothing is added.
+   - **An event review** (W19's saved replay): nothing is added.
+   - **The headline:** a model headline in the assessment's own words still gets one of the model's statements (the
+     decision), not the added line.
+3. **Unchanged:**
+   - **The rule on the corpus:** quoted alone, the sentences of the 198 market notices give a basis only in the seven
+     notices that state a decision after an assessment.
+   - **Saved drafts:** of the 181 replays, two change: Y14, and W14 (held-out v4, the same notice; its frozen check
+     also names the cause identified and a recurrence unlikely). Both still pass with the same headline, and gain
+     only the assessment line. W14's saved Live verdict (a fallback) is unchanged.
+   - **Replay evaluation and safety suite:** identical to `main`.
+   - **Tests:** the full suite passes (1,159, of which 24 are new).
+   - **Frozen evaluation material:** untouched.
+
+**Still open for I-12:**
+- **Lexical recognition of the assessment.** An assessment is recognised by its opening phrase ("The cause of this
+  …", "Based on …", "AEMO is satisfied …", "AEMO considers …", "AEMO has assessed / determined / concluded …"). A
+  decision whose notice words its assessment otherwise gets nothing added.
+- **Only verbatim quotes.** A paraphrased decision gets nothing added. W14's saved Live answer paraphrased it (and
+  fell back for another reason).
+- **A partly quoted assessment is not completed.** When the answer quotes part of it (only "… has been identified",
+  say), nothing is added, so a recurrence being unlikely can still be missing.
+- **Only a decision's stated basis.** No check compares what the question asks for with what the answer covers. Y14
+  also leaves out "AEMO has not been advised of any disconnection of bulk electrical load.", which its check does not
+  name.
+- **Only market notices, in document answers.**
+- **The synthesis prompt is unchanged.** The model can still leave the assessment out; the controller adds it.
 - **Live is unverified;** no paid run was made.
 
 ### I-3a: F03, a notice time shown without its zone
@@ -2363,10 +2504,11 @@ progress.
     unverified (merged in PR `#42`).
   - **Y17:** out of scope and needing clarification at once, shown as a clarification, not a refusal.
   - **Y18:** "forecast lack of reserve" routed as a forecast question. Now I-11: verified offline, Live
-    unverified.
+    unverified (merged in PR `#43`).
   - **Y20:** operational demand's composition inverted (it says scheduled loads are included). Now I-8: verified
     offline, Live unverified; Y20's scores and v5's verdict are unchanged.
-  - **Y14:** two check elements omitted.
+  - **Y14:** two check elements omitted (the reason the notice gives for AEMO's decision). Now I-12: verified offline,
+    Live unverified.
   - **Wording leftovers:** internal names, repeated fragments, "[c1]. [c1]".
 - **Ledger:** USD 5.704473 committed.
   - **v5 and regression:** USD 0.944089, spent under the owner-approved cap of USD 6.560384 for those runs only.
