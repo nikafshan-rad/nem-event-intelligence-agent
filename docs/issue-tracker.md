@@ -21,7 +21,8 @@ One list of known defects, so that each fix is weighed against the whole. Eviden
 | I-6 | **A valid controller answer lost to a fallback** | W19 (Live, 2026-09-30): the controller's cancellation sentence was correct, but the model's own lines quoted notice titles in single quotes ('… Lack Of Reserve Level 2 (LOR2) …'). `NUMERIC_UNTRACKED` counted the "2", and one line failed `TIME_NOT_IN_EVIDENCE`. The scoped repair did not clear them, so the answer fell back and nothing was shown | P1 | **fixed offline** in PR `#21` (below). The frozen run's outcome for W19 stays failed. **Second development check (2026-09-30, PR `#28`, one run per case):** **held** on W19: the model named cited notices by their exact titles, and the answer was shown with the cancellation sentence |
 | I-7 | **An explanation kept open that the answer's own timing rules out** | W18 (Live, 2026-09-30): the opening says timing rules the Hazelwood bus-tie outage out. The notice gives 1100 hrs 20/08, after every high-price interval. A hedged hypothesis resting on that notice [c1] still offers it as a possible influence | P2 | **fixed offline** in PR `#22` (below); Live-unverified when merged. Offline, W18's actual saved repair now falls back, and only a scripted repair that deletes the hypothesis passes. W18's Live verdict (held) is unchanged. **Second development check (2026-09-30, PR `#28`, one run per case):** **failed** on W18: it fired on a hypothesis that doubted the post-event notice; the scoped repair turned that hypothesis into an unhedged statement (HYPOTHESIS_UNHEDGED), and the answer fell back. **I-7b** (a doubting hypothesis flagged; the repair's evidence-backed exclusion rejected as unhedged): **verified offline; Live unverified** (PR `#30`, below). The second check's W18 verdict stays failed; its passing offline replay does not replace it. **I-7c** (a validated exclusion shown apart from hypotheses): **verified offline; Live unverified** (PR `#36`, below) |
 | I-8 | **A definition shown with its meaning reversed** | Y20 (held-out v5, Live, 2026-10-02): asked whether operational demand counts scheduled loads, the answer said it *includes* "local demand of scheduled loads and scheduled bidirectional units" [c1], citing figure text that subtracts them; the definition excludes them. It passed validation and was shown | P1 | **verified offline; Live unverified** (PR `#40`, below). v5's FAIL verdict and Y20's scores are unchanged |
-| I-9 | **The forecast run asked for, replaced by another** | Y05, Y06 (held-out v5, Live, 2026-10-02): asked for the last forecast issued before a named half-hour, both answers gave a run issued about three hours earlier (Y05 POE50 10,972 MW from the 17:56:59Z run instead of 11,082 from the 20:56:59Z run; Y06 2,017 from 04:27:00Z instead of 1,816 from 07:26:58Z), presented as the run asked for | P1 | **verified offline; Live unverified** (PR `#41`, below). v5's FAIL verdict and Y05/Y06's scores are unchanged |
+| I-9 | **The forecast run asked for, replaced by another** | Y05, Y06 (held-out v5, Live, 2026-10-02): asked for the last forecast issued before a named half-hour, both answers gave a run issued about three hours earlier (Y05 POE50 10,972 MW from the 17:56:59Z run instead of 11,082 from the 20:56:59Z run; Y06 2,017 from 04:27:00Z instead of 1,816 from 07:26:58Z), presented as the run asked for | P1 | **verified offline; Live unverified** (PR `#41`, merged as `0f0b5c9`; below). v5's FAIL verdict and Y05/Y06's scores are unchanged |
+| I-10 | **An as-of forecast question sent back for a date it already gives** | Y07 (held-out v5, Live, 2026-10-02): "As of 2026-08-19T20:00:00Z, … what was the newest Victorian operational demand forecast for the 23:00 to 23:30 UTC half-hour …?" was answered with "Which date (or UTC window) should be investigated?". The explicit cutoff dates the question | P2 | **verified offline; Live unverified** (PR `#42`, below). v5's FAIL verdict and Y07's scores are unchanged |
 | I-5 | **Known safety-language limitations** | See the list below. Each is recorded with its risk. None is being worked on, to avoid an open-ended wording cycle | P3 | recorded; revisit only with a new concrete failure |
 
 ### I-1a: F04, the causal question not answered directly
@@ -1585,6 +1586,119 @@ budget, were checked. Faithful controls were included throughout.
 - **Evaluation scoring:** the controller's comparison counts as the required tool executed.
 - **Live is unverified;** no paid run was made.
 
+### I-10: Y07, an as-of forecast question sent back for a date it already gives
+
+**What happened** (held-out v5, Live, 2026-10-02, `artifacts/live/L3-holdout-v5/Y07.json`, trace `tr-aaf1db106523`;
+reproduced offline on `main` `0f0b5c9` from the saved routing decision through the SYNTHETIC fake transport, with the
+same result):
+- **The question:** "As of 2026-08-19T20:00:00Z, looking only at runs already public, what was the newest Victorian
+  operational demand forecast for the 23:00 to 23:30 UTC half-hour, at POE10, POE50 and POE90?"
+- **The answer:** "Clarification needed: Which date (or UTC window) should be investigated?" One model call (the
+  route) was made, and no tool ran.
+- **Expected:** an answer (forecast review), using only the run public by the cutoff (issued 2026-08-19T16:56:58Z:
+  POE10 6,689, POE50 6,447 and POE90 6,204 MW), with no actual reported.
+- **Scores (unchanged):** Q1, Q2 and Q3 missed, and Q4 N.
+
+**Root cause.** Two independent steps each send the question back; either alone is enough.
+- **The resolver** (`resolve`) needs a date for a data question. It finds dates only in date forms ("2026-08-19",
+  "19 August 2026"), not inside an ISO timestamp, so the explicit cutoff gives none. It then asks "Which date (or UTC
+  window) should be investigated?". It does so even when given the intent, the region and the cutoff (reproduced).
+- **The routing policy** (`route_policy`) applies the routing model's `needs_clarification`
+  (`missing_region_or_date`: "Which calendar date … do you mean for the 23:00–23:30 UTC half-hour?") unchanged for
+  forecast questions. Only document questions are exempt.
+- **Why this is wrong:** an explicit cutoff, in UTC or with an offset, is a point in time. For a forecast review "as
+  of" it, its date in the region's local calendar is the day to review: the forecasts public by then are the subject.
+- **Not involved:** tools, selection, synthesis or validation; none ran.
+
+**Fix (one, in routing).** The target half-hour and the availability cutoff are kept apart. The cutoff says what was
+public by then; the target is the half-hour asked about.
+- **First version** (`b77eb5a`, superseded in review, see below): it took the cutoff's local date as the day reviewed.
+- **The rule now:**
+  - **An explicit date or ISO time** names the target.
+  - **A clock-only half-hour** with its zone ("the 23:00 to 23:30 UTC half-hour"), in a question with no date, is
+    dated by the cutoff only when its occurrence on the cutoff's own date, in that zone, starts at or after the cutoff
+    (Y07: 23:00Z after a 20:00Z cutoff).
+  - **Anything else is sent back:** a half-hour before the cutoff on that date, one without a zone, or no half-hour.
+    The cutoff is never taken as the target date.
+- **The resolver:**
+  - records the target;
+  - keeps the review window only if it contains the target, and otherwise uses the target's local day (or that day's
+    event window, if it contains the target).
+- **The forecast slice** given to the model is moved to the target when it would miss it.
+- **The routing policy** does not apply the model's request for a missing date only when the cutoff dates the target
+  that way.
+- **Clarification still asked:**
+  - no region, or several regions;
+  - several dates;
+  - a cutoff without its date ("as of 20:00");
+  - no cutoff and no date;
+  - a model clarification given for another reason.
+- **Unchanged:** market-event questions, and the as-of protection (the cutoff is applied to every tool call).
+
+**Acceptance check** (offline, written before the code change):
+1. **Y07, from its saved routing decision:**
+   - it is no longer sent back: the status is not `needs_clarification`;
+   - the window is the cutoff's local day in VIC1 (2026-08-20), which contains 23:00–23:30Z on 2026-08-19;
+   - the cutoff is kept, and the tools run under it;
+   - a scripted answer from the run public by the cutoff (16:56:58Z: 6,689 / 6,447 / 6,204 MW) passes, with no actual
+     shown.
+2. **Controls:** each case listed under "Clarification still asked" is still sent back (tested). So is a market-event
+   question with only a cutoff.
+3. **Unchanged:**
+   - the routing outcome of every saved Live record's question, replayed from its saved decision, except where this
+     fires; each firing is reviewed;
+   - the saved replays of drafts;
+   - the Replay evaluation;
+   - the safety suite;
+   - frozen evaluation material, scores and verdicts.
+   - **Live is unverified.**
+
+**Result: verified offline; Live unverified** (PR `#42`; evidence in `artifacts/logs/as_of_date.log`).
+1. **Y07, from its saved routing decision:**
+   - **Not sent back:** its target (23:00–23:30Z on 19 August) and its cutoff (20:00Z) are kept apart and both
+     preserved.
+   - **The window and forecast slice:** VIC1's event window for 20 August (11:00Z on the 19th to 11:30Z on the 20th),
+     and the forecast slice given to the model, contain the target.
+   - **A scripted answer from the run public by the cutoff** (issued 16:56:58Z: 6,689 / 6,447 / 6,204 MW) passes,
+     with no actual shown.
+2. **Review of the date boundary** (before merge).
+   - **Defects at `de75d92`:**
+     - an ambiguous target (a half-hour before the cutoff on its date, one without a zone, or no half-hour) was
+       silently dated by the cutoff's local day;
+     - an explicit UTC date whose half-hour falls on the next local day got a window and forecast slice that missed it;
+     - half-hours ending at, or starting after, local midnight were in the window, but not in the forecast slice given
+       to the model.
+   - **Fixed:**
+     - an explicit target date is used, not the cutoff's (tested with two dates);
+     - targets across local midnight are in both the window and the slice (tested with two);
+     - ambiguous targets are sent back, saying the cutoff gives what was public, not the target day (tested three
+       ways, with and without the model asking).
+   - **Test results:** 12 of the 20 tests fail at `de75d92`; all pass now.
+3. **Controls still sent back:**
+   - no region;
+   - several regions;
+   - several dates;
+   - a cutoff without its date;
+   - no cutoff and no date;
+   - another clarification reason;
+   - a market-event question with only a cutoff.
+
+   A cutoff given with the request dates a clock-only half-hour after it.
+4. **Unchanged:**
+   - **Saved routing decisions:** of the 198 saved Live questions, only Y07's outcome changes. The questions with
+     explicit target half-hours (H04, H05, H06, V05–V08, W05, W07, W08, Y05, Y06) keep their windows.
+   - **Saved drafts:** all 181 replays are identical to `main`.
+   - **Replay evaluation and safety suite:** identical to `main`.
+   - **Tests:** the full suite passes (1,121, of which 20 are new).
+   - **Frozen evaluation material:** untouched.
+
+**Still open for I-10:**
+- **Only forecast questions.** A market-event question dated only by an as-of cutoff is still sent back.
+- **The cutoff dates only a clock-only half-hour later on its own date.** "As of 23:50Z, the 00:00 to 00:30 UTC
+  half-hour" is sent back, although the next one (10 minutes later) is the likely meaning.
+- **A cutoff without its date** ("as of 20:00") is still sent back, by design.
+- **Live is unverified;** no paid run was made.
+
 ### I-3a: F03, a notice time shown without its zone
 
 **What happened** (Live check 2026-09-29, `artifacts/live/live-check-2026-09-29/F03.json`, trace `tr-77c70c8d1482`):
@@ -2141,7 +2255,8 @@ progress.
 - **Observed in v5** (recorded, not being fixed):
   - **Y02:** a repair cut off at `max_output_tokens`, then a fallback.
   - **Y05, Y06:** a 12-hour comparison used one forecast run, not the run the question named.
-  - **Y07:** an as-of half-hour without a date was sent for clarification.
+  - **Y07:** an as-of half-hour without a date was sent for clarification. Now I-10: verified offline, Live
+    unverified.
   - **Y17:** out of scope and needing clarification at once, shown as a clarification, not a refusal.
   - **Y18:** "forecast lack of reserve" routed as a forecast question.
   - **Y20:** operational demand's composition inverted (it says scheduled loads are included). Now I-8: verified

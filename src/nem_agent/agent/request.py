@@ -14,7 +14,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..selection import EventSelection, Selection
-from ..timeutil import REGION_TZ, UTC, local_day_window, parse_iso, region_zone
+from ..timeutil import REGION_TZ, UTC, iso_utc, local_day_window, parse_iso, region_zone
 from .playbook import INTENTS, Intent
 
 ROUTER_VERSION = "scripted-router/3"  # 2: as-of forecast questions; 3: questions about notices
@@ -63,6 +63,8 @@ class Resolution:
     # the forecast run a question names for the half-hour it asks about, as the controller resolved it (I-9); the
     # validator holds the answer to it
     forecast_run: dict[str, object] | None = None
+    # the half-hour a forecast question asks about (start, end UTC), when it is pinned down (I-10)
+    target: tuple[datetime, datetime] | None = None
 
 
 def extract_regions(text: str) -> list[str]:
@@ -233,6 +235,34 @@ def half_hour_asked(question: str) -> tuple[datetime, datetime] | None:
     return next(iter(found)) if len(found) == 1 else None
 
 
+def half_hour_after_cutoff(question: str, as_of: datetime) -> tuple[datetime, datetime] | None:
+    """A clock-only half-hour with its zone ("the 23:00 to 23:30 UTC half-hour"), in a question that names no date,
+    dated by an explicit as-of cutoff: its occurrence on the cutoff's own date in that zone, when that starts at or
+    after the cutoff (the forecast is of a time still to come). Anything else is not safe to date: None (held-out v5
+    Y07: cutoff 2026-08-19T20:00Z, half-hour 23:00-23:30Z on the 19th)."""
+    if extract_dates(question) or _HALF_HOUR_ENDING_ISO_RE.search(question):
+        return None
+    found: set[tuple[datetime, datetime]] = set()
+    for m in _HALF_HOUR_RANGE_RE.finditer(question):
+        zone = m.group(6) or m.group(3)
+        if zone:
+            tz = timezone(timedelta(minutes=_CLOCK_ZONE_MIN[zone.lower()]))
+            day = as_of.astimezone(tz).date()
+            a = datetime.combine(day, time(int(m.group(1)), int(m.group(2))), tzinfo=tz).astimezone(UTC)
+            b = datetime.combine(day, time(int(m.group(4)), int(m.group(5))), tzinfo=tz).astimezone(UTC)
+            found.add((a, b if b > a else b + timedelta(days=1)))
+    for m in _HALF_HOUR_ENDING_RE.finditer(question):
+        tz = timezone(timedelta(minutes=_CLOCK_ZONE_MIN[m.group(3).lower()]))
+        day = as_of.astimezone(tz).date()
+        end = datetime.combine(day, time(int(m.group(1)), int(m.group(2))), tzinfo=tz).astimezone(UTC)
+        found.add((end - timedelta(minutes=30), end))
+    found = {(a, b) for a, b in found if b - a == timedelta(minutes=30)}
+    if len(found) != 1:
+        return None
+    a, b = next(iter(found))
+    return (a, b) if a >= as_of else None
+
+
 def requested_forecast(question: str) -> ForecastRequest | None:
     """The forecast run a question names, for the half-hour it asks about. An as-of question names none: the run public
     by then is chosen by availability."""
@@ -377,6 +407,27 @@ def resolve(req: InvestigateRequest, sel: Selection) -> Resolution:
         else:
             window = local_day_window(day, region)
     as_of = parse_iso(req.as_of_utc) if req.as_of_utc else extract_as_of(q, region, day)
+    target = None
+    if intent == "forecast_review" and region:
+        # the half-hour asked about is the target; an as-of cutoff only says what was public (I-10). An explicit date or
+        # ISO time names the target; a clock-only half-hour is dated by the cutoff only when that is safe
+        target = half_hour_asked(q)
+        if target is None and not dates and as_of is not None:
+            target = half_hour_after_cutoff(q, as_of)
+            if target is not None:
+                diag["target_dated_by_cutoff"] = [iso_utc(target[0]), iso_utc(target[1])]
+        if target is not None and not (window and window[0] <= target[0] and target[1] <= window[1]):
+            # the window reviewed is the target's: its local day, or that day's event window when it contains it
+            day = target[0].astimezone(region_zone(region)).date()
+            event = _event_for(sel, region, day)
+            if event and parse_iso(event.window_start_utc) <= target[0] and target[1] <= parse_iso(event.window_end_utc):
+                window, kind = (parse_iso(event.window_start_utc), parse_iso(event.window_end_utc)), event.kind
+            else:
+                event, window = None, local_day_window(day, region)
+            diag["window_from_target"] = str(day)
+        if window is None and not dates and as_of is not None:
+            reasons.append("Which date is the half-hour (or period) asked about? The as-of cutoff says what was public "
+                           "by then, not which day the forecast is for.")
     needs_data = intent in ("market_event_review", "forecast_review")
     if needs_data and region is None and not reasons:
         reasons.append("Which NEM region (NSW1, QLD1, SA1, TAS1 or VIC1)?")
@@ -389,4 +440,4 @@ def resolve(req: InvestigateRequest, sel: Selection) -> Resolution:
         status, reasons = "ok", []
     return Resolution(req, intent, region, event, window, as_of, kind=kind, status=status, reasons=reasons,
                       routing={**diag, "regions_found": regions, "dates_found": [str(d) for d in dates],
-                               "region_tz": REGION_TZ.get(region or "", None)})
+                               "region_tz": REGION_TZ.get(region or "", None)}, target=target)
