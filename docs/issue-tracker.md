@@ -1774,11 +1774,24 @@ progress.
     evidence, not independent quality evidence.
 - **Offline evidence is not a Live result.** Unit tests, saved-record replays and scripted repairs are labelled as such
   in each PR. A passing replay never replaces a failed Live result.
-- **Not yet measured:**
-  - the current system (`main` after PRs `#16`–`#36`) on independent questions. That includes `#30`–`#36`, which came
-    after the second development check;
-  - the full L3 rule.
-- **Ledger:** USD 4.760384 committed of the USD 5.00 task cap, so USD 0.239616 is left.
+- **Measured since, held-out v5 (2026-10-02):** the current system (`main` after PRs `#16`–`#36`, src `95b30253`) on
+  20 independent questions, with the 18-case regression. **L3 FAIL.**
+  - **Misses:** gold labels 13/18 (bar 15) and relevance 13/20 (bar 16; 12/20 strict).
+  - **Safety:** H1–H5 were 0 in both runs.
+  - **Status:** v5 is now development data. See `docs/live-gates.md`.
+- **Observed in v5** (recorded, not being fixed):
+  - **Y02:** a repair cut off at `max_output_tokens`, then a fallback.
+  - **Y05, Y06:** a 12-hour comparison used one forecast run, not the run the question named.
+  - **Y07:** an as-of half-hour without a date was sent for clarification.
+  - **Y17:** out of scope and needing clarification at once, shown as a clarification, not a refusal.
+  - **Y18:** "forecast lack of reserve" routed as a forecast question.
+  - **Y20:** operational demand's composition inverted (it says scheduled loads are included).
+  - **Y14:** two check elements omitted.
+  - **Wording leftovers:** internal names, repeated fragments, "[c1]. [c1]".
+- **Ledger:** USD 5.704473 committed.
+  - **v5 and regression:** USD 0.944089, spent under the owner-approved cap of USD 6.560384 for those runs only.
+  - **The standing cap:** the task cap in `config` stays USD 5.00. The ledger is now above it, so no further Live run
+    can start without a new approval.
   - **Synthetic entries:** it includes USD 0.00183 of synthetic entries from four offline replays on 2026-09-30. No API
     call was made for them.
 
