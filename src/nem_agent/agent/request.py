@@ -172,6 +172,24 @@ def asks_if_notice_event_caused(question: str) -> bool:
     return bool(INFLUENCE_Q_RE.search(question) and INCIDENT_Q_RE.search(question))
 
 
+# "Was AEMO's forecast lack of reserve the reason South Australia's price spiked …?": a question asking whether
+# something caused, drove or explains a price event is an event review, whatever else it names (held-out v5 Y18 was
+# routed as a forecast question for "forecast lack of reserve"). A question about forecast accuracy is not one, nor is
+# an as-of question.
+PRICE_EVENT_Q_RE = re.compile(
+    r"\b(?:prices?|RRPs?|spot prices?)\b[^?.;]{0,40}?\b(?:spik\w*|jump\w*|surg\w*|soar\w*|peak\w*|extremes?|plung\w*|"
+    r"crash\w*|negative|high(?:s|est)?|climb\w*|rose|rise|rising)\b|\bprice\s+(?:spikes?|jumps?|surges?|peaks?|extremes?|"
+    r"events?)\b", re.I)
+FORECAST_ACCURACY_Q_RE = re.compile(
+    r"\bpoe ?(?:10|50|90)\b|\bforecast(?:s|ing)?\s+(?:errors?|accuracy|miss\w*|bias)\b|\bhow (?:close|accurate|far off)\b|"
+    r"\baccura(?:te|cy)\b|\b(?:over|under)-?forecast\w*|\boperational[- ]demand forecasts?\b", re.I)
+
+
+def asks_cause_of_price_event(question: str) -> bool:
+    return bool(INFLUENCE_Q_RE.search(question) and PRICE_EVENT_Q_RE.search(question)
+                and not FORECAST_ACCURACY_Q_RE.search(question) and not AS_OF_Q_RE.search(question))
+
+
 def forecast_issue_time(question: str) -> datetime | None:
     """The issue time of a forecast run the question names, when it names one and asks nothing 'as of'."""
     m = ISSUED_AT_RE.search(question)
