@@ -2717,7 +2717,40 @@ checks are met. The three outcomes are reported separately:
 - **Replay evaluation and safety suite:** identical to `main`.
 - **I-15 and I-16:** their tests pass unchanged, and the controller's sentence passes I-15's time binding.
 - **The tools and their views, `MEASURE_SUBSTITUTED`, and the prompts.**
-- **Tests:** the full suite passes (1,387, of which 29 are new). Ruff and mypy are clean.
+- **Tests:** the full suite passes (1,407, of which 49 are new, the review's 20 included). Ruff and mypy are
+  clean.
+
+**Review before merge: the requested window** (offline; `artifacts/logs/requested_maximum.log`, last section).
+- **The defect at the PR's first head (`eb51139`):** a maximum's window was the request's explicit window, else the whole
+  local day of the question's date, whatever the question's wording. The daily maximum therefore stood in for other
+  windows:
+  - **"when during the event did VIC1 total demand peak":** the low-price event ran from 2026-07-27T23:00Z to
+    2026-07-28T23:30Z, and its maximum is 7,867.57 MW at 22:10Z. The answer gave 29 July's 8,700.91 MW at 08:30Z, "over
+    all of 2026-07-29".
+  - **"during the morning", "between 06:00 and 09:00 AEST", and "during the price event" with no event held:** each was
+    given the day's 1,367.32 MW.
+- **Fixed** (`request.maximum_window_kind`). The window is one of:
+  - **an explicit request window** (the request's window fields): exactly that window;
+  - **event wording:** the event window of the event the resolution holds. If none is held, the question is sent back
+    (`MAXIMUM_EVENT_CLARIFICATION`);
+  - **a whole-day marker with no narrowing wording:** that local day;
+  - **anything else:** sent back (`MAXIMUM_WINDOW_CLARIFICATION`). No tool runs and no maximum is computed, so the daily
+    maximum is never offered in its place.
+
+  The sentence names the window used: "over all of <date> (<zone>)", "over the event window, <start> to <end>" or "over
+  the requested window, <start> to <end>".
+- **Controls** (20 more tests, 49 in the file):
+  - **Event window and whole day, both fully held** (VIC1): the event question gets the event's maximum (7,867.57 MW),
+    and the whole-day question the day's (8,700.91 MW).
+  - **The day's maximum stated as the event's peak** (the model fetched the whole day): rejected
+    (`REQUESTED_MAXIMUM_MISMATCH`, "the maximum is 7867.57"), falls back, and the event's maximum is still shown.
+  - **An explicit request window** (00:00–06:00Z on 29 July): 1,164.48 MW at 00:10Z, not the day's 1,367.32. The day's
+    maximum stated as that window's peak is rejected.
+  - **Morning, clock-range and around-the-spike wording,** and event wording with no event held: sent back in Live
+    mode (routing call only, nothing fetched) and Replay mode, with no observation shown.
+  - **Whole day preserved:** Z04 still gets 1,367.32 MW at 07:55 AEST over all of 29 July (AEST).
+- **Unchanged after the review:** the saved replays (only Z04 changes, with the same sentence), the Replay evaluation,
+  the safety suite, and I-15's and I-16's tests.
 
 **Still open for I-17:**
 - **Phrasings are a fixed set:**
@@ -2727,9 +2760,18 @@ checks are met. The three outcomes are reported separately:
 
   Other wording ("the busiest interval for demand") is not read: no maximum is computed, and the answer is not held to
   one.
-- **The window is the whole local day of the question's date in the region's time,** or an explicit request window. A
-  maximum "during the event" or over hours the question names in words is taken over the whole day; the sentence says
-  which window was used.
+- **The window is read from a fixed set of wording** (review item below):
+  - **Whole-day markers:** "the day's", "across/on/over <date>", "whole day", "daily".
+  - **Event wording:** "during/in/over the … event/spike/episode", "the event window".
+  - **Narrowing wording:** parts of the day, "between … and", "from … to", "around/before/after the peak", "first/last N
+    hours".
+
+  Hours given in words or clock ranges are not converted into a window. Such a question is sent back for the window,
+  as is any question with no whole-day marker.
+- **The event window is the selection's event window** for the region and date the resolution holds. An event that is
+  not in the selection gets the clarification, not a window.
+- **Strict reading:** narrowing wording anywhere in the question ("the count of intervals between $300 and …") also
+  sends back a whole-day maximum request.
 - **A sentence states a maximum only by the word patterns** in `demand_max.max_claim_re`. Other wording stating a wrong
   peak is not caught, although the controller's sentence still gives the right one.
 - **The controller's call counts toward the tool's three calls.** If the model has used all three, the answer says the

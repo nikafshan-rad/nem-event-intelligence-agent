@@ -23,8 +23,11 @@ import pytest
 from nem_agent.agent import demand_max
 from nem_agent.agent.request import (
     MAXIMUM_CLARIFICATION,
+    MAXIMUM_EVENT_CLARIFICATION,
+    MAXIMUM_WINDOW_CLARIFICATION,
     InvestigateRequest,
     Resolution,
+    maximum_window_kind,
     requested_maxima,
 )
 from nem_agent.evidence import EvidenceRegistry
@@ -111,7 +114,7 @@ def test_3_the_live_controller_supplies_z04s_maximum():
     res, fake = _replay()
     b = res.resolution.demand_max[0]
     assert (b["measure"], b["value"], b["interval_ends_utc"], b["complete"]) == ("total demand", 1367.32, [MAX_END], True)
-    assert b["window_utc"] == DAY and b["intervals_held"] == b["intervals_in_window"] == 288
+    assert b["window_kind"] == "day" and b["window_utc"] == DAY and b["intervals_held"] == b["intervals_in_window"] == 288
     line = res.report.summary[0]
     assert "dispatch total demand (TOTALDEMAND) was highest at 1367.32 MW" in line
     assert "ending 2026-07-28T21:55:00Z = 2026-07-29 07:55 AEST" in line
@@ -340,3 +343,121 @@ def test_values_at_the_price_peak_asked_for_as_such_are_not_bound():
     res = investigate(InvestigateRequest(question=q, mode="replay"), write_trace=False)
     assert res.resolution.demand_max is None
     assert "requested_maximum" not in res.report.validation["initial"]["checks_run"]
+
+
+# ------------------------------------------------------------------------------------------------ the requested window
+# (I-17 review) A whole day only when the question clearly asks for one; an explicit request window exactly; an event's
+# window from the event the resolution holds; anything else sent back. Never the day's maximum in place of another
+# window's. VIC1's low-price event (2026-07-27T23:00Z to 2026-07-28T23:30Z) runs into 29 July (AEST); both are fully
+# held, and their TOTALDEMAND maxima differ: 7,867.57 MW at 22:10Z (event) and 8,700.91 MW at 08:30Z on the 29th (day).
+VIC_EVENT_Q = ("Walk me through the low-price event that ran into 29 July 2026 in Victoria (AEST): what was the lowest "
+               "dispatch price, and when during the event did VIC1 total demand peak and at what level?")
+VIC_DAY_Q = ("Looking at Victoria across 29 July 2026 in Melbourne local time, what was the day's lowest 5-minute "
+             "dispatch price, and when did VIC1 total demand peak and at what level?")
+VIC_EVENT = ["2026-07-27T23:00:00Z", "2026-07-28T23:30:00Z"]
+
+
+@pytest.mark.parametrize("question,request_window,kind", [
+    (None, False, "day"),  # Z04: "across 29 July 2026 …", "the day's"
+    ("When did TAS1 total demand peak on 29 July 2026?", False, "day"),
+    (None, True, "explicit"),  # the request's own window fields
+    (VIC_EVENT_Q, False, "event"),
+    ("On 29 July 2026, when did TAS1 total demand peak during the morning?", False, "unresolved"),
+    ("When did TAS1 total demand peak between 06:00 and 09:00 AEST on 29 July 2026?", False, "unresolved"),
+    ("When did TAS1 total demand peak around the price spike on 29 July 2026?", False, "unresolved"),
+    ("What was the day's peak total demand in TAS1 from 06:00 to 09:00 AEST on 29 July 2026?", False, "unresolved"),
+    ("When did TAS1 total demand peak?", False, "unresolved"),  # nothing says which window
+])
+def test_the_window_of_a_maximum_is_read(question, request_window, kind):
+    q = question or _z04()["question"]
+    w = {"window_start_utc": "2026-07-29T00:00:00Z", "window_end_utc": "2026-07-29T06:00:00Z"} if request_window else {}
+    assert maximum_window_kind(q, InvestigateRequest(question=q, **w)) == kind
+
+
+def test_an_event_maximum_uses_the_event_window_and_a_whole_day_maximum_the_day():
+    ev = investigate(InvestigateRequest(question=VIC_EVENT_Q, mode="replay"), write_trace=False)
+    b = ev.resolution.demand_max[0]
+    assert (b["window_kind"], b["window_utc"], b["complete"]) == ("event", VIC_EVENT, True)
+    assert (b["value"], b["interval_ends_utc"]) == (7867.57, ["2026-07-28T22:10:00Z"])
+    assert any("was highest at 7867.57 MW" in s and "over the event window, 2026-07-27T23:00:00Z to "
+               "2026-07-28T23:30:00Z" in s for s in ev.report.summary)
+    assert ev.report.validation["final_passed"] and not ev.report.validation["fallback_applied"]
+    day = investigate(InvestigateRequest(question=VIC_DAY_Q, mode="replay"), write_trace=False)
+    d = day.resolution.demand_max[0]
+    assert (d["window_kind"], d["window_utc"], d["complete"]) == ("day", ["2026-07-28T14:00:00Z", "2026-07-29T14:00:00Z"],
+                                                                  True)
+    assert (d["value"], d["interval_ends_utc"]) == (8700.91, ["2026-07-29T08:30:00Z"])  # not the event's maximum
+    assert any("was highest at 8700.91 MW" in s and "over all of 2026-07-29 (AEST)" in s for s in day.report.summary)
+    assert day.report.validation["final_passed"] and not day.report.validation["fallback_applied"]
+
+
+def _vic_live(draft_fn):
+    """VIC_EVENT_Q in Live mode; the model fetched the whole local day, so the day's maximum is in its evidence."""
+    route = {"intent": "market_event_review", "region": "VIC1", "event_date": "2026-07-29", "as_of_utc": None,
+             "needs_clarification": False, "clarification_reason": None, "clarification": None, "out_of_scope": False}
+    calls = [("get_price_timeline", {"region": "VIC1", "start_utc": "2026-07-28T14:00:00Z", "end_utc": "2026-07-29T14:00:00Z"})]
+    fake = FakeModel(route, [calls], draft_fn)
+    return investigate(InvestigateRequest(question=VIC_EVENT_Q, mode="live"), live_client=fake, write_trace=False)
+
+
+def _draft(text: str, claims: list[tuple[str, float]]) -> dict:
+    return {"status": "answered", "headline": "SYNTHETIC answer.", "summary": [text], "document_statements": [],
+            "observation_evidence_ids": [e for e, _ in claims], "possible_explanations": [], "published_findings": [],
+            "citations": [], "uncertainties": [], "missing_evidence": [], "forecast_mae_evidence_id": None,
+            "numeric_claims": [{"claim_id": f"n{i}", "text": f"{v} MW", "value": v, "unit": "MW", "evidence_id": e,
+                                "rounding": 0.005} for i, (e, v) in enumerate(claims)]}
+
+
+def test_the_days_maximum_stated_as_the_events_peak_is_rejected():
+    probe = _vic_live(lambda kw: _draft("SYNTHETIC.", []))
+    b = probe.resolution.demand_max[0]
+    assert (b["window_kind"], b["value"]) == ("event", 7867.57)
+    day_max = next(e for e, ev in probe.registry.items.items() if ev.metric == "dispatch_totaldemand"
+                   and ev.valid_at_utc == "2026-07-29T08:30:00Z" and ev.value == 8700.91)
+    res = _vic_live(lambda kw: _draft("VIC1 total demand peaked at 8700.91 MW in the interval ending "
+                                      "2026-07-29T08:30:00Z.", [(day_max, 8700.91)]))
+    v = res.report.validation
+    mism = [x["detail"] for x in (v.get("pre_repair") or v["initial"])["violations"]
+            if x["code"] == "REQUESTED_MAXIMUM_MISMATCH"]
+    assert mism and "the maximum is 7867.57" in mism[0]
+    assert v["fallback_applied"] and not any("8700.91" in s for s in res.report.summary)
+    assert any(o.value == 7867.57 and o.valid_at_utc == "2026-07-28T22:10:00Z" for o in res.report.observations)
+
+
+def test_an_explicit_request_window_is_used_exactly_and_the_days_maximum_does_not_stand_in():
+    w = {"window_start_utc": "2026-07-29T00:00:00Z", "window_end_utc": "2026-07-29T06:00:00Z"}
+    rep = investigate(InvestigateRequest(question=_z04()["question"], mode="replay", **w), write_trace=False)
+    b = rep.resolution.demand_max[0]
+    assert (b["window_kind"], b["window_utc"], b["complete"]) == ("explicit", [w["window_start_utc"], w["window_end_utc"]],
+                                                                  True)
+    assert (b["value"], b["interval_ends_utc"]) == (1164.48, ["2026-07-29T00:10:00Z"])  # not the day's 1367.32
+    assert any("over the requested window, 2026-07-29T00:00:00Z to 2026-07-29T06:00:00Z" in s for s in rep.report.summary)
+    # Z04's saved tool calls cover the whole day: its maximum (ev0284) stated as the window's peak is rejected
+    rec = _z04()
+    calls = [(t["name"], json.loads(t["args"]) if isinstance(t["args"], str) else t["args"]) for t in rec["tools"]
+             if not str(t["call_id"]).startswith("controller_") and t["status"] != "blocked"]
+    live = investigate(InvestigateRequest(question=rec["question"], mode="live", **w), write_trace=False,
+                       live_client=FakeModel(rec["route"], [calls], _stating(1367.32, "ev0284", MAX_END)))
+    assert "REQUESTED_MAXIMUM_MISMATCH" in _codes(live.report.validation)
+
+
+@pytest.mark.parametrize("question,clarification", [
+    ("Looking at Tasmania on 29 July 2026, what was the highest dispatch price, and when did TAS1 total demand peak "
+     "during the morning?", MAXIMUM_WINDOW_CLARIFICATION),
+    ("Looking at Tasmania on 29 July 2026, what was the highest dispatch price, and when did TAS1 total demand peak "
+     "between 06:00 and 09:00 AEST?", MAXIMUM_WINDOW_CLARIFICATION),
+    ("Looking at Tasmania on 29 July 2026, what was the highest dispatch price, and when did TAS1 total demand peak "
+     "around the price spike?", MAXIMUM_WINDOW_CLARIFICATION),
+    # event-relative, but no event is held for TAS1 on 29 July: its window cannot be established
+    ("Looking at Tasmania on 29 July 2026, what was the highest dispatch price, and when during the price event did "
+     "TAS1 total demand peak?", MAXIMUM_EVENT_CLARIFICATION),
+])
+@pytest.mark.parametrize("mode", ["live", "replay"])
+def test_a_window_that_is_not_given_is_sent_back_without_a_maximum(question, clarification, mode):
+    if mode == "live":
+        res, fake = _replay(question=question)
+        assert len(fake.requests) == 1 and not res.records  # the routing call only: nothing fetched or computed
+    else:
+        res = investigate(InvestigateRequest(question=question, mode="replay"), write_trace=False)
+    assert res.report.status == "needs_clarification" and clarification in res.report.headline
+    assert res.resolution.demand_max is None and not res.report.observations
