@@ -179,12 +179,14 @@ def forecast_issue_time(question: str) -> datetime | None:
 # "the final forecast issued before the half-hour from 21:00 to 21:30 UTC", "the last pre-interval forecast for the
 # 07:30 to 08:00 UTC half-hour": a forecast run named by when it was issued relative to the half-hour asked about. It is
 # the last run issued before that half-hour starts, not the last one available by then (held-out v5 Y05, Y06 were given
-# the run available by then, issued three hours earlier)
+# the run available by then, issued three hours earlier). Wording about availability or publication ("the latest
+# forecast available before the half-hour", "published before") asks for another selection and is not read here.
+_NOT_ISSUE_TIME = r"(?!\w*(?:availab|public|publish|known|released))"
 ISSUED_BEFORE_RE = re.compile(
-    r"\b(?:issued|published|produced|made|released)\s+(?:just\s+|immediately\s+|right\s+)?(?:before|ahead of|prior to)"
+    r"\b(?:issued|produced|made)\s+(?:just\s+|immediately\s+|right\s+)?(?:before|ahead of|prior to)"
     r"\s+(?:the|that|this)\s+(?:half[- ]hour|interval|target|period)\b|\bpre[- ]?interval\b|"
-    r"\b(?:last|latest|final|most recent)\b[^?.;]{0,60}?\b(?:before|ahead of|prior to)\s+(?:the|that|this)\s+"
-    r"(?:half[- ]hour|interval|period)\b", re.I)
+    rf"\b(?:last|latest|final|most recent)\b(?:\s+{_NOT_ISSUE_TIME}[\w'’-]+){{0,8}}?\s+(?:before|ahead of|prior to)\s+"
+    r"(?:the|that|this)\s+(?:half[- ]hour|interval|period)\b", re.I)
 _ZONE = r"(UTC|AEST|AEDT|ACST|ACDT|NEM time|market time)"
 _HALF_HOUR_RANGE_RE = re.compile(rf"(?<![\d:T])([01]?\d|2[0-3]):([0-5]\d)\s*{_ZONE}?\s*(?:to|-|–|—|until)\s*"
                                  rf"([01]?\d|2[0-3]):([0-5]\d)\s*{_ZONE}?", re.I)

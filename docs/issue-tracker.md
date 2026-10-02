@@ -1503,7 +1503,7 @@ checks are met.
        had been shown. Their original verdicts stand.
    - **Replay evaluation:** identical to `main`.
    - **Safety suite:** identical to `main`.
-   - **Tests:** the full suite passes (1,094, of which 42 are new, including the review's 14 below).
+   - **Tests:** the full suite passes (1,101, of which 49 are new, including the reviews' 21 below).
    - **Frozen evaluation material:** untouched.
 
 **How it works.**
@@ -1521,13 +1521,22 @@ checks are met.
 
 **Review before merge** (offline; `artifacts/logs/forecast_run_review.log`). Three boundaries, and an exhausted tool
 budget, were checked. Faithful controls were included throughout.
-1. **A run named alongside an as-of cutoff given with the request** (not in the question's words). **Defect at the
-   first head (`01ab054`):** the lookup ignored the cutoff, so the context named a run public only after it (ID,
-   issue and publication times). The comparison itself leaked no values. **Fixed:**
-   - **Runs:** the lookup considers only runs public by the cutoff, for both a named issue time and the last run
-     issued before the half-hour. A named run not public by then is reported as unavailable, without its ID or times.
-   - **The comparison:** the controller's comparison runs under the cutoff.
-   - **Unchanged:** a cutoff in the question's own words still binds nothing.
+1. **A run named alongside an as-of cutoff given with the request** (not in the question's words).
+   - **Defect at the first head (`01ab054`):** the lookup ignored the cutoff, so the context named a run public only
+     after it (ID, issue and publication times). The comparison itself leaked no values.
+   - **First fix (`af65b3e`) and its defect:** it filtered the lookup by availability. That turned "the last run issued
+     before the half-hour" into the last run public by the cutoff: an earlier run, named as the run asked for, and an
+     answer giving it passed. This is a silent substitution: issue-time and availability-time selection are different
+     requests.
+   - **Fixed (second review):** the run asked for is always chosen by issue time. If it was not public by the cutoff,
+     it cannot be supplied. The context says so without its ID or times, no earlier run is named or bound in its
+     place, and any forecast value for the half-hour is rejected. The controller's comparison runs under the cutoff.
+   - **Wording:** availability or publication wording ("the latest forecast available before the half-hour",
+     "published before", "publicly known", "latest available") is not read as issue time. Those requests keep the
+     existing availability selection, and an explicit "latest available" request still works (tested).
+   - **A cutoff in the question's own words:** only this binding is skipped. The existing as-of protection still
+     applies: the cutoff is injected into every tool call that takes one, a later one is blocked, and the as-of
+     validation runs (tested).
 2. **Every forecast value for the half-hour comes from the bound run.** This already held at the first head, and is
    now tested:
    - **Mixed-run answers:** POE50 from the run asked for with POE10 and POE90 from another are rejected, and the
@@ -1547,7 +1556,8 @@ budget, were checked. Faithful controls were included throughout.
 4. **The tool budget used up by the model** (three comparisons). This already held: the controller's comparison is
    blocked (the limit holds, and no fourth call runs), a substituted answer is still rejected, and an answer citing
    the model's own comparison of the run asked for passes.
-- **Test results:** at the first head, 6 of the 42 tests now in the file fail; all pass after the fixes.
+- **Test results:** at the first head, 6 of the review's tests fail. At `af65b3e`, 6 of the 49 now in the file fail
+  (the substitution under a cutoff, and the wording). All pass after the fixes.
 - **Unchanged:** the saved replays (the same 5 differ from `main`; against the first head only Y05's and Y06's
   fallbacks change), the Replay evaluation, the safety suite and the call limits.
 
@@ -1567,8 +1577,11 @@ budget, were checked. Faithful controls were included throughout.
   that half-hour, but other runs at other half-hours, is not rejected, although it is not that run's error alone.
 - **The check reads structure, not wording.** A correctly labelled window figure that uses another run for the
   half-hour ("the runs available by each half-hour had MAE …") is rejected too.
-- **Under a cutoff given with the request,** "the last run issued before the half-hour" becomes the last one public
-  by the cutoff. The controller's comparison may be unavailable, because actuals after the cutoff are hidden.
+- **Under a cutoff given with the request,** a run asked for that was not public by then cannot be supplied. The
+  answer can only say so. When it is public, the controller's comparison may still be unavailable, because actuals
+  after the cutoff are hidden.
+- **Saying "cannot be supplied"** reveals only that the run asked for was not public by the cutoff. It names no ID,
+  issue time or publication time.
 - **Evaluation scoring:** the controller's comparison counts as the required tool executed.
 - **Live is unverified;** no paid run was made.
 

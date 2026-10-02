@@ -84,3 +84,29 @@ FAILED tests/provider/test_requested_forecast_run.py::test_y05s_fallback_no_long
 L3-holdout-v2/H05, L3-holdout-v3/V07, L3-holdout-v3/V08, L3-holdout-v5/Y05, L3-holdout-v5/Y06 (176 identical).
 Against the first head only Y05 and Y06 change: their fallbacks no longer show the 12-hour window MAE (250.38 and
 139.71 MW), whose pairs used the substituted runs for the half-hour asked about.
+
+## Issue-time and availability-time selection under a cutoff given with the request (second review)
+At af65b3e, with a cutoff of 21:10Z, 'the last run issued before the half-hour' (20:56:59Z, public at 23:47:29Z) was
+replaced by the run public by then (17:56:59Z), named in the context as the run asked for, and an answer giving it passed:
+### af65b3e
+context names as the run asked for: _202607310430_20260731040140 issued 2026-07-30T17:56:59Z
+answer giving the 17:56:59Z run's POE50 10972.0 as that run: passed=True fallback=False codes=[]
+shown: [('opdemand_forecast_poe50', 10972.0)]
+### reviewed code
+context names as the run asked for: none issued None
+answer giving the 17:56:59Z run's POE50 10972.0 as that run: passed=True fallback=True codes=['FORECAST_RUN_SUBSTITUTED']
+shown: []
+
+tests/provider/test_requested_forecast_run.py (49 tests) at af65b3e:
+FAILED tests/provider/test_requested_forecast_run.py::test_a_requested_run_not_public_by_the_cutoff_is_not_replaced_by_an_earlier_one
+FAILED tests/provider/test_requested_forecast_run.py::test_a_named_run_not_public_by_the_cutoff_is_reported_unavailable
+FAILED tests/provider/test_requested_forecast_run.py::test_an_explicit_latest_available_request_still_works[What POE50 did the latest NSW forecast available before the half-hour from 21:00 to 21:30 UTC on 2026-07-30 give?-2026-07-30T21:10:00Z]
+FAILED tests/provider/test_requested_forecast_run.py::test_availability_or_publication_wording_is_not_read_as_issue_time[What did the latest forecast available before the half-hour from 21:00 to 21:30 UTC on 2026-07-30 say for NSW?]
+FAILED tests/provider/test_requested_forecast_run.py::test_availability_or_publication_wording_is_not_read_as_issue_time[What did the last forecast published before the half-hour from 21:00 to 21:30 UTC on 2026-07-30 say for NSW?]
+FAILED tests/provider/test_requested_forecast_run.py::test_availability_or_publication_wording_is_not_read_as_issue_time[What did the last publicly known NSW forecast before the half-hour from 21:00 to 21:30 UTC on 2026-07-30 say?]
+6 failed, 43 passed in 8.87s
+On the reviewed code: 49 passed.
+
+'A cutoff written in the question binds nothing' means only that this binding is skipped. The existing as-of protection
+applies: the cutoff is injected into every tool call that takes one (a later one is blocked), so a run public only after
+the cutoff is not returned, and the as-of validation checks run (tested).

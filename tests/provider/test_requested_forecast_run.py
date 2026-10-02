@@ -324,41 +324,121 @@ def _requests_text(fake) -> str:
     return json.dumps(fake.requests)
 
 
-# -- 1. a run named alongside an as-of cutoff given with the request (not in the question's words)
-def test_a_run_not_public_by_the_cutoff_is_not_named_or_compared():
-    """Relative run: the last run issued before the half-hour is public only at 23:47Z, after the 21:10Z cutoff. The
-    lookup names the last one issued before the half-hour that was public by then (17:56:59Z), and nothing in the
-    model's input names the later run."""
+# -- 1. a run named alongside an as-of cutoff given with the request (not in the question's words). The run asked for
+#    is chosen by issue time; if it was not public by the cutoff it cannot be supplied, and no earlier run that was
+#    public then is put in its place (issue-time and availability-time selection are different requests)
+CUTOFF = "2026-07-30T21:10:00Z"  # the run asked for (20:56:59Z) is public at 23:47:29Z; OTHER (17:56:59Z) at 20:47:40Z
+LATE = "2026-08-02T00:00:00Z"  # after both, and after the actual
+
+
+def _context(fake) -> dict:
+    return json.loads(fake.requests[1]["input"][0]["content"].split("\n", 1)[1])
+
+
+def test_a_requested_run_not_public_by_the_cutoff_is_not_replaced_by_an_earlier_one():
+    """The last run issued before the half-hour (20:56:59Z) is public only after the 21:10Z cutoff. The answer may not
+    present the run that was public by then (17:56:59Z, chosen by availability) as the run asked for, and nothing about
+    the later run is named."""
     calls = _base() + [("compare_forecast_actual", {**HALF, "run_selector": "latest_available_as_of",
-                                                    "as_of_utc": "2026-07-30T21:10:00Z"})]
-    res, fake = _run(calls, lambda outs: ([], None), as_of="2026-07-30T21:10:00Z")
-    ctx = json.loads(fake.requests[1]["input"][0]["content"].split("\n", 1)[1])["requested_forecast_run"]
-    assert ctx["run_id"] == OTHER and ctx["issued_at_utc"] == "2026-07-30T17:56:59Z"
+                                                    "as_of_utc": CUTOFF})]
+    res, fake = _run(calls, lambda outs: ([], None), as_of=CUTOFF)
+    ctx = _context(fake)["requested_forecast_run"]
+    assert ctx["run_id"] is None and ctx["issued_at_utc"] is None and ctx["published_at_utc"] is None
+    assert "cannot be supplied as public by the as-of cutoff" in ctx["note"] and "earlier run" in ctx["note"]
     assert BOUND not in _requests_text(fake) and "20:56:59" not in _requests_text(fake)
+    assert OTHER not in json.dumps(_context(fake))  # no earlier run is named as the one asked for
+    assert not any(r.call_id == "controller_requested_run" for r in res.records)
+
+
+def test_an_earlier_public_run_given_as_the_run_asked_for_is_rejected():
+    """The same request, answered with the run public by the cutoff for the half-hour (17:56:59Z): rejected."""
+    calls = _base() + [("get_forecast_runs", {**HALF, "as_of_utc": CUTOFF, "max_runs": 8})]
+    res, _ = _run(calls, lambda outs: ([], None), as_of=CUTOFF)
+    reg = res.registry
+    older = [e for e, ev in reg.items.items() if ev.metric == "opdemand_forecast_poe50" and ev.valid_at_utc ==
+             "2026-07-30T21:30:00Z" and any(OTHER in r for r in ev.source_row_ids)]
+    assert older  # the earlier run's value for the half-hour, public by the cutoff
+    rep = res.report.model_copy(update={"observations": _obs(reg, older), "numeric_claims": [], "validation": {}})
+    out = validate(rep, reg, records=res.records, as_of=_utc(CUTOFF), forecast_run={
+        "half_hour_end_utc": "2026-07-30T21:30:00Z", "run_id": None, "issued_at_utc": None})
+    rejected = {v.detail.split(":")[0] for v in out.critical if v.code == "FORECAST_RUN_SUBSTITUTED"}
+    assert rejected == set(older)  # every value of the earlier run for the half-hour
+
+
+def test_a_requested_run_public_by_the_cutoff_is_bound_and_compared():
+    """Control: with a cutoff after the run asked for became public, it is named, compared under the cutoff, and an
+    answer giving its values passes."""
+    res, fake = _run(_base() + ONE_HALF_HOUR_LATE, lambda outs: (_vals(_pair(outs, BOUND), "poe50", "poe10", "poe90"),
+                                                                 None), as_of=LATE)
+    ctx = _context(fake)["requested_forecast_run"]
+    assert ctx["run_id"] == BOUND and ctx["issued_at_utc"] == "2026-07-30T20:56:59Z"
     ctl = next(r for r in res.records if r.call_id == "controller_requested_run")
-    assert ctl.args["as_of_utc"] == "2026-07-30T21:10:00Z"  # the comparison is under the cutoff too
+    assert ctl.status == "ok" and ctl.args["as_of_utc"] == LATE
+    assert not _codes(res) and res.report.validation["final_passed"]
 
 
 def test_a_named_run_not_public_by_the_cutoff_is_reported_unavailable():
     q = ("For NSW, what POE50 did the run issued 2026-07-30T20:56:59Z give for the half-hour ending 21:30 UTC on 30 "
          "July 2026, and how did it compare with the actual?")
-    res, fake = _run(_base(), lambda outs: ([], None), question=q, as_of="2026-07-30T21:10:00Z")
-    ctx = json.loads(fake.requests[1]["input"][0]["content"].split("\n", 1)[1])["requested_forecast_run"]
-    assert ctx["run_id"] is None and ctx["issued_at_utc"] is None and "public by the as-of cutoff" in ctx["note"]
+    res, fake = _run(_base(), lambda outs: ([], None), question=q, as_of=CUTOFF)
+    ctx = _context(fake)["requested_forecast_run"]
+    assert ctx["run_id"] is None and ctx["issued_at_utc"] is None and "cannot be supplied" in ctx["note"]
     assert BOUND not in _requests_text(fake)
     assert not any(r.call_id == "controller_requested_run" for r in res.records)
 
 
-def test_an_as_of_cutoff_in_the_question_binds_nothing():
+@pytest.mark.parametrize("question,request_cutoff", [
+    ("As of 2026-07-30T21:10:00Z, what POE50 did the latest available NSW forecast give for the half-hour ending 21:30 "
+     "UTC on 30 July 2026?", None),
+    ("What POE50 did the latest NSW forecast available before the half-hour from 21:00 to 21:30 UTC on 2026-07-30 give?",
+     CUTOFF),
+])
+def test_an_explicit_latest_available_request_still_works(question, request_cutoff):
+    """Availability-time selection is not issue-time selection: the latest run available by the cutoff (17:56:59Z) is
+    what these ask for, nothing is bound, and the answer giving it passes."""
+    assert requested_forecast(question) is None
+    route = {**ROUTE, "as_of_utc": CUTOFF if request_cutoff is None else None}
+    calls = _base() + [("compare_forecast_actual", {**HALF, "run_selector": "latest_available_as_of",
+                                                    "as_of_utc": CUTOFF})]
+    res, fake = _run(calls, lambda outs: ([], None), question=question, route=route, as_of=request_cutoff)
+    assert "requested_forecast_run" not in _context(fake)
+    reg = res.registry
+    latest = [e for e, ev in reg.items.items() if ev.metric == "opdemand_forecast_poe50" and ev.valid_at_utc ==
+              "2026-07-30T21:30:00Z" and any(OTHER in r for r in ev.source_row_ids)]
+    rep = res.report.model_copy(update={"observations": _obs(reg, latest), "numeric_claims": [], "validation": {}})
+    out = validate(rep, reg, records=res.records, as_of=_utc(CUTOFF), forecast_run=None)
+    assert not [v for v in out.critical if v.code in ("FORECAST_RUN_SUBSTITUTED", "ASOF_LEAK")]
+
+
+@pytest.mark.parametrize("question", [
+    "What did the latest forecast available before the half-hour from 21:00 to 21:30 UTC on 2026-07-30 say for NSW?",
+    "What did the last forecast published before the half-hour from 21:00 to 21:30 UTC on 2026-07-30 say for NSW?",
+    "What did the last publicly known NSW forecast before the half-hour from 21:00 to 21:30 UTC on 2026-07-30 say?",
+])
+def test_availability_or_publication_wording_is_not_read_as_issue_time(question):
+    assert requested_forecast(question) is None
+
+
+def test_an_as_of_cutoff_in_the_question_skips_the_binding_but_keeps_the_as_of_protection():
+    """'Binds nothing' means only that this binding is skipped. The existing as-of protection still applies: the
+    request's cutoff is injected into every tool call, so the model's comparison of the run named (public only after
+    the cutoff) finds nothing, and no value of that run reaches the answer's evidence."""
     q = ("As of 2026-07-30T21:10:00Z, what POE50 had the run issued 2026-07-30T20:56:59Z given for the half-hour "
          "ending 21:30 UTC on 30 July 2026?")
-    res, fake = _run(_base(), lambda outs: ([], None), question=q)
-    assert "requested_forecast_run" not in json.loads(fake.requests[1]["input"][0]["content"].split("\n", 1)[1])
+    calls = _base() + [("compare_forecast_actual", {**HALF, "run_selector": "run_id", "run_id": BOUND})]
+    res, fake = _run(calls, lambda outs: ([], None), question=q, route={**ROUTE, "as_of_utc": CUTOFF})
+    assert "requested_forecast_run" not in _context(fake)
     assert not any(r.call_id == "controller_requested_run" for r in res.records)
+    model = next(r for r in res.records if r.name == "compare_forecast_actual")
+    assert model.args["as_of_utc"] == CUTOFF and any("injected from request cutoff" in n for n in model.policy_notes)
+    assert model.status != "ok" or not model.view.get("pairs")
+    assert not any(BOUND in r for ev in res.registry.items.values() for r in ev.source_row_ids)
 
 
 # -- 2. every forecast value for the half-hour comes from the run asked for
 ONE_HALF_HOUR = [("compare_forecast_actual", {**HALF, "run_selector": "latest_before_target"})]
+ONE_HALF_HOUR_LATE = [("compare_forecast_actual", {**HALF, "run_selector": "run_id", "run_id": BOUND,
+                                                   "as_of_utc": "2026-08-02T00:00:00Z"})]
 
 
 def test_a_mixed_run_answer_is_rejected():
