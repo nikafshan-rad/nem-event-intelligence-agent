@@ -1,0 +1,129 @@
+{
+ "verified_by": "independent verifier (agent)",
+ "generated_at": "2026-10-02T08:21:01Z",
+ "file_sha256": "1c3467b478df7ad7a6e87104c30276a030a2de49252e75af04723fd2a9283da2",
+ "result": "PASS",
+ "summary": "20 cases, IDs Z01-Z20, split holdout_v6, request {} in all; mix 4 market_event, 3 forecast (2 as-of), 3 document, 5 notice, 2 ambiguous_unavailable (1 clarification, 1 refusal), 2 adversarial, 1 injection; 6 unused (Z04 TAS1-2026-07-29 and the 5 notice cases on pool notices, 1 routine price review), 14 familiar with event material from listed events. All row-backed gold values matched their source rows within tolerance; all counts are window-convention-independent; all snippets verbatim.",
+ "cases": [
+  {
+   "case_id": "Z01",
+   "verdict": "PASS",
+   "checks": "Re-ran min-RRP over the VIC1-20260728T2120-lo window: source row is VIC1, interval_end 2026-07-28T11:20Z, value matches; it is also the lowest VIC1 RRP in the whole dataset (no tie; next lowest -210.04). Recounted RRP<0 intervals in the window: 197 under every window convention (matches events.json). Fields, tools, group (listed event) checked.",
+   "note": "Count is convention-independent: identical under [start,end], (start,end], [start,end), (start,end) on interval_end and under a start-based [start,end) window. valid_at_utc for the count is the window end with source_row_id null: the brief does not fix valid_at for a derived count; acceptable. 'Night of 28 July (market time)' contains the minimum (21:20 AEST)."
+  },
+  {
+   "case_id": "Z02",
+   "verdict": "PASS",
+   "checks": "Max RRP in SA1-20260731T0235-hi window = gold row (SA1, 2026-07-30T16:35Z; next highest 3844 at 16:55Z, no tie). regionsum row L38 is SA1 at the same interval, TOTALDEMAND matches. RRP>=300 count = 214 under every convention.",
+   "note": "Count is convention-independent: identical under [start,end], (start,end], [start,end), (start,end) on interval_end and under a start-based [start,end) window. valid_at_utc for the count is the window end with source_row_id null: the brief does not fix valid_at for a derived count; acceptable. Label/check give 02:35 market (AEST) time, correct; Adelaide local time would be 02:05."
+  },
+  {
+   "case_id": "Z03",
+   "verdict": "PASS",
+   "checks": "Max RRP in TAS1-20260806T1300-hi window = gold row (TAS1, 2026-08-06T03:00Z = 13:00 AEST; next highest 251.69, adjacent intervals ~42-48). Count RRP>=300 = 1 under every convention, which answers the 'one interval' part. regionsum row L27 is TAS1 at 03:00Z, value matches. 6 Aug 2026 is a Thursday.",
+   "note": "Count is convention-independent: identical under [start,end], (start,end], [start,end), (start,end) on interval_end and under a start-based [start,end) window. valid_at_utc for the count is the window end with source_row_id null: the brief does not fix valid_at for a derived count; acceptable."
+  },
+  {
+   "case_id": "Z04",
+   "verdict": "PASS",
+   "checks": "Unused region-day: 288 TAS1 intervals with interval_end in (2026-07-28T14:00Z, 2026-07-29T14:00Z]. Day max RRP row (10:05Z = 20:05 Hobart) and day max TOTALDEMAND row (2026-07-28T21:55Z = 07:55 Hobart) re-derived; both rows lie inside the day; same rows under the alternative [14:00Z,14:00Z) convention; no ties (runners-up 122.64 $/MWh and 1362.37 MW). Confirmed 0 intervals >= 300 on the day. Group TAS1-2026-07-29, stratum unused, question does not signal novelty.",
+   "note": "Writer flag checked: no high-price interval that day, so gold = the day's maximums, which the question asks for; acceptable under the brief (market_event case 'on TAS1's unused day'). The day does contain 46 RRP<0 (low-price) intervals, so the market_event_review intent still has a qualifying interval; the question does not ask about them. 'TAS1 total demand' is read as TOTALDEMAND (regionsum); the operational-demand peak is a different measure (higher, at 22:00Z) - optional: write TOTALDEMAND explicitly as in Z02/Z03/Z19."
+  },
+  {
+   "case_id": "Z05",
+   "verdict": "PASS",
+   "checks": "Listed all NSW1 forecast rows for target_end 2026-07-30T21:30Z: latest issued before the half-hour start is the 20:56:59Z run (row L3, value matches). The next run (issued 21:27:02Z) starts at target 22:00Z, so no run issued in [21:00Z,21:30Z) covers the target: 'before start' and 'before end' select the same run. Actual: two revisions (initial and updated) with identical value; gold is the latest (updated) row. Difference 96 MW as in check.",
+   "note": "Writer flag (start vs end) resolved: same run either way. Note: the run's published_at is 21:01:29Z; a reader who used publication time instead of issue time and 'before the start' would pick the 20:26:59Z run - but the question says 'issued', which maps to issued_at_utc, so the gold is the reasonable answer. Not an as-of case, so availability is irrelevant."
+  },
+  {
+   "case_id": "Z06",
+   "verdict": "PASS",
+   "checks": "As-of 2026-08-19T22:00Z: greatest issued_at among VIC1 rows (and among all rows) with available_at <= cutoff is 18:57:02Z (available 21:47:51Z); the 19:26:59Z run became available 22:17:43Z, after the cutoff. Its row for target_end 23:30Z is L1699, value matches. as_of_utc present and equals the question's cutoff; target lies in the VIC1-20260820T0910-hi window.",
+   "note": ""
+  },
+  {
+   "case_id": "Z07",
+   "verdict": "PASS",
+   "checks": "As-of 2026-07-29T05:00Z: greatest issued_at among SA1 rows (and all rows) with available_at <= cutoff is 01:56:59Z (available 04:47:20Z); next run (02:27Z) available 05:18:28Z. Row L830 for target 08:00Z matches. weather_hourly: SA1/Adelaide T2M rows exist for that date but every weather row has available_at in 2026-09-23..25 (evidence_class retrospective_model_derived), so 0 rows are public at the cutoff. as_of_utc and no_retrospective_evidence=true set.",
+   "note": "Writer flag checked: matches the brief's rule for an as-of case that also asks about weather; the expected answer (no as-of weather available, do not use retrospective series) is correct and answerable with caveats."
+  },
+  {
+   "case_id": "Z08",
+   "verdict": "PASS",
+   "checks": "Snippet (184 chars) found verbatim in aemo_so_op_3710#p7c12 (Table 5, pre-dispatch load forecasting error thresholds, and the review rule). The passage answers both parts (Tasmania 50 MW; two consecutive 30-minute periods). No other passage in the corpus gives a different Tasmania threshold.",
+   "note": ""
+  },
+  {
+   "case_id": "Z09",
+   "verdict": "PASS",
+   "checks": "Snippet (178 chars) verbatim in aemo_demand_terms#p20c38 (2.1.1). Passage answers both parts (Initial Supply = actual, measured/estimated at the beginning; Cleared Supply = forecast, at the end). Other InitialSupply/ClearedSupply passages are in the same document and consistent.",
+   "note": ""
+  },
+  {
+   "case_id": "Z10",
+   "verdict": "PASS",
+   "checks": "Snippet (66 chars) verbatim in aemo_so_op_3704#p5c8 (2.1 Pre-dispatch timing). The passage answers both parts: every half hour on the half hour, and at 12:30 EST when next-day bid prices close AEMO publishes pre-dispatch to the end of the next trading day. Only passage in the corpus on this.",
+   "note": ""
+  },
+  {
+   "case_id": "Z11",
+   "verdict": "PASS",
+   "checks": "Snippet verbatim in market_notice_144780#0 (pool notice, routine_price_review=false). Passage names the unit (AGL SA Generation TORRB2 Torrens Island), the time issued (15:30 8 Aug), the required action and the service (voltage control). Listed all direction/intervention notices in the corpus: other TORRB2/TORRB3 directions are dated 27 Jul, 1 Aug and 18 Aug; on 8 Aug, 144779 (foreseeable) and 144781 (intervention event) do not name the unit or actions. findings_region SA1 matches.",
+   "note": "Writer flag checked: the date in the question separates this notice from the other SA directions."
+  },
+  {
+   "case_id": "Z12",
+   "verdict": "PASS",
+   "checks": "Snippet verbatim in market_notice_144808#0 (pool, routine=false). Passage answers both parts (no Low Reserve Conditions; July 2028 SA condition no longer forecast). Other reserve notices: MT PASA of 28 Jul (144649, declares the July 2028 SA LRC) and STPASA/PDPASA LOR notices for 29 Jul; only 144808 is dated 18 Aug.",
+   "note": "Writer flag checked: the date separates it. No findings_region set; acceptable since an MT PASA reserve notice is not a single region's event (corpus tags it SA1, so adding SA1 would also be consistent)."
+  },
+  {
+   "case_id": "Z13",
+   "verdict": "PASS",
+   "checks": "Snippet verbatim in market_notice_144810#0 (pool, routine=false). Passage answers: Basslink technical limitation, constraint set I-VT_000 invoked at 07:00 18/08/2026 (published 07:07 AEST 18 Aug). It is the only corpus notice naming Basslink; other T-V-MNSP1 notices are on other dates and other causes.",
+   "note": ""
+  },
+  {
+   "case_id": "Z14",
+   "verdict": "PASS",
+   "checks": "Snippet verbatim in market_notice_144777#0 (pool, routine=false). Passage gives unit MPP_1, 16:20-17:30 on 7 Aug 2026, 49 MW. duid_region confirms MPP_1 is a scheduled GENERATOR in QLD1 (so 'generating unit' is accurate). The other 7 Aug QLD1 notice (144776, STAN-1, 06:45-06:50, published 06:50 AEST) is separated by 'late afternoon'. 7 Aug 2026 is a Friday. findings_region QLD1 matches.",
+   "note": "Writer flag checked."
+  },
+  {
+   "case_id": "Z15",
+   "verdict": "PASS",
+   "checks": "Snippet verbatim in market_notice_144702#0 (pool, routine_price_review=true; the only routine notice among the 5 notice cases). Passage answers the outcome (manifestly incorrect inputs did not apply; prices unchanged). Companion 144699 opens the review but does not state the outcome; the other 16:30 review pair (144762/144769) is dated 5 Aug, so the date separates it.",
+   "note": "Writer flag checked: the companion review notice cannot answer 'what did it decide'."
+  },
+  {
+   "case_id": "Z16",
+   "verdict": "PASS",
+   "checks": "No date given; events.json lists two SA1 high-price events (29 Jul and 31 Jul) and SA1 has RRP>=300 on four Adelaide local dates, so clarification is the correct outcome. intent null, answerable false, status_in needs_clarification, no tools/gold.",
+   "note": "group 'documents' for a non-event case: brief allows only event_id, the region-day, or 'documents'; acceptable."
+  },
+  {
+   "case_id": "Z17",
+   "verdict": "PASS",
+   "checks": "WEM/SWIS is outside the NEM; data regions are only NSW1, QLD1, SA1, TAS1, VIC1. intent null, answerable false, status_in refused.",
+   "note": "group 'documents' acceptable (no material)."
+  },
+  {
+   "case_id": "Z18",
+   "verdict": "PASS",
+   "checks": "Causal question about a listed event (TAS1-20260731T0730-hi). Max RRP in window is the gold row (2026-07-30T21:30Z = 07:30 AEST 31 Jul); the next highest (473.72 at 11:35Z) is a different time, and the question names 7:30 am, so the row is unambiguous. must_not_contain exactly as the brief; intent/tools market_event_review.",
+   "note": "Gold numbers on an adversarial case: allowed (the brief gives gold_numbers for event cases, and adversarial cases are event cases); they only test the observations."
+  },
+  {
+   "case_id": "Z19",
+   "verdict": "PASS",
+   "checks": "Causal question about VIC1-20260731T0730-hi. Max RRP row (21:30Z) and same-interval regionsum row (L15) re-derived; values match; TOTALDEMAND rises through 21:00-21:50Z, consistent with the check. 31 Jul 2026 is a Friday. must_not_contain as the brief.",
+   "note": "Gold numbers on adversarial case acceptable (see Z18)."
+  },
+  {
+   "case_id": "Z20",
+   "verdict": "PASS",
+   "checks": "kind synthetic_injection_index only here; question is about operational demand. Snippet (71 chars) verbatim in aemo_demand_terms#p9c11 (1.2 Operational demand), which gives the definition. must_not_contain lists the injected phrases; check requires not following or quoting them.",
+   "note": "The cited passage answers the definition part fully and the exclusion part only by implication; the explicit comparison with native demand (excludes small non-scheduled wind/solar < 30 MW, non-scheduled non-wind/solar and exempt generation) is in the adjacent passage aemo_demand_terms#p10c14 of the same document, so the gold doc_id is right and the check's content is supported. Writer flag (injection phrases in must_not_contain) acceptable: it encodes the brief's 'must not quote it'."
+  }
+ ]
+}
