@@ -5,15 +5,18 @@ newest Victorian operational demand forecast for the 23:00 to 23:30 UTC half-hou
 back with "Which date (or UTC window) should be investigated?". The resolver finds no date inside an ISO timestamp, and
 the routing policy applied the routing model's request for a date unchanged; either alone sends it back.
 
-Now, for a forecast question with one region and no date, an explicit cutoff gives the day reviewed (its date in the
-region's local calendar), and the model's request for a missing date is not applied. Every other clarification stays.
-Replays use the saved Live record through the SYNTHETIC fake transport (no network, no key).
+Now the target half-hour and the availability cutoff are kept apart. The cutoff says what was public; the target is
+the half-hour asked about. An explicit date or ISO time names the target. A clock-only half-hour (with its zone) is
+dated by the cutoff only when its occurrence on the cutoff's own date falls after the cutoff; otherwise the question is
+sent back. The window reviewed, and the forecast targets the model is given, contain the target. Replays use the saved
+Live record through the SYNTHETIC fake transport (no network, no key).
 """
 
 from __future__ import annotations
 
 import copy
 import json
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -41,16 +44,36 @@ def _route_events(res) -> list[dict]:
     return [e for e in res.trace.as_dict()["events"] if e["kind"] == "route"]
 
 
+def _targets(fake) -> list[str] | None:
+    """The forecast targets the model was given in its context (None when no tool loop ran)."""
+    if len(fake.requests) < 2:
+        return None
+    return json.loads(fake.requests[1]["input"][0]["content"].split("\n", 1)[1]).get("forecast_targets_utc")
+
+
+def _covers(span, target) -> bool:
+    return span[0] <= target[0] and target[1] <= span[1]
+
+
+def _run_f(question: str, route: dict, as_of: str | None = None):
+    fake = FakeModel(route, [], lambda kw: {})
+    res = investigate(InvestigateRequest(question=question, mode="live", as_of_utc=as_of), live_client=fake,
+                      write_trace=False)
+    return res, fake
+
+
 # ------------------------------------------------------------------------------------------------ Y07
-def test_y07_is_dated_by_its_cutoff_and_not_sent_back():
-    res = _run(Q07, ROUTE07)
+def test_y07_keeps_its_target_half_hour_and_its_cutoff():
+    res, fake = _run_f(Q07, ROUTE07)
     r = res.resolution
     assert r.status == "ok" and res.report.status != "needs_clarification"
-    assert r.as_of is not None and r.as_of.isoformat() == "2026-08-19T20:00:00+00:00"
-    assert r.routing["date_from_as_of"] == "2026-08-20"  # 06:00 AEST on 20 August
-    assert r.window[0].isoformat() <= "2026-08-19T23:00:00+00:00" and r.window[1].isoformat() >= "2026-08-19T23:30:00+00:00"
+    assert [t.isoformat() for t in r.target] == ["2026-08-19T23:00:00+00:00", "2026-08-19T23:30:00+00:00"]
+    assert r.as_of.isoformat() == "2026-08-19T20:00:00+00:00"  # the cutoff stays the availability cutoff
+    assert r.routing["target_dated_by_cutoff"] == ["2026-08-19T23:00:00Z", "2026-08-19T23:30:00Z"]
+    assert _covers(r.window, r.target)
+    assert _covers(_targets(fake), ["2026-08-19T23:00:00Z", "2026-08-19T23:30:00Z"])  # the tools' targets too
     notes = next(e for e in _route_events(res) if e["name"] == "model_decision")["policy_notes"]
-    assert any("explicit as-of cutoff gives the date" in n for n in notes)
+    assert any("dated by the explicit as-of cutoff" in n for n in notes)
 
 
 def _faithful(kw):
@@ -89,11 +112,72 @@ def test_y07_answered_from_the_run_public_by_the_cutoff_passes():
     assert max(runs.view["runs"], key=lambda r: r["published_at_utc"])["issued_at_utc"] == "2026-08-19T16:56:58Z"
 
 
-def test_a_cutoff_given_with_the_request_dates_the_question_too():
+def test_a_cutoff_given_with_the_request_dates_a_clock_only_half_hour_after_it():
     q = ("Looking only at runs already public, what was the newest Victorian operational demand forecast for the 23:00 "
          "to 23:30 UTC half-hour?")
     res = _run(q, {**ROUTE07, "as_of_utc": None}, as_of=CUTOFF)
-    assert res.resolution.status == "ok" and res.resolution.routing["date_from_as_of"] == "2026-08-20"
+    assert res.resolution.status == "ok"
+    assert [t.isoformat() for t in res.resolution.target] == ["2026-08-19T23:00:00+00:00", "2026-08-19T23:30:00+00:00"]
+
+
+# ------------------------------------------------------------------------------------------------ explicit target dates
+ANSWER = {**ROUTE07, "needs_clarification": False, "clarification_reason": None, "clarification": None}
+
+
+@pytest.mark.parametrize("question,cutoff,event_date,target,window_day", [
+    # the target date is two days after the cutoff's local date (20 August in VIC1)
+    ("As of 2026-08-19T20:00:00Z, looking only at runs already public, what was the newest Victorian operational demand "
+     "forecast for the half-hour ending 09:30 AEST on 21 August 2026?", "2026-08-19T20:00:00Z", "2026-08-21",
+     ("2026-08-20T23:00:00Z", "2026-08-20T23:30:00Z"), None),
+    # a UTC date whose half-hour falls on the next local day (00:30-01:00 AEST on the 22nd): the date's local day
+    # would miss it, so the window moves to the target's day
+    ("As of 2026-08-21T12:00:00Z, looking only at runs already public, what was the newest Victorian operational demand "
+     "forecast for the half-hour ending 15:00 UTC on 21 August 2026?", "2026-08-21T12:00:00Z", "2026-08-21",
+     ("2026-08-21T14:30:00Z", "2026-08-21T15:00:00Z"), "2026-08-22"),
+])
+def test_an_explicit_target_date_is_used_not_the_cutoffs(question, cutoff, event_date, target, window_day):
+    res, fake = _run_f(question, {**ANSWER, "event_date": event_date, "as_of_utc": cutoff})
+    r = res.resolution
+    t = (datetime.fromisoformat(target[0].replace("Z", "+00:00")), datetime.fromisoformat(target[1].replace("Z", "+00:00")))
+    assert r.status == "ok" and r.target == t and r.as_of.isoformat() == cutoff.replace("Z", "+00:00")
+    assert "target_dated_by_cutoff" not in r.routing  # the date came from the question, not the cutoff
+    assert _covers(r.window, r.target) and _covers(_targets(fake), list(target))
+    assert r.routing.get("window_from_target") == window_day
+
+
+# ------------------------------------------------------------------------------------------------ across local midnight
+@pytest.mark.parametrize("half_hour,target", [
+    ("23:30 to 00:00 AEST", ("2026-08-19T13:30:00Z", "2026-08-19T14:00:00Z")),  # ends at local midnight
+    ("14:00 to 14:30 UTC", ("2026-08-19T14:00:00Z", "2026-08-19T14:30:00Z")),  # starts the next local day
+])
+def test_a_target_across_local_midnight_is_kept_with_its_window(half_hour, target):
+    """Cutoff 2026-08-19T12:00Z is 22:00 AEST on the 19th; the half-hour asked about ends at, or starts after, local
+    midnight. The window and the forecast targets contain it."""
+    q = (f"As of 2026-08-19T12:00:00Z, looking only at runs already public, what was the newest Victorian operational "
+         f"demand forecast for the {half_hour} half-hour?")
+    res, fake = _run_f(q, {**ROUTE07, "as_of_utc": "2026-08-19T12:00:00Z"})
+    r = res.resolution
+    assert r.status == "ok", r.reasons
+    assert [x.isoformat().replace("+00:00", "Z") for x in r.target] == list(target)
+    assert _covers(r.window, r.target) and _covers(_targets(fake), list(target))
+
+
+# ------------------------------------------------------------------------------------------------ ambiguous targets
+@pytest.mark.parametrize("question,why", [
+    ("As of 2026-08-19T20:00:00Z, looking only at runs already public, what was the newest Victorian operational demand "
+     "forecast for the 10:00 to 10:30 UTC half-hour?", "on the cutoff's date it is before the cutoff: today or tomorrow"),
+    ("As of 2026-08-19T20:00:00Z, looking only at runs already public, what was the newest Victorian operational demand "
+     "forecast for the 23:00 to 23:30 half-hour?", "no time zone"),
+    ("As of 2026-08-19T20:00:00Z, what were the newest Victorian operational demand forecasts?", "no half-hour at all"),
+])
+@pytest.mark.parametrize("model_asks", [True, False])
+def test_an_ambiguous_target_date_is_asked_about_not_taken_from_the_cutoff(question, why, model_asks):
+    route = ROUTE07 if model_asks else {**ANSWER, "as_of_utc": CUTOFF}
+    res, fake = _run_f(question, route)
+    assert res.report.status == "needs_clarification", why
+    assert res.resolution.target is None and _targets(fake) is None
+    if not model_asks:  # the resolver itself asks, saying why the cutoff does not give the date
+        assert any("not which day the forecast is for" in x for x in res.resolution.reasons)
 
 
 # ------------------------------------------------------------------------------------------------ still sent back
@@ -120,4 +204,3 @@ def _asks(reason: str, **route) -> dict:
 def test_other_clarifications_are_still_asked(question, route, why):
     res = _run(question, route)
     assert res.report.status == "needs_clarification", why
-    assert "date_from_as_of" not in (res.resolution.routing or {}) or why == "a clarification given for another reason"

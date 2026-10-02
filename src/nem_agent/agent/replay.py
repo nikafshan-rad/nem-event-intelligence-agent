@@ -148,7 +148,11 @@ def forecast_focus(res: Resolution) -> tuple[datetime, datetime]:
     a, b = res.window
     centre = parse_iso(res.event.peak_interval_end_utc) if res.event else a + (b - a) / 2
     c = half_hour_end_for(centre)
-    return max(a, c - timedelta(hours=6)), min(b, c + timedelta(hours=6))
+    lo, hi = max(a, c - timedelta(hours=6)), min(b, c + timedelta(hours=6))
+    t = getattr(res, "target", None)
+    if t is not None and not (lo <= t[0] and t[1] <= hi):  # the half-hour asked about is in the slice compared (I-10)
+        lo, hi = max(a, t[1] - timedelta(hours=6)), min(b, t[1] + timedelta(hours=6))
+    return lo, hi
 
 
 class ReplayController:

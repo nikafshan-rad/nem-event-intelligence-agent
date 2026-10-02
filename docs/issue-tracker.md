@@ -1610,15 +1610,27 @@ same result):
   of" it, its date in the region's local calendar is the day to review: the forecasts public by then are the subject.
 - **Not involved:** tools, selection, synthesis or validation; none ran.
 
-**Fix (one, in routing).** For a forecast question with one region and no date, an explicit as-of cutoff gives the
-date: the cutoff's date in the region's local time.
-- **The resolver** derives the review window from it, as for any named date (the day's tracked event, else the local
-  day).
-- **The routing policy** does not apply the model's request for a missing date in that case.
+**Fix (one, in routing).** The target half-hour and the availability cutoff are kept apart. The cutoff says what was
+public by then; the target is the half-hour asked about.
+- **First version** (`b77eb5a`, superseded in review, see below): it took the cutoff's local date as the day reviewed.
+- **The rule now:**
+  - **An explicit date or ISO time** names the target.
+  - **A clock-only half-hour** with its zone ("the 23:00 to 23:30 UTC half-hour"), in a question with no date, is
+    dated by the cutoff only when its occurrence on the cutoff's own date, in that zone, starts at or after the cutoff
+    (Y07: 23:00Z after a 20:00Z cutoff).
+  - **Anything else is sent back:** a half-hour before the cutoff on that date, one without a zone, or no half-hour.
+    The cutoff is never taken as the target date.
+- **The resolver:**
+  - records the target;
+  - keeps the review window only if it contains the target, and otherwise uses the target's local day (or that day's
+    event window, if it contains the target).
+- **The forecast slice** given to the model is moved to the target when it would miss it.
+- **The routing policy** does not apply the model's request for a missing date only when the cutoff dates the target
+  that way.
 - **Clarification still asked:**
   - no region, or several regions;
   - several dates;
-  - a cutoff without a time zone or date ("as of 20:00");
+  - a cutoff without its date ("as of 20:00");
   - no cutoff and no date;
   - a model clarification given for another reason.
 - **Unchanged:** market-event questions, and the as-of protection (the cutoff is applied to every tool call).
@@ -1641,39 +1653,49 @@ date: the cutoff's date in the region's local time.
    - frozen evaluation material, scores and verdicts.
    - **Live is unverified.**
 
-**Result: verified offline; Live unverified** (PR `#42`; evidence in `artifacts/logs/as_of_date.log`). All three checks
-are met.
+**Result: verified offline; Live unverified** (PR `#42`; evidence in `artifacts/logs/as_of_date.log`).
 1. **Y07, from its saved routing decision:**
-   - **Not sent back:** the routing policy notes that the explicit cutoff gives the date, and the resolver returns ok.
-   - **The window:** the day is 2026-08-20 in VIC1. That day's tracked event window (11:00Z on 19 August to 11:30Z
-     on 20 August) contains 23:00–23:30Z on 19 August.
-   - **The cutoff:** it is kept, and it is still injected into the tool calls.
-   - **A scripted answer from the run public by the cutoff** (issued 16:56:58Z: POE10/50/90 6,689 / 6,447 / 6,204 MW)
-     passes, with no actual shown.
-2. **Controls, each tested.** These are still sent back:
+   - **Not sent back:** its target (23:00–23:30Z on 19 August) and its cutoff (20:00Z) are kept apart and both
+     preserved.
+   - **The window and forecast slice:** VIC1's event window for 20 August (11:00Z on the 19th to 11:30Z on the 20th),
+     and the forecast slice given to the model, contain the target.
+   - **A scripted answer from the run public by the cutoff** (issued 16:56:58Z: 6,689 / 6,447 / 6,204 MW) passes,
+     with no actual shown.
+2. **Review of the date boundary** (before merge).
+   - **Defects at `de75d92`:**
+     - an ambiguous target (a half-hour before the cutoff on its date, one without a zone, or no half-hour) was
+       silently dated by the cutoff's local day;
+     - an explicit UTC date whose half-hour falls on the next local day got a window and forecast slice that missed it;
+     - half-hours ending at, or starting after, local midnight were in the window, but not in the forecast slice given
+       to the model.
+   - **Fixed:**
+     - an explicit target date is used, not the cutoff's (tested with two dates);
+     - targets across local midnight are in both the window and the slice (tested with two);
+     - ambiguous targets are sent back, saying the cutoff gives what was public, not the target day (tested three
+       ways, with and without the model asking).
+   - **Test results:** 12 of the 20 tests fail at `de75d92`; all pass now.
+3. **Controls still sent back:**
    - no region;
    - several regions;
    - several dates;
-   - a cutoff without a date ("as of 20:00");
+   - a cutoff without its date;
    - no cutoff and no date;
-   - a clarification given for another reason (`unclear_question`);
+   - another clarification reason;
    - a market-event question with only a cutoff.
 
-   A cutoff given with the request (not in the question) dates the question too.
-3. **Unchanged:**
-   - **Saved routing decisions:** of the 198 saved Live questions, replayed through the routing policy and resolver,
-     only Y07's outcome changes (`needs_clarification` to ok). The other 11 clarifications and 6 refusals are
-     unchanged.
+   A cutoff given with the request dates a clock-only half-hour after it.
+4. **Unchanged:**
+   - **Saved routing decisions:** of the 198 saved Live questions, only Y07's outcome changes. The questions with
+     explicit target half-hours (H04, H05, H06, V05–V08, W05, W07, W08, Y05, Y06) keep their windows.
    - **Saved drafts:** all 181 replays are identical to `main`.
    - **Replay evaluation and safety suite:** identical to `main`.
-   - **Tests:** the full suite passes (1,111, of which 10 are new).
+   - **Tests:** the full suite passes (1,121, of which 20 are new).
    - **Frozen evaluation material:** untouched.
 
 **Still open for I-10:**
 - **Only forecast questions.** A market-event question dated only by an as-of cutoff is still sent back.
-- **The day is the cutoff's local date.** A half-hour asked about that falls on another local day (for example
-  01:00 local after a 23:00 local cutoff) is outside the reviewed window, although the model can still name its
-  times in the tool calls.
+- **The cutoff dates only a clock-only half-hour later on its own date.** "As of 23:50Z, the 00:00 to 00:30 UTC
+  half-hour" is sent back, although the next one (10 minutes later) is the likely meaning.
 - **A cutoff without its date** ("as of 20:00") is still sent back, by design.
 - **Live is unverified;** no paid run was made.
 

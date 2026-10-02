@@ -21,12 +21,14 @@ from .agent.request import (
     extract_dates,
     extract_regions,
     forecast_issue_time,
+    half_hour_after_cutoff,
     resolve,
 )
 from .evidence import EvidenceRegistry
 from .report import InvestigationReport, Versions
 from .selection import Selection, load_selection
 from .store import Store
+from .timeutil import parse_iso
 from .trace import Trace
 
 
@@ -143,8 +145,9 @@ def route_policy(req: InvestigateRequest, decision: Any) -> tuple[dict[str, Any]
     - a definition or document question needs no region or date, so the model's request for one is not applied
       (L3 live, DOC03: "What is TOTALDEMAND in the dispatch region summary data?" was sent back for a region);
     - an as-of question about forecasts is a forecast review even when it names an event (L3 live, AMB06);
-    - a forecast question with one region, no date and an explicit as-of cutoff is dated by the cutoff, so the model's
-      request for a missing date is not applied (held-out v5 Y07); the resolver derives the day from the cutoff.
+    - a forecast question with one region and no date, whose clock-only half-hour the explicit as-of cutoff dates
+      safely (it falls after the cutoff on the cutoff's own date), names its target: the model's request for a missing
+      date is not applied (held-out v5 Y07). The cutoff gives no date otherwise.
     Out-of-scope decisions and every other clarification request are applied unchanged.
     Returns (request updates, status override or None, notes for the trace)."""
     q = req.question
@@ -174,9 +177,10 @@ def route_policy(req: InvestigateRequest, decision: Any) -> tuple[dict[str, Any]
             notes.append("clarification not applied: a definition or document question needs no region or date")
         elif (intent == "forecast_review" and decision.clarification_reason == "missing_region_or_date"
               and not several and not extract_dates(q) and (req.region or len(extract_regions(q)) == 1)
-              and (req.as_of_utc or extract_as_of(q, None, None))):
-            notes.append("clarification not applied: the explicit as-of cutoff gives the date (its local date in the "
-                         "region)")
+              and (cutoff := (parse_iso(req.as_of_utc) if req.as_of_utc else extract_as_of(q, None, None)))
+              and half_hour_after_cutoff(q, cutoff) is not None):
+            notes.append("clarification not applied: the half-hour asked about is dated by the explicit as-of cutoff "
+                         "(it falls after the cutoff on the cutoff's date)")
         else:
             override = "needs_clarification"
     return upd, override, notes

@@ -22,3 +22,41 @@ questions: 198; outcomes on main: {'ok': 181, 'needs_clarification': 11, 'refuse
 same as main: 197 of 198
 
 ## Saved drafts replayed with their saved repairs: 181, all identical to main (Y07 has no draft)
+
+## Review: the target date kept apart from the availability cutoff
+Each case through the controller (SYNTHETIC fake transport): the routing status, the window reviewed, and whether the
+window and the forecast targets the model is given contain the half-hour asked about.
+### previous head de75d92 (the day reviewed was the cutoff's local date)
+Y07                                                  status=ok                   window=['2026-08-19T11:00:00Z', '2026-08-20T11:30:00Z'] | window contains it: True | model's forecast targets contain it: True
+explicit date 21 Aug (cutoff's local day 20 Aug)     status=ok                   window=['2026-08-20T14:00:00Z', '2026-08-21T14:00:00Z'] | window contains it: True | model's forecast targets contain it: True
+explicit UTC date, half-hour on the next local day   status=ok                   window=['2026-08-20T14:00:00Z', '2026-08-21T14:00:00Z'] | window contains it: False | model's forecast targets contain it: False
+ends at local midnight (23:30-00:00 AEST)            status=ok                   window=['2026-08-19T11:00:00Z', '2026-08-20T11:30:00Z'] | window contains it: True | model's forecast targets contain it: False
+starts the next local day (14:00-14:30 UTC)          status=ok                   window=['2026-08-19T11:00:00Z', '2026-08-20T11:30:00Z'] | window contains it: True | model's forecast targets contain it: False
+ambiguous: before the cutoff on its date             status=ok                   window=['2026-08-19T11:00:00Z', '2026-08-20T11:30:00Z']
+ambiguous: no zone                                   status=ok                   window=['2026-08-19T11:00:00Z', '2026-08-20T11:30:00Z']
+ambiguous: no half-hour                              status=ok                   window=['2026-08-19T11:00:00Z', '2026-08-20T11:30:00Z']
+### reviewed code
+Y07                                                  status=ok                   window=['2026-08-19T11:00:00Z', '2026-08-20T11:30:00Z'] | window contains it: True | model's forecast targets contain it: True
+explicit date 21 Aug (cutoff's local day 20 Aug)     status=ok                   window=['2026-08-20T14:00:00Z', '2026-08-21T14:00:00Z'] | window contains it: True | model's forecast targets contain it: True
+explicit UTC date, half-hour on the next local day   status=ok                   window=['2026-08-21T14:00:00Z', '2026-08-22T14:00:00Z'] | window contains it: True | model's forecast targets contain it: True
+ends at local midnight (23:30-00:00 AEST)            status=ok                   window=['2026-08-19T11:00:00Z', '2026-08-20T11:30:00Z'] | window contains it: True | model's forecast targets contain it: True
+starts the next local day (14:00-14:30 UTC)          status=ok                   window=['2026-08-19T11:00:00Z', '2026-08-20T11:30:00Z'] | window contains it: True | model's forecast targets contain it: True
+ambiguous: before the cutoff on its date             status=needs_clarification  window=None
+ambiguous: no zone                                   status=needs_clarification  window=None
+ambiguous: no half-hour                              status=needs_clarification  window=None
+
+tests/provider/test_as_of_date.py (20 tests) at de75d92:
+FAILED test_y07_keeps_its_target_half_hour_and_its_cutoff
+FAILED test_a_cutoff_given_with_the_request_dates_a_clock_only_half_hour_after_it
+FAILED test_an_explicit_target_date_is_used_not_the_cutoffs[As of 2026-08-19T20:00:00Z, looking only at runs already public, what was the newest Victorian operational demand forecast for the half-hour ending 09:30 AEST on 21 
+FAILED test_an_explicit_target_date_is_used_not_the_cutoffs[As of 2026-08-21T12:00:00Z, looking only at runs already public, what was the newest Victorian operational demand forecast for the half-hour ending 15:00 UTC on 21 A
+FAILED test_a_target_across_local_midnight_is_kept_with_its_window[23:30 to 00:00 AEST-target0]
+FAILED test_a_target_across_local_midnight_is_kept_with_its_window[14:00 to 14:30 UTC-target1]
+FAILED test_an_ambiguous_target_date_is_asked_about_not_taken_from_the_cutoff[True-As of 2026-08-19T20:00:00Z, looking only at runs already public, what was the newest Victorian operational demand forecast for the 10:00 to 10
+FAILED test_an_ambiguous_target_date_is_asked_about_not_taken_from_the_cutoff[True-As of 2026-08-19T20:00:00Z, looking only at runs already public, what was the newest Victorian operational demand forecast for the 23:00 to 23
+FAILED test_an_ambiguous_target_date_is_asked_about_not_taken_from_the_cutoff[True-As of 2026-08-19T20:00:00Z, what were the newest Victorian operational demand forecasts?-no half-hour at all]
+FAILED test_an_ambiguous_target_date_is_asked_about_not_taken_from_the_cutoff[False-As of 2026-08-19T20:00:00Z, looking only at runs already public, what was the newest Victorian operational demand forecast for the 10:00 to 1
+FAILED test_an_ambiguous_target_date_is_asked_about_not_taken_from_the_cutoff[False-As of 2026-08-19T20:00:00Z, looking only at runs already public, what was the newest Victorian operational demand forecast for the 23:00 to 2
+FAILED test_an_ambiguous_target_date_is_asked_about_not_taken_from_the_cutoff[False-As of 2026-08-19T20:00:00Z, what were the newest Victorian operational demand forecasts?-no half-hour at all]
+12 failed, 8 passed in 2.11s
+On the reviewed code: 20 passed. Saved routing decisions: only Y07 differs from main (198); saved drafts: 181 identical.
