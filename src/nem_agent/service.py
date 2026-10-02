@@ -16,6 +16,7 @@ from .agent.request import (
     InvestigateRequest,
     Resolution,
     asks_about_notices,
+    asks_cause_of_price_event,
     asks_forecast_as_of,
     extract_as_of,
     extract_dates,
@@ -145,6 +146,9 @@ def route_policy(req: InvestigateRequest, decision: Any) -> tuple[dict[str, Any]
     - a definition or document question needs no region or date, so the model's request for one is not applied
       (L3 live, DOC03: "What is TOTALDEMAND in the dispatch region summary data?" was sent back for a region);
     - an as-of question about forecasts is a forecast review even when it names an event (L3 live, AMB06);
+    - a question asking whether something caused or explains a price event is an event review even when the model
+      calls it a forecast question (held-out v5 Y18: "forecast lack of reserve"), unless it asks about forecast
+      accuracy;
     - a forecast question with one region and no date, whose clock-only half-hour the explicit as-of cutoff dates
       safely (it falls after the cutoff on the cutoff's own date), names its target: the model's request for a missing
       date is not applied (held-out v5 Y07). The cutoff gives no date otherwise.
@@ -160,6 +164,9 @@ def route_policy(req: InvestigateRequest, decision: Any) -> tuple[dict[str, Any]
     if req.intent is None and intent == "market_event_review" and asks_forecast_as_of(q):
         intent = "forecast_review"
         notes.append("routed as forecast_review: an as-of question about forecasts")
+    if req.intent is None and intent == "forecast_review" and asks_cause_of_price_event(q):
+        intent = "market_event_review"
+        notes.append("routed as market_event_review: the question asks whether something explains a price event")
     as_of = req.as_of_utc or decision.as_of_utc
     if req.as_of_utc is None and decision.as_of_utc and forecast_issue_time(q) is not None:
         as_of = None

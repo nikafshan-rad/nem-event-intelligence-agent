@@ -23,7 +23,7 @@ One list of known defects, so that each fix is weighed against the whole. Eviden
 | I-8 | **A definition shown with its meaning reversed** | Y20 (held-out v5, Live, 2026-10-02): asked whether operational demand counts scheduled loads, the answer said it *includes* "local demand of scheduled loads and scheduled bidirectional units" [c1], citing figure text that subtracts them; the definition excludes them. It passed validation and was shown | P1 | **verified offline; Live unverified** (PR `#40`, below). v5's FAIL verdict and Y20's scores are unchanged |
 | I-9 | **The forecast run asked for, replaced by another** | Y05, Y06 (held-out v5, Live, 2026-10-02): asked for the last forecast issued before a named half-hour, both answers gave a run issued about three hours earlier (Y05 POE50 10,972 MW from the 17:56:59Z run instead of 11,082 from the 20:56:59Z run; Y06 2,017 from 04:27:00Z instead of 1,816 from 07:26:58Z), presented as the run asked for | P1 | **verified offline; Live unverified** (PR `#41`, merged as `0f0b5c9`; below). v5's FAIL verdict and Y05/Y06's scores are unchanged |
 | I-10 | **An as-of forecast question sent back for a date it already gives** | Y07 (held-out v5, Live, 2026-10-02): "As of 2026-08-19T20:00:00Z, … what was the newest Victorian operational demand forecast for the 23:00 to 23:30 UTC half-hour …?" was answered with "Which date (or UTC window) should be investigated?". The explicit cutoff dates the question | P2 | **verified offline; Live unverified** (PR `#42`, merged as `1eb4484`; below). Date-inference limits remain: only forecast questions; a cutoff dates only a clock-only half-hour later on its own date; a cutoff without its date is sent back. v5's FAIL verdict and Y07's scores are unchanged |
-| I-11 | **A causal price-event question routed as a forecast question** | Y18 (held-out v5, Live, 2026-10-02): "Was AEMO's forecast lack of reserve the reason South Australia's price spiked at 07:55 UTC on 29 July 2026?" was routed as `forecast_review`. `find_market_events` was not run, the answer gave a forecast-error comparison, and it omitted that the day's reserve (LOR) notices were each cancelled beforehand | P2 | **in progress** (below); v5's FAIL verdict and Y18's scores are unchanged |
+| I-11 | **A causal price-event question routed as a forecast question** | Y18 (held-out v5, Live, 2026-10-02): "Was AEMO's forecast lack of reserve the reason South Australia's price spiked at 07:55 UTC on 29 July 2026?" was routed as `forecast_review`. `find_market_events` was not run, the answer gave a forecast-error comparison, and it omitted that the day's reserve (LOR) notices were each cancelled beforehand | P2 | **verified offline; Live unverified** (below). v5's FAIL verdict and Y18's scores are unchanged |
 | I-5 | **Known safety-language limitations** | See the list below. Each is recorded with its risk. None is being worked on, to avoid an open-ended wording cycle | P3 | recorded; revisit only with a new concrete failure |
 
 ### I-1a: F04, the causal question not answered directly
@@ -1763,6 +1763,44 @@ event review, even when the routing model calls it a forecast question.
    - frozen evaluation material, scores and verdicts.
    - **Live is unverified.**
 
+**Result: verified offline; Live unverified** (evidence in `artifacts/logs/causal_price_routing.log`). All three
+checks are met.
+1. **Y18, from its saved routing decision:** it is routed as `market_event_review`, with the policy note.
+   - **With the same event's market-review tool calls and drafts (W19):** every required event-review tool runs
+     (`find_market_events` included). The controller's cancellation sentence (I-1b) opens the answer, naming each
+     cited reserve notice and when it was cancelled, before the price extreme. The answer passes with the 845 $/MWh
+     peak and no cause asserted.
+   - **Y18's own saved answer** was written for a forecast review. It now gets the cancellation sentence too, but is
+     held to the event review's checks and falls back (`NOTICE_TIMING_OMITTED`): it never set the notices' times
+     against the event.
+2. **Controls, each tested:**
+   - **Keep `forecast_review`:**
+     - a genuine reserve-forecast question (no price event);
+     - a demand-forecast question;
+     - a forecast-accuracy question around a price spike;
+     - an ambiguous "was a forecast error the reason …" question (the model's route is kept);
+     - an as-of question.
+   - **A non-causal market-event question** is unchanged.
+   - **A question about what notices say** still goes to `source_explanation`.
+   - **Another causal price-event question** ("Did cold weather drive …") is routed as an event review.
+   - **An ambiguous causal question without a region or date** is routed as an event review and still sent back.
+3. **Unchanged:**
+   - **Saved routing decisions:** of the 198 saved Live questions, replayed from their saved decisions, only Y18's
+     routing changes. No other question is rerouted.
+   - **Saved drafts:** of the 181 replays, only Y18's changes (above).
+   - **Replay evaluation and safety suite:** identical to `main`.
+   - **Tests:** the full suite passes (1,135, of which 14 are new).
+   - **Frozen evaluation material:** untouched.
+
+**Still open for I-11:**
+- **Lexical recognition.** A causal question is recognised by its influence wording with price-event wording. Other
+  phrasings are not rerouted ("what was behind SA's $845 interval?" is; "SA hit $845 — was that the LOR?" is not).
+- **Mixed questions keep the model's route.** A question that also asks about forecast accuracy, or is an as-of
+  question, keeps the model's route even when it asks about a cause.
+- **Only the forecast-to-event direction.** A non-causal price question that the model routes as a forecast question
+  is not corrected by this rule.
+- **Live is unverified;** no paid run was made.
+
 ### I-3a: F03, a notice time shown without its zone
 
 **What happened** (Live check 2026-09-29, `artifacts/live/live-check-2026-09-29/F03.json`, trace `tr-77c70c8d1482`):
@@ -2322,7 +2360,8 @@ progress.
   - **Y07:** an as-of half-hour without a date was sent for clarification. Now I-10: verified offline, Live
     unverified (merged in PR `#42`).
   - **Y17:** out of scope and needing clarification at once, shown as a clarification, not a refusal.
-  - **Y18:** "forecast lack of reserve" routed as a forecast question. Now I-11 (in progress).
+  - **Y18:** "forecast lack of reserve" routed as a forecast question. Now I-11: verified offline, Live
+    unverified.
   - **Y20:** operational demand's composition inverted (it says scheduled loads are included). Now I-8: verified
     offline, Live unverified; Y20's scores and v5's verdict are unchanged.
   - **Y14:** two check elements omitted.

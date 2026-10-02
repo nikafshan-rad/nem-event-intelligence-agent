@@ -1,0 +1,38 @@
+# I-11: a causal price-event question routed as an event review. Offline only: saved Live records replayed through the
+# SYNTHETIC fake transport (no network, no key; scratch ledger), on main 1eb4484 and on fix/causal-price-routing.
+# Live is unverified.
+
+## Y18 from its saved routing decision (forecast_review): (a) with its own saved tool calls, draft and repair; (b) with
+## the same event's market-review tool calls and drafts from W19 (second development check)
+### main 1eb4484
+(a) Y18's own tool calls and draft:
+   routed intent: forecast_review | policy notes: []
+   tools run: [('get_forecast_runs', 'ok'), ('get_actual_demand', 'ok'), ('compare_forecast_actual', 'ok'), ('retrieve_public_evidence', 'ok'), ('get_price_timeline', 'ok')]
+   status answered_with_caveats, fallback False, codes []
+   cancellation sentence: none
+(b) W19's market-review tool calls and drafts (same event):
+   routed intent: forecast_review | policy notes: []
+   tools run: [('get_price_timeline', 'ok'), ('get_actual_demand', 'ok'), ('retrieve_public_evidence', 'ok'), ('get_generation_change', 'blocked'), ('get_forecast_runs', 'ok'), ('find_market_events', 'ok')]
+   status answered_with_caveats, fallback True, codes ['CLAIM_VALUE_MISMATCH', 'TIME_NOT_IN_EVIDENCE']
+   cancellation sentence: none
+### fix/causal-price-routing
+(a) Y18's own tool calls and draft:
+   routed intent: market_event_review | policy notes: ['routed as market_event_review: the question asks whether something explains a price event']
+   tools run: [('get_forecast_runs', 'ok'), ('get_actual_demand', 'ok'), ('compare_forecast_actual', 'ok'), ('retrieve_public_evidence', 'ok'), ('get_price_timeline', 'ok')]
+   status answered_with_caveats, fallback True, codes ['NOTICE_TIMING_OMITTED', 'NUMERIC_UNTRACKED', 'TIME_ZONE_MISSING']
+   cancellation sentence: AEMO later cancelled what these cited notices announced, each before the price extreme (interval ending 2026-07-29T07:55:00Z = 2026-07-29 17:25 ACST): the reserve notice issued 2026-07-28 12:45 ACST (
+(b) W19's market-review tool calls and drafts (same event):
+   routed intent: market_event_review | policy notes: ['routed as market_event_review: the question asks whether something explains a price event']
+   tools run: [('get_price_timeline', 'ok'), ('get_actual_demand', 'ok'), ('retrieve_public_evidence', 'ok'), ('get_generation_change', 'ok'), ('get_forecast_runs', 'ok'), ('find_market_events', 'ok')]
+   status answered_with_caveats, fallback False, codes []
+   cancellation sentence: AEMO later cancelled what these cited notices announced, each before the price extreme (interval ending 2026-07-29T07:55:00Z = 2026-07-29 17:25 ACST): the reserve notice issued 2026-07-27 10:02 ACST (
+
+## Every saved Live question with a saved routing decision (198), through route_policy and resolve
+  L3-holdout-v5/Y18: forecast_review -> market_event_review (['routed as market_event_review: the question asks whether something explains a price event'])
+same as main: 197 of 198
+
+## Saved drafts replayed with their saved repairs (181)
+  L3-holdout-v5/Y18: forecast_review -> market_event_review; fallback False -> True; codes [] -> ['NOTICE_TIMING_OMITTED', 'NUMERIC_UNTRACKED', 'TIME_ZONE_MISSING']
+same as main: 180 of 181
+  (Y18's own answer was written for a forecast review; on the event route it is held to the event review's checks and
+   falls back: it never set the notices' times against the event. With the same event's market-review material it passes.)
