@@ -2862,3 +2862,96 @@ evidence):
   ties them to the search record.
 - **Y18:** some stated notice times are not backed by a shown quote or observation (reviewer 2's note, not flagged).
   Times are not part of the reviewers' number check.
+
+## Targeted Live check of I-15, I-16 and I-17: frozen, not run (awaiting the owner's paid-run approval)
+
+Prepared with the owner's approval for **unpaid preparation only**: no Live call has been made. Files are in
+`eval/livecheck_i15_17/`. The rule is `PASS_RULE.md`, committed and pushed (`bd5a47c`, 2026-10-02T14:21:25Z) before any
+question was written. **This is not v7 and not an L3 evaluation.** The fresh questions are on familiar, pinned data and
+are not unseen-event evidence. Historical verdicts are unchanged, and Live stays experimental.
+
+**The code under test:** `main` `cf9558e` (full tree `4a3b0ab619cf156b4f75f453fd301203da831c65`, `src/` tree
+`b248e4c606d64c17770e1f03abdc9346a6717d1e`, prompts v11 tree `141bb3700b649b9b4ea8083f4936b7b6f8af6e9d`), with
+`gpt-5-mini`.
+
+**The frozen scope and gold** (`cases.json`, `DEVCHECK.json`, `GOLD.json`, `LABELS.json`).
+- **Gold rows:** every one is re-read from the pinned store in `GOLD.json`.
+- **D1:** the development cases. They are answerable from the data and must supply the correct answer; containment is
+  reported separately.
+- **D2:** written by an independent writer and verified by an independent verifier, both working only inside a kit
+  outside the repository. The verifier passed all 15, with no revision (`VERIFICATION.json`).
+
+| Case | Run | Area | Expected | Region | Gold (UTC interval ends) | Overlap with development material |
+| --- | --- | --- | --- | --- | --- | --- |
+| Z03 | D1 | value_time | supplied | TAS1 | rrp 450.08 @ 08-06T03:00; 1 interval ≥ 300 $/MWh in the event window; totaldemand 1105.32 @ 08-06T03:00 | development case |
+| Z05 | D1 | forecast_run | supplied | NSW1 | POE50 11082 from the run issued 07-30T20:56:59; actual 11178 @ 07-30T21:30 | development case |
+| Z04 | D1 | demand_max | supplied | TAS1 | rrp 126.456 @ 07-29T10:05 (day max); totaldemand max 1367.32 @ 07-28T21:55 | development case |
+| K01 | D2 | value_time | supplied | SA1 | rrp 53.953 and totaldemand 1076.97 @ 08-06T02:35; rrp 144.271 and totaldemand 2022.71 @ 08-06T08:55 | none |
+| K02 | D2 | value_time | supplied | TAS1 | operational demand 1116 @ 08-19T20:00, 1249 @ 08-19T23:00, 1214 @ 08-20T07:30 | none |
+| K03 | D2 | value_time | supplied | QLD1 | rrp 101.744 @ 07-28T21:15 (a local clock that is another interval's UTC clock) | none |
+| K04 | D2 | value_time | supplied | NSW1 | as of 08-20T02:30: operational demand 8390 @ 08-19T23:00, 8034 @ 08-19T23:30; rrp 23.9901 @ 08-19T23:30 | none |
+| K05 | D2 | forecast_run | supplied | QLD1 | POE50 7598 from the run issued 08-06T07:27:01; actual 7608 @ 08-06T08:00 | none |
+| K06 | D2 | forecast_run | supplied | SA1 | POE10/50/90 1663/1594/1525 from the run issued 08-19T21:57:01; actual 1567 @ 08-19T22:30 | none |
+| K07 | D2 | forecast_run | unavailable | NSW1 | the run issued 08-06T06:56:59 (available 09:48:05) for the half-hour ending 08-06T07:30, under a request cutoff of 08-06T09:00; the run issued 05:56:58 was public and must not be substituted | none |
+| K08 | D2 | forecast_run | clarification | VIC1 | (none: the half-hour is not pinned down) | none |
+| K09 | D2 | demand_max | supplied | NSW1 | totaldemand max over local 29 July 10954.2 @ 07-29T09:05 (288/288 held) | none |
+| K10 | D2 | demand_max | supplied | VIC1 | totaldemand max over the low-price event window 7867.57 @ 07-28T22:10 (the day's max differs) | VIC1 event window and local 29 July |
+| K11 | D2 | demand_max | supplied | QLD1 | operational demand max over local 29 July 7548 @ 07-29T08:30 (48/48 held) | none |
+| K12 | D2 | demand_max | clarification | SA1 | (none: the window is not given) | none |
+| K13 | D2 | control | supplied | VIC1 | rrp 406.005 and totaldemand 6639.92 @ 08-19T23:10 (the value at the price peak) | none |
+| K14 | D2 | control | supplied | TAS1 | POE10/50/90 1458/1413/1369 from the run issued 07-30T18:56:59; actual 1455 @ 07-30T22:00 | none |
+| K15 | D2 | control | supplied | SA1 | citation `aemo_so_op_3710` | none |
+
+**Acceptance** (`PASS_RULE.md`, decided in this order):
+1. **FAIL** if any completed case has an H1–H5 violation (regardless of X) or an incorrect targeted answer shown (X).
+2. **INCOMPLETE** if any of the 18 cases did not complete. Incomplete coverage never yields PASS.
+3. **PASS** only if all of these hold:
+   - Z03, Z05 and Z04 each supply the correct usable answer;
+   - at least 7 of the 9 fresh answerable cases are supplied, with at least 2 per area and both forecast-run cases;
+   - K07 gets "unavailable", and K08 and K12 get "clarification";
+   - K13–K15 are supplied.
+
+   **FAIL** otherwise.
+4. **Reported per fix:** held, "contains but does not reliably supply", not held, or incomplete.
+5. **Immediate stops** (separate from the verdict): an H1 failure, a change to the frozen files or `src/`, an API
+   error, timeout, budget stop or missing record. H2–H5 and X are measured on every case and fail the check, but do not
+   stop the runs.
+
+**Budget:**
+
+| Cap | USD |
+| --- | --- |
+| Per case | 0.15 |
+| D1 (3 cases) | 0.45 |
+| D2 (15 cases) | 1.00 |
+
+- **Task cap:** the ledger stands at USD 7.013187 (2464 lines), so the task cap required is 7.013187 + 0.45 + 1.00 =
+  **USD 8.463187**.
+- **Expected spend:** about USD 0.40–0.75.
+- **Standing cap:** `config.LIVE_TOTAL_BUDGET_USD` stays 5.00. No earlier approval covers these runs.
+
+**Runner checks:**
+- **The offline protocol tests** (`tests/eval/test_livecheck_i15_17.py`, 35) cover:
+  - the caps and the start guard;
+  - the stops and the interruption rule;
+  - D2 only after a complete D1;
+  - the refusals, with `run_case.py` byte-identical to v6's;
+  - the freeze against the protocol;
+  - the decision rules.
+- **`run_eval.py --dry-run` on the real ledger:**
+  - it refuses without an approved cap, and with 8.4;
+  - with USD 8.463187, every guard passes (frozen files, `src/` tree, ledger 7.013187, no overrides, key present,
+    prompt version).
+  - Nothing was started.
+
+**Process notes** (`PROVENANCE.md`):
+- **Development material:** K10 uses it, the only way to meet its scenario; the verifier confirmed this.
+- **Probing for overlap:** the writer found overlapping 6-word windows by probing the overlap checker. It did not open
+  the hashes.
+- **An oversized query output** was saved by the tool layer outside the kit, and not opened.
+- **Gold published before the run:** at the owner's request, the frozen gold is published for review before any run.
+  In v6 the developer stayed blind.
+
+**Approval needed before any paid call:** "I approve runs D1 and D2 of the I-15/I-16/I-17 Live check on main cf9558e
+(src tree b248e4c6), prompts v11, gpt-5-mini, with a per-case cap of USD 0.15, run caps of USD 0.45 (D1) and USD 1.00
+(D2), and a task cap of USD 8.463187, for these runs only."
