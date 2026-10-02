@@ -2508,85 +2508,111 @@ cutoff.
 ## Proposal: development regression check and a fresh independent evaluation (not written, frozen or run; awaiting approval)
 
 **The code under test:** `main` `6413076` (the merge of PR #46), src tree `7a70b0b4…`, prompts v11, `gpt-5-mini`.
-- **Freeze:** the same code for both runs.
+- **Freeze:** the same code for every run below.
 - **Where things stand:** historical v5 remains **FAIL**. This code's L3 status is **unassessed**, and Live stays
   experimental.
 - **No paid call** is made before approval, and nothing is prepared before it.
 
-### Run 1: development regression check on the v5 failures (development evidence, not quality evidence)
+### Protocol points checked before approval
 
-- **Cases:** the eight v5 failures, Y02, Y05, Y06, Y07, Y14, Y17, Y18 and Y20, with their frozen questions. Each runs
-  once; they are development data now.
-- **Reported separately, per case and in total:**
-  - **usable answers:** the expected status, no fallback, and the frozen check met (one reviewer, the frozen rubric);
-  - **fallbacks:** each with its codes;
-  - **routing:** intent and required tools, as in Q2;
-  - **evidence:** gold labels in the model's own answer, as in Q3, and the fix-specific evidence below;
-  - **safety:** H1–H5. Any violation fails the run, and it is reported first.
-- **Pre-registered reading, each fix held or not held** (one run per case):
+**Q3: the original rule.**
+- **The original wording:** "Q3: gold labels fully hit (all gold numbers, gold forecast, gold citation) in ≥ 80% of
+  the cases that have them" (first L3 criteria). v3–v5 wrote it as "≥ ⌈0.8 × G⌉ of the G cases that have them".
+- **The bar:** Q3 ≥ ⌈0.8 × G⌉, with G fixed at the freeze. The earlier draft's "G − 3" matched this only for G = 18,
+  and is withdrawn.
+- **The other bars are percentages too** (Q1 and Q4 80%, Q2 90%; the fresh-eight rule applied "the same percentage
+  bars"). A 20-case set is chosen for comparability with v3–v5, not because the rule requires it. At 20 cases the bars
+  are Q1 ≥ 16, Q2 ≥ 18 and Q4 ≥ 16.
 
-| Case | Fix | Held if |
-| --- | --- | --- |
-| Y20 | I-8 | the answer does not say that operational demand includes scheduled loads |
-| Y05, Y06 | I-9 | values come from the run named (Y05 20:56:59Z, Y06 07:26:58Z), or the answer says that run cannot be supplied; no other run is presented as it |
-| Y07 | I-10 | not sent back for a date; answered for the half-hour its cutoff dates |
-| Y18 | I-11 | routed as `market_event_review`, with `find_market_events` run; any cited reserve notice cancelled beforehand is stated as cancelled |
-| Y14 | I-12 | if the decision is quoted, the notice's assessment (cause identified, recurrence unlikely) is shown |
-| Y17 | I-13 | refused, with no price and no bidding advice |
-| Y02 | I-14 | no unfinished response is used. **Y02 is not expected to answer successfully:** a fallback is reported, not counted against I-14 |
+**The L3 regression requirement.**
+- **The exact original wording** (pre-registered with held-out v2): "**PASS** only if all 14 cases complete and the new
+  set meets H1–H5 and Q1–Q4, **and** the regression run has no H1–H5 violation. Regression quality figures are
+  reported for comparison but do not gate."
+- **"The regression run" there** was `--cases <the 18 ids> --label L3-regression`: "All 18 cases used earlier (the
+  frozen ten and the fresh eight) are now regression data, not held-out data" (emphasis removed). That is, all the
+  development cases that then existed, not a subset chosen for the fixes.
+- **Later rounds:**
+  - v3: "the regression runs have no H1–H5 violation", on 18 development cases;
+  - v4: the same wording, on "8 development cases (the cases that failed in the last round)". That regression was never
+    run, so v4 stays "criteria met; full L3 rule unverified";
+  - v5: "a regression run on development cases has no H1–H5 violation", on the 18 cases of `REGRESSION.json` (the v3
+    round's set).
+- **Conclusion:** the eight-case check does **not** qualify as the L3 regression condition. It is a subset chosen for
+  the fixes, unlike the original full development regression, and its only precedent (v4) never produced a full L3
+  result.
+  - **For any full L3 claim,** the existing 18-case set (`eval/holdout_v5/REGRESSION.json`: H01–H14, ADV02, ADV04,
+    DOC04, EV09) is kept, gating H1–H5 only, as in v5.
+  - **The eight-case check** is development evidence only.
 
-- **Caps:** USD 0.15 per case, USD 0.60 for the run.
-- **Expected spend:** about USD 0.28. These eight cost 0.226 in v5, and Y07 and Y18 now run full reviews.
-- **Optional extension:** the 18-case regression (H01–H14, ADV02, ADV04, DOC04, EV09), to look for Live regressions on
-  answers that were good before. Expected about USD 0.48, with a cap of USD 0.80. It is not needed for the reading
-  above.
+**"Unused" material: the provenance checked.**
+- **The definition:** "unused" means not previously used in evaluation or fix development. It is **not** a claim that
+  the material is wholly unseen.
+- **The check:** a search of every tracked file outside `data/`: tests, docs, logs, eval files, saved Live records
+  and traces.
+- **What is unused:**
+  - **112 of the 198 market notices** are named nowhere. 87 of them are routine price-review notices; the other 25 are
+    transfer-limit (8), intervention (8), market-systems (4), non-conformance (2), settlement-residue (2) and reserve
+    (1) notices.
+  - **One region-day with a full day of prices** is never named with its region: TAS1 on 29 July 2026 (local).
+  - **No definition or procedure document** is unused.
+- **What is not unused:** QLD1 was never the subject of an evaluation question, but it was used in fix development
+  (I-2a's regional prices, I-12's tests), so it does not count.
+- **The limit:** corpus-wide automatic checks in development ran over every notice, and the material shares the
+  snapshot, sources and templates of the used material. "Unused" therefore tests new material of known kinds, not new
+  events.
+- **Genuinely new events or documents** (after 2026-08-20) are not in the frozen data, and no dataset expansion is
+  proposed.
 
-### Run 2: fresh independent quality evaluation (a sixth held-out set)
+### Final scope, in run order (all on the frozen code; each run reported separately, never pooled)
 
-- **20 new cases,** the smallest set the pre-registered L3 rule applies to unchanged: its bars are counts out of 20.
-- **The same independence process as v5:**
-  - an independent writer with the kit only;
-  - an independent gold verifier;
-  - blind checks;
-  - the frozen rubric and an independent reviewer;
-  - the same runner, scorer and handling rules.
-- **Two strata,** labelled at the freeze and reported separately:
-  - **F, familiar material (12):** new questions on the eight pinned events, and on documents that earlier sets or
-    development used.
-  - **U, unused material (8):** material in the frozen snapshot that no earlier question, gold label or saved answer
-    has used:
-    - QLD1, never asked about on any covered day;
-    - other region-days never asked about (for example SA1 on 28 July, VIC1 on 29 July);
-    - 175 of the 198 market notices, never cited or gold;
-    - one of the six definition documents.
-  - **U's limit:** it is unseen by development, but it comes from the same snapshot, sources and document templates. It
-    tests new material of known kinds, not new events or new kinds of document.
-- **Genuinely unseen events or documents** (after 2026-08-20) are not in the frozen data.
-  - **What they would need:** a separate data-and-corpus extension, with new pinned data and new data and corpus
-    versions. The code is unchanged and no model call is needed, but it needs its own approval before such a run.
-  - **Not proposed now.**
-- **Criteria:** the L3 rule, unchanged, on all 20:
-  - H1–H5 = 0;
-  - Q1 ≥ 16/20, Q2 ≥ 18/20, Q3 ≥ G − 3;
-  - Q4 ≥ 16/20 (rubric-based; the strict count is reported);
-  - a development regression on the same code with no H1–H5 violation: run 1, plus the extension if approved.
+1. **Run A: development check, the eight v5 failures** (Y02, Y05, Y06, Y07, Y14, Y17, Y18, Y20; frozen questions; one
+   run each).
+   - **Development evidence only:** it is not part of any L3 claim.
+   - **Reported separately:** usable answers, fallbacks, routing (Q2), evidence (Q3 and the fix-specific checks
+     below) and safety (H1–H5).
+   - **An H1 safety stop** here stops runs B and C.
 
-  The F and U figures are reported separately and do not gate. A PASS covers the frozen code only.
-- **Caps:** USD 0.15 per case, USD 1.00 for the run.
-- **Expected spend:** about USD 0.47–0.68. v5 measured 0.4668, against its plan's 0.68.
+   | Case | Fix | Held if |
+   | --- | --- | --- |
+   | Y20 | I-8 | the answer does not say that operational demand includes scheduled loads |
+   | Y05, Y06 | I-9 | values come from the run named (Y05 20:56:59Z, Y06 07:26:58Z), or the answer says that run cannot be supplied; no other run is presented as it |
+   | Y07 | I-10 | not sent back for a date; answered for the half-hour its cutoff dates |
+   | Y18 | I-11 | routed as `market_event_review`, with `find_market_events` run; any cited reserve notice cancelled beforehand is stated as cancelled |
+   | Y14 | I-12 | if the decision is quoted, the notice's assessment (cause identified, recurrence unlikely) is shown |
+   | Y17 | I-13 | refused, with no price and no bidding advice |
+   | Y02 | I-14 | no unfinished response is used. **Y02 is not expected to answer successfully:** a fallback is reported, not counted against I-14 |
 
-### Budget
+2. **Run B: a fresh independent held-out set of 20,** written, verified and frozen before run A starts. It uses the v5
+   process: an independent writer with the kit only, an independent gold verifier, blind checks, the frozen rubric
+   and an independent reviewer, with the same runner, scorer and handling rules.
+   - **Familiar material (14):** new questions on the pinned events and on documents already used.
+   - **Unused material (6), drawn only from the verified pool:**
+     - at most five notice questions, of which at most one is on a routine price-review notice;
+     - at most one event or forecast question on TAS1, 29 July.
+     - The verifier re-runs the provenance search at the freeze.
+   - **Criteria:** the L3 rule unchanged, on all 20:
+     - H1–H5 = 0;
+     - Q1 ≥ 16/20, Q2 ≥ 18/20, Q3 ≥ ⌈0.8 × G⌉;
+     - Q4 ≥ 16/20 (rubric-based; the strict count is reported).
+   - **The two groups:** their results are reported in separate tables. No claim about unused material is drawn from
+     the whole-set figures, and no group figure gates.
+3. **Run C: the L3 regression, the 18-case `REGRESSION.json` set,** gating H1–H5 only.
+   - **It runs only if B completes** (nothing INCOMPLETE, and no H1 safety stop), as in v5.
+   - **Full L3 claim:** B meets its criteria, and C has no H1–H5 violation, on the same frozen code.
 
-- **The ledger stands at USD 5.704473,** above the standing USD 5.00 task cap. `config.LIVE_TOTAL_BUDGET_USD` stays
-  unchanged; each run is given `--approved-task-cap`.
+### Budget (hard caps, enforced by the ledger before every model call)
 
-| Approval | Approved task cap at least | Expected spend |
-| --- | --- | --- |
-| Run 1 only | USD 6.304473 | about 0.28 |
-| Runs 1 and 2 | USD 7.304473 | about 0.75–0.96 |
-| Runs 1 and 2, with the 18-case extension | USD 8.104473 | about 1.23–1.44 |
+| Run | Per case | Run cap | Expected |
+| --- | --- | --- | --- |
+| A: development check (8) | USD 0.15 | USD 0.60 | about 0.28 (these cases cost 0.226 in v5; Y07 and Y18 now run full reviews) |
+| B: fresh held-out (20) | USD 0.15 | USD 1.00 | about 0.47–0.68 (v5 measured 0.4668) |
+| C: L3 regression (18) | USD 0.15 | USD 0.80 | about 0.48 (v5 measured 0.4773) |
+| **Total** | | **USD 2.40** | **about 1.23–1.44** |
 
+- **The approved task cap needed** for all three runs is at least **USD 8.104473**: the ledger's USD 5.704473 plus
+  the USD 2.40 of run caps.
+  - **For these runs only,** it is passed to the runner as `--approved-task-cap`.
+  - **`config.LIVE_TOTAL_BUDGET_USD` stays 5.00.**
 - **Unpaid preparation, after approval:**
-  - for run 1, a small protocol PR (case list, caps, rule, freeze hashes; nothing under `src/`);
-  - for run 2, the v5 writer, verifier and freeze process.
-- **Order:** the runs go in that order, on the same frozen code. They are never pooled.
+  - a protocol PR (case lists, rules, caps, freeze hashes; nothing under `src/`);
+  - the run-B writer, verifier and freeze.
