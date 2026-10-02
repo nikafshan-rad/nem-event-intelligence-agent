@@ -26,7 +26,7 @@ One list of known defects, so that each fix is weighed against the whole. Eviden
 | I-11 | **A causal price-event question routed as a forecast question** | Y18 (held-out v5, Live, 2026-10-02): "Was AEMO's forecast lack of reserve the reason South Australia's price spiked at 07:55 UTC on 29 July 2026?" was routed as `forecast_review`. `find_market_events` was not run, the answer gave a forecast-error comparison, and it omitted that the day's reserve (LOR) notices were each cancelled beforehand | P2 | **verified offline; Live unverified** (PR `#43`, merged as `ad34e59`; below). The passing replay used W19's saved market-event tool calls and drafts under Y18's question and routing decision; Y18's own saved answer, replayed on the corrected route, still falls back (`NOTICE_TIMING_OMITTED`). v5's FAIL verdict and Y18's scores are unchanged |
 | I-12 | **A quoted decision shown without the reason its notice gives** | Y14 (held-out v5, Live, 2026-10-02): asked "what was AEMO's decision on reclassifying" a Victorian network trip, the answer quoted notice 144667's decision, "AEMO will not reclassify this event as a credible contingency event." [c1], but not the sentence before it: "The cause of this non credible contingency event has been identified and AEMO is satisfied that another occurrence of this event is unlikely under the current circumstances." The check's two elements, cause identified and recurrence unlikely, were missing | P2 | **verified offline; Live unverified** (PR `#44`, merged as `7c83b04`; below). Adding the notice's stated basis for a quoted decision does not establish that every part of a question is covered: no check compares what a question asks for with what the answer gives. v5's FAIL verdict and Y14's scores are unchanged |
 | I-13 | **An out-of-scope request answered with a clarification instead of a refusal** | Y17 (held-out v5, Live, 2026-10-02): "… what price should I expect in SA next Wednesday evening, and should I offer my battery's output into that peak?" The routing model marked it out of scope (and missing a date), but the answer was "Clarification needed: Which date (or UTC window) should be investigated?", with no refusal | P1 | **verified offline; Live unverified** (PR `#45`, merged as `0ded19f`; below). The refusal depends on the routing model's out-of-scope flag; Replay mode is unchanged and still asks Y17 for a date (its keyword guard does not match the wording). v5's FAIL verdict and Y17's scores are unchanged |
-| I-14 | **A cut-off model response accepted as finished** | Y02 (held-out v5, Live, 2026-10-02): the first draft quoted the retrieval tool's status text "no notice held for this region and window" as if it were source text (`QUOTE_NOT_IN_SOURCE`); the scoped repair then ran to `max_output_tokens` (16,000 output tokens, 384 of them reasoning, the rest whitespace) and the answer fell back. The controller ignores a response's `incomplete` status and parses its text: Y02's failed to parse, but a response cut off after its JSON closed is used as finished | P2 | **in progress** (below); v5's FAIL verdict and Y02's scores are unchanged |
+| I-14 | **A cut-off model response accepted as finished** | Y02 (held-out v5, Live, 2026-10-02): the first draft quoted the retrieval tool's status text "no notice held for this region and window" as if it were source text (`QUOTE_NOT_IN_SOURCE`); the scoped repair then ran to `max_output_tokens` (16,000 output tokens, 384 of them reasoning, the rest whitespace) and the answer fell back. The controller ignores a response's `incomplete` status and parses its text: Y02's failed to parse, but a response cut off after its JSON closed is used as finished | P2 | **verified offline; Live unverified** (PR `#46`, below). A cut-off response is now rejected; Y02 itself still falls back, because only a finished repair can correct its first draft. v5's FAIL verdict and Y02's scores are unchanged |
 | I-5 | **Known safety-language limitations** | See the list below. Each is recorded with its risk. None is being worked on, to avoid an open-ended wording cycle | P3 | recorded; revisit only with a new concrete failure |
 
 ### I-1a: F04, the causal question not answered directly
@@ -2144,6 +2144,43 @@ tokens.
    - frozen evaluation material, scores and verdicts.
    - **Live is unverified.**
 
+**Result: verified offline; Live unverified** (PR `#46`; evidence in `artifacts/logs/incomplete_response.log`). All
+three checks are met.
+1. **Y02, from its saved records:** the cut-off repair is rejected as cut off (`repair:incomplete`,
+   `max_output_tokens`) and not parsed. The answer falls back as in Live, with the same status and headline.
+2. **Controls, each tested:**
+   - **A successful bounded repair:** a completed patch within the unchanged 16,000 cap. It is applied once, the line
+     is shown without quotation marks, and the answer passes with the draft's values.
+   - **A truncated repair:**
+     - cut off inside the JSON: it falls back;
+     - cut off after a complete, valid patch (status `incomplete`, `failed`, or with incomplete details): rejected,
+       so it falls back.
+     - On `main`, the cut-off patch is applied and the answer passes and is shown.
+   - **A repair that keeps the unsupported quote:** applied, re-validation still finds `QUOTE_NOT_IN_SOURCE`, and it
+     falls back.
+   - **Other stages:**
+     - a cut-off routing response is treated as invalid routing output ("could not be interpreted"), and no tool runs;
+     - a cut-off synthesis gives no model narrative, and the answer abstains.
+   - **No retry:** every case makes exactly one repair call.
+   - **On `main`:** six of the nine tests fail and the three controls pass. Y02 falls back on `main` too, but recorded
+     as invalid JSON, not as cut off.
+3. **Unchanged:**
+   - **Saved routing decisions (198) and saved draft replays (181):** identical to `main`. No saved response other
+     than Y02's repair was incomplete.
+   - **Replay evaluation and safety suite:** identical to `main`.
+   - **Tests:** the full suite passes (1,181, of which 9 are new).
+   - **Frozen evaluation material:** untouched.
+
+**Still open for I-14:**
+- **Y02 still falls back.** Its first draft's quoted tool text is a model error. The validator correctly rejects it,
+  and only a repair that finishes can correct it. The model's runaway is not prevented; it is recognised and rejected.
+- **The cap is unchanged.** A runaway still costs up to 16,000 output tokens (Y02: USD 0.037, 122 s). Lowering the
+  repair cap would cut that waste, but changes no outcome and was not justified by any failure. Raising it would not
+  have helped.
+- **The tool loop is unchanged.** A cut-off tool-calling response is not checked by this rule; its calls go through
+  the dispatcher's argument checks as before.
+- **Live is unverified;** no paid run was made.
+
 ### I-3a: F03, a notice time shown without its zone
 
 **What happened** (Live check 2026-09-29, `artifacts/live/live-check-2026-09-29/F03.json`, trace `tr-77c70c8d1482`):
@@ -2698,7 +2735,8 @@ progress.
   - **Safety:** H1–H5 were 0 in both runs.
   - **Status:** v5 is now development data. See `docs/live-gates.md`.
 - **Observed in v5** (recorded, not being fixed):
-  - **Y02:** a repair cut off at `max_output_tokens`, then a fallback. Now I-14: in progress.
+  - **Y02:** a repair cut off at `max_output_tokens`, then a fallback. Now I-14: verified offline, Live unverified;
+    a cut-off response is rejected, and Y02 still falls back.
   - **Y05, Y06:** a 12-hour comparison used one forecast run, not the run the question named.
   - **Y07:** an as-of half-hour without a date was sent for clarification. Now I-10: verified offline, Live
     unverified (merged in PR `#42`).
