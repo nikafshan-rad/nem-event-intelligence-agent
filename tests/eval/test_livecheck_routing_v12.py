@@ -626,9 +626,15 @@ def test_the_runner_refuses_without_an_approved_cap_with_overrides_or_without_a_
 
 
 @pytest.mark.skipif(not FREEZE, reason="FREEZE.json not written yet")
-def test_the_runner_refuses_a_changed_frozen_file_or_src_tree():
+def test_the_runner_refuses_a_changed_frozen_file_or_src_tree(monkeypatch):
     assert RUN.changed({**FREEZE, "src_tree": "0" * 40}) == "the checkout's src/ is not the frozen tree"
     bad = {**FREEZE, "files_sha256": {**FREEZE["files_sha256"],
                                       "eval/livecheck_routing_v12/PASS_RULE.md": "0" * 64}}
     assert RUN.changed(bad) == "eval/livecheck_routing_v12/PASS_RULE.md differs from FREEZE.json"
+    # I-19 changed src/ after the run: the frozen runner refuses this checkout; with the frozen src tree in place, every
+    # frozen file is unchanged
+    assert RUN.changed(FREEZE) == "the checkout's src/ is not the frozen tree"
+    git = RUN._git
+    monkeypatch.setattr(RUN, "_git", lambda *a: FREEZE["src_tree"] if a == ("rev-parse", "HEAD:src")
+                        else "" if a[:1] == ("status",) else git(*a))
     assert RUN.changed(FREEZE) is None
