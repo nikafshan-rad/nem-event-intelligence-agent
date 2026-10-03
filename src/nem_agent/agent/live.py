@@ -23,7 +23,7 @@ from datetime import date, datetime, timedelta
 from importlib import resources
 from typing import Any, Literal, Protocol
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, create_model
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, ValidationError, create_model, model_validator
 
 from .. import budget, config
 from ..budget import BudgetExceeded
@@ -59,7 +59,8 @@ from .request import (
     requested_forecast,
     requested_measures,
 )
-from .structured import RoutedRequest
+from .route_v12 import RouteDecision as RouteDecisionV12
+from .structured import Routed, RoutedRequest, requested_from_v12
 
 CONTROLLER = "live-responses-controller/1"
 # Retrieved text is capped at config.MAX_RETRIEVED_CHARS (12k) plus ~0.6k metadata per result; 20k keeps a full
@@ -216,36 +217,65 @@ class _S(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+# The routing contract of prompts v13 (D26): the intent, the region and date, the clarification fields, and the
+# question's own words for each request and for the as-of cutoff. The model computes no timestamp: code converts every
+# time from the quoted words. A decision recorded under v12 is read through the adapter (``contract`` "v12"; its
+# timestamps are not read, and its cutoff timestamp is detection only). No docstring: it would enter the schema.
 class RouteDecision(_S):
     intent: Literal["market_event_review", "forecast_review", "source_explanation"] | None
     region: Literal["NSW1", "QLD1", "SA1", "TAS1", "VIC1"] | None
     event_date: str | None = Field(description="YYYY-MM-DD in the region's local time")
-    as_of_utc: str | None
+    as_of_text: str | None = Field(
+        description="the question's exact words stating an as-of cutoff (what was public, published or known by a "
+                    "time), copied verbatim with the time, date and time zone written there; null when there is none")
     needs_clarification: bool
     clarification_reason: Literal["several_regions", "several_dates", "missing_region_or_date",
                                   "unclear_question"] | None = Field(
         description="why clarification is needed; null when needs_clarification is false")
     clarification: str | None
     out_of_scope: bool
-    # the forecast run and demand maximum the question asks for, with the question's own words for each (I-18);
+    # the forecast run and demand maximum the question asks for, with the question's own words for each (I-18, D26);
     # absent in routes recorded before prompts v12: "not reported", never "no requirement"
     requested: RoutedRequest | None = None
+    _contract: str = PrivateAttr(default="v13")
+    _legacy_cutoff: bool = PrivateAttr(default=False)
+
+    @model_validator(mode="wrap")
+    @classmethod
+    def _adapt_v12(cls, data: Any, handler: Any) -> RouteDecision:
+        """A decision in the v12 shape (it has ``as_of_utc``), read through the historical adapter."""
+        if isinstance(data, dict) and "as_of_utc" in data and "as_of_text" not in data:
+            old = RouteDecisionV12.model_validate(data)
+            dec = handler({**old.model_dump(exclude={"as_of_utc", "requested"}), "as_of_text": None,
+                           "requested": requested_from_v12(old.requested).model_dump() if old.requested else None})
+            dec._contract = "v12"
+            try:
+                dec._legacy_cutoff = old.as_of_utc is not None and parse_iso(old.as_of_utc) is not None
+            except ValueError:  # an unparsable cutoff was dropped under v12 too
+                dec._legacy_cutoff = False
+            return dec
+        return handler(data)
+
+    @property
+    def contract(self) -> str:
+        return self._contract
+
+    def routed(self) -> Routed:
+        """What the resolver reads from this decision."""
+        return Routed(self.requested, self.as_of_text, "v12" if self._contract == "v12" else "v13", self._legacy_cutoff)
 
 
 def checked_route(dec: RouteDecision) -> RouteDecision:
-    """A routing decision with an unparsable event date sent back and an unparsable as-of cutoff dropped."""
+    """A routing decision with an unparsable event date sent back."""
     if dec.event_date:
         try:
             date.fromisoformat(dec.event_date)
         except ValueError:
-            return dec.model_copy(update={"event_date": None, "needs_clarification": True,
-                                          "clarification_reason": "missing_region_or_date",
-                                          "clarification": "The event date could not be parsed."})
-    if dec.as_of_utc:
-        try:
-            parse_iso(dec.as_of_utc)
-        except ValueError:
-            return dec.model_copy(update={"as_of_utc": None})
+            out = dec.model_copy(update={"event_date": None, "needs_clarification": True,
+                                         "clarification_reason": "missing_region_or_date",
+                                         "clarification": "The event date could not be parsed."})
+            out._contract, out._legacy_cutoff = dec._contract, dec._legacy_cutoff
+            return out
     return dec
 
 

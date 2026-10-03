@@ -21,7 +21,6 @@ from .agent.request import (
     extract_as_of,
     extract_dates,
     extract_regions,
-    forecast_issue_time,
     half_hour_after_cutoff,
     resolve,
 )
@@ -138,7 +137,7 @@ def resolve_routed(req: InvestigateRequest, decision: Any, selection: Selection,
             req_eff, decision, override = req, None, None
         if decision is not None and trace is not None:
             trace.add("route", "model_decision", decision=decision.model_dump(), policy_notes=notes)
-    res = resolve(req_eff, selection, decision.requested if decision is not None else None, given=req)
+    res = resolve(req_eff, selection, decision.routed() if decision is not None else None, given=req)
     if decision is not None and override == "refused" and res.status != "refused":
         # Scope comes before missing details, as in resolve(): a question the model judged out of scope is refused
         # even when it also lacks a region or date (held-out v5 Y17 asked for a price prediction and bidding
@@ -187,15 +186,13 @@ def route_policy(req: InvestigateRequest, decision: Any) -> tuple[dict[str, Any]
     if req.intent is None and intent == "forecast_review" and asks_cause_of_price_event(q):
         intent = "market_event_review"
         notes.append("routed as market_event_review: the question asks whether something explains a price event")
-    as_of = req.as_of_utc or decision.as_of_utc
-    if req.as_of_utc is None and decision.as_of_utc and forecast_issue_time(q) is not None:
-        as_of = None
-        notes.append("as_of not applied: the time in the question is a forecast's issue time, not an as-of cutoff")
+    # the as-of cutoff is not taken from the decision: the resolver converts the model's quoted words, the question's
+    # and the request field's (D26); an issue time is never a cutoff
     if several:
         notes.append("several regions or dates in the question: left to the resolver")
     upd: dict[str, Any] = {"intent": intent, "region": req.region or (None if several else decision.region),
                            "event_date": req.event_date or (None if several else decision.event_date),
-                           "as_of_utc": as_of}
+                           "as_of_utc": req.as_of_utc}
     override: str | None = None
     if decision.out_of_scope:
         override = "refused"

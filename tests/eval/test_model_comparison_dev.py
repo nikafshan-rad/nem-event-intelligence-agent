@@ -54,13 +54,24 @@ def test_the_two_models_alternate_and_never_share_a_record():
 
 
 # ------------------------------------------------------------------------------------------------ caps
-def test_routing_reservations_are_exact_and_within_the_case_caps():
+@pytest.fixture
+def v12_routing(monkeypatch):
+    """The routing contract and prompts the comparison froze and measured (v12). The current code is on v13 (D26); the
+    v12 schema is kept byte-identical in ``agent.route_v12``, so the frozen reservations reproduce exactly."""
+    from nem_agent import config
+    from nem_agent.agent import live
+
+    monkeypatch.setattr(config, "PROMPT_VERSION", "prompts/v12")
+    monkeypatch.setattr(live, "RouteDecision", live.RouteDecisionV12)
+
+
+def test_routing_reservations_are_exact_and_within_the_case_caps(v12_routing):
     r = F.routing_reservations()
     assert max(r["mini"].values()) == 0.005087 and max(r["sol"].values()) == 0.030869
     assert max(r["mini"].values()) <= F.CASE_CAPS["R-mini"] and max(r["sol"].values()) <= F.CASE_CAPS["R-sol"]
 
 
-def test_end_to_end_caps_hold_their_bounded_reservations_and_a_low_cap_is_refused():
+def test_end_to_end_caps_hold_their_bounded_reservations_and_a_low_cap_is_refused(v12_routing):
     e = F.e2e_bounds()
     assert e["mini"]["case_cap_required"] <= F.CASE_CAPS["E-mini"] and e["sol"]["case_cap_required"] <= F.CASE_CAPS["E-sol"]
     runs = F.caps(F.routing_reservations(), e, F.slots())
@@ -178,6 +189,7 @@ def test_an_interrupted_slot_is_re_run_once_and_not_after_a_second_interruption(
 
 def test_refusals(monkeypatch, tmp_path):
     freeze = _freeze()
+    monkeypatch.setattr(RUN.config, "PROMPT_VERSION", freeze["prompt_version"])  # the frozen prompts (v12), not v13
     monkeypatch.setattr(RUN, "changed", lambda f: None)
     monkeypatch.setattr(RUN, "plan_mismatch", lambda f: None)
     monkeypatch.setenv("OPENAI_API_KEY", "SYNTHETIC-not-a-key")

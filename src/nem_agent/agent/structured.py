@@ -48,10 +48,12 @@ from .request import (
     ForecastRequest,
     InvestigateRequest,
     extract_dates,
+    forecast_issue_time,
     maximum_window_kind,
     requested_forecast,
     requested_maxima,
 )
+from .route_v12 import RoutedRequest as RoutedRequestV12
 
 # ------------------------------------------------------------------------------------------------ the routed schema
 
@@ -60,20 +62,24 @@ class _M(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+# The forecast run a question asks for (route contract v13): the rule, and the question's own words for it. Code converts
+# every time from those words. (Model-facing schemas carry no docstring: it would enter the schema.)
 class RoutedForecastRun(_M):
     selection: Literal["none", "last_issued_before", "issued_at", "as_of_availability", "unclear"] = Field(
         description="the one forecast run the question asks for: last_issued_before = the last run issued before the "
                     "target half-hour starts; issued_at = the run issued at a stated time; as_of_availability = what "
                     "was public or known at a cutoff; none = no specific run is asked for; unclear = one specific run "
                     "is asked for, but which cannot be told")
-    selection_text: str | None = Field(description="the question's exact words asking for this run, copied verbatim")
+    selection_text: str | None = Field(
+        description="the question's exact words asking for this run, copied verbatim (for issued_at, with the issue "
+                    "time as written)")
     half_hour_text: str | None = Field(
         description="the question's exact words naming the target half-hour, copied verbatim (with its clock times, "
                     "and its date and time zone where they are written next to it)")
-    target_half_hour_end_utc: str | None = Field(description="the target half-hour's END, ISO-8601 UTC ending in Z")
-    issued_at_utc: str | None = Field(description="issued_at only: the stated issue time, ISO-8601 UTC ending in Z")
 
 
+# The demand maximum a question asks for (route contract v13): what is asked, and the question's own words for the
+# measure, the peak and the window. Code builds the window from those words.
 class RoutedMaximum(_M):
     kind: Literal["none", "maximum", "unclear"] = Field(
         description="maximum = the question asks when, or at what level, a demand measure reached its maximum over a "
@@ -81,20 +87,40 @@ class RoutedMaximum(_M):
                     "unclear = a demand peak is asked for, but what is meant cannot be told")
     measure: Literal["dispatch_total_demand", "operational_demand", "unspecified"] | None = Field(
         description="dispatch total demand (TOTALDEMAND, 5-minute) or operational demand (half-hourly)")
-    measure_text: str | None = Field(
-        description="the question's exact words asking for the measure's maximum, copied verbatim (measure and peak "
-                    "word)")
+    measure_text: str | None = Field(description="the question's exact words naming the measure, copied verbatim")
+    peak_text: str | None = Field(
+        description="the question's exact words asking for the measure's highest level or time, copied verbatim (for "
+                    "example 'highest', 'peak', 'how high')")
     window: Literal["whole_local_day", "event", "explicit", "unspecified"] | None = Field(
         description="whole_local_day = one whole local calendar day; event = a price event's window; explicit = a "
                     "start and an end")
     window_text: str | None = Field(description="the question's exact words naming the window, copied verbatim")
-    window_start_utc: str | None = Field(description="explicit only: the window start, ISO-8601 UTC ending in Z")
-    window_end_utc: str | None = Field(description="explicit only: the window end, ISO-8601 UTC ending in Z")
 
 
 class RoutedRequest(_M):
     forecast_run: RoutedForecastRun
     maximum: RoutedMaximum
+
+
+def requested_from_v12(r: RoutedRequestV12) -> RoutedRequest:
+    """A v12 reading in the v13 form. Its timestamps are not read: code converts every time from the quoted words
+    (D26). Its ``measure_text`` asked for the measure and its peak in one quote, so it serves as both spans."""
+    fr, mx = r.forecast_run, r.maximum
+    return RoutedRequest(
+        forecast_run=RoutedForecastRun(selection=fr.selection, selection_text=fr.selection_text,
+                                       half_hour_text=fr.half_hour_text),
+        maximum=RoutedMaximum(kind=mx.kind, measure=mx.measure, measure_text=mx.measure_text,
+                              peak_text=mx.measure_text, window=mx.window, window_text=mx.window_text))
+
+
+@dataclass(frozen=True)
+class Routed:
+    """What the resolver takes from a routing decision: its reading of the requests, the cutoff's words, and the
+    contract it was given in. ``legacy_cutoff``: a v12 decision gave a cutoff timestamp, which is detection only."""
+    requested: RoutedRequest | None
+    as_of_text: str | None = None
+    contract: Literal["v13", "v12"] = "v13"
+    legacy_cutoff: bool = False
 
 
 # ------------------------------------------------------------------------------------------------ provenance
@@ -125,6 +151,7 @@ class RunRequest:
     detected_by: list[str] = field(default_factory=list)
     missing: list[str] = field(default_factory=list)
     conflicts: list[str] = field(default_factory=list)
+    spans: list[Span] = field(default_factory=list)
 
     def forecast_request(self) -> ForecastRequest | None:
         """A bound request in the form the existing run lookup takes (``LiveController._requested_run``)."""
@@ -137,7 +164,8 @@ class RunRequest:
                 "half_hour_utc": [iso_utc(t) for t in self.half_hour] if self.half_hour else None,
                 "issued_at_utc": iso_utc(self.issued_at) if self.issued_at else None,
                 "provenance": {k: v.as_dict() for k, v in self.provenance.items()},
-                "detected_by": self.detected_by, "missing": self.missing, "conflicts": self.conflicts}
+                "detected_by": self.detected_by, "missing": self.missing, "conflicts": self.conflicts,
+                "spans": [x.as_dict() for x in self.spans]}
 
 
 @dataclass
@@ -152,12 +180,54 @@ class MaxRequest:
     conflicts: list[str] = field(default_factory=list)
     unread: bool = False  # a measure is named, but no maximum of it could be read
     stated: tuple[str, tuple[datetime, datetime]] | None = None  # the window the question's own words give, if one
+    spans: list[Span] = field(default_factory=list)
+    unused: list[str] = field(default_factory=list)  # the model's spans not used, and why (role, location)
 
     def as_dict(self) -> dict[str, Any]:
         return {"status": self.status, "measures": self.measures, "window_kind": self.window_kind,
                 "window_utc": [iso_utc(t) for t in self.window] if self.window else None,
                 "provenance": {k: v.as_dict() for k, v in self.provenance.items()},
-                "detected_by": self.detected_by, "missing": self.missing, "conflicts": self.conflicts}
+                "detected_by": self.detected_by, "missing": self.missing, "conflicts": self.conflicts,
+                "spans": [x.as_dict() for x in self.spans], "unused": self.unused}
+
+
+@dataclass(frozen=True)
+class Span:
+    """Quoted words located in the question (D26): their role, and every occurrence's character offsets (start, end).
+    A span that occurs once is located; a repeated one is read (identical words read identically) but locates
+    nothing, so it covers no other words of the question."""
+    role: str
+    text: str
+    occurrences: tuple[tuple[int, int], ...]
+    source: Literal["route_model", "question"] = "route_model"
+
+    @property
+    def located(self) -> tuple[int, int] | None:
+        return self.occurrences[0] if len(self.occurrences) == 1 else None
+
+    def as_dict(self) -> dict[str, Any]:
+        return {"role": self.role, "text": self.text, "source": self.source,
+                "occurrences": [list(o) for o in self.occurrences], "located": self.located is not None}
+
+
+@dataclass
+class CutoffRequest:
+    """The as-of cutoff (D26): from the request field (authoritative), the routing model's quoted words or the
+    question parser, every time converted by code. A cutoff that is detected but cannot be pinned down is sent back."""
+    status: Status = "absent"
+    as_of: datetime | None = None
+    provenance: dict[str, Source] = field(default_factory=dict)
+    detected_by: list[str] = field(default_factory=list)
+    missing: list[str] = field(default_factory=list)
+    conflicts: list[str] = field(default_factory=list)
+    spans: list[Span] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {"status": self.status, "as_of_utc": iso_utc(self.as_of) if self.as_of else None,
+                "provenance": {k: v.as_dict() for k, v in self.provenance.items()}, "detected_by": self.detected_by,
+                "missing": self.missing, "conflicts": self.conflicts, "spans": [x.as_dict() for x in self.spans],
+                "notes": self.notes}
 
 
 @dataclass
@@ -165,12 +235,14 @@ class RequestResolution:
     routed: Literal["reported", "not reported"] = "not reported"
     forecast_run: RunRequest = field(default_factory=RunRequest)
     maximum: MaxRequest = field(default_factory=MaxRequest)
+    cutoff: CutoffRequest = field(default_factory=CutoffRequest)
+    contract: str | None = None  # the routing contract the reading was given in ("v13", or "v12" via the adapter)
     # question wording that conflicts with an authoritative request field: shown with the answer
     notes: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
-        return {"routed": self.routed, "forecast_run": self.forecast_run.as_dict(),
-                "maximum": self.maximum.as_dict(), "notes": self.notes}
+        return {"routed": self.routed, "contract": self.contract, "forecast_run": self.forecast_run.as_dict(),
+                "maximum": self.maximum.as_dict(), "cutoff": self.cutoff.as_dict(), "notes": self.notes}
 
 
 # ------------------------------------------------------------------------------------------------ reading times
@@ -211,6 +283,68 @@ def _norm(s: str) -> str:
 def quoted_in(text: str | None, question: str) -> bool:
     """The model's quoted words appear in the question (ignoring case, spacing and dash and apostrophe styles)."""
     return bool(text) and len(_norm(str(text))) >= 3 and _norm(str(text)) in _norm(question)
+
+
+def _normalized(s: str) -> tuple[str, list[int]]:
+    """``_norm(s)`` with, for each of its characters, the index of the character of ``s`` it comes from."""
+    out: list[str] = []
+    idx: list[int] = []
+    space = True  # leading space is dropped
+    for i, ch in enumerate(s):
+        ch = {"–": "-", "—": "-", "’": "'"}.get(ch, ch)
+        if ch.isspace():
+            if not space:
+                out.append(" ")
+                idx.append(i)
+            space = True
+            continue
+        low = ch.lower()
+        out.append(low if len(low) == 1 else ch)
+        idx.append(i)
+        space = False
+    if out and out[-1] == " ":
+        out.pop()
+        idx.pop()
+    return "".join(out), idx
+
+
+def locate(text: str | None, question: str) -> tuple[tuple[int, int], ...]:
+    """Every occurrence of the quoted words in the question, as character offsets (start, end) in the question, each
+    verified to hold exactly those words (ignoring case, spacing and dash and apostrophe styles). Empty when the words
+    are not in the question, or too short to locate (fewer than three characters)."""
+    t, _ = _normalized(str(text or ""))
+    if len(t) < 3:
+        return ()
+    nq, idx = _normalized(question)
+    out: list[tuple[int, int]] = []
+    k = nq.find(t)
+    while k != -1:
+        start, end = idx[k], idx[k + len(t) - 1] + 1
+        if _normalized(question[start:end])[0] == t:  # the offsets identify exactly the quoted words
+            out.append((start, end))
+        k = nq.find(t, k + 1)
+    return tuple(out)
+
+
+def span(role: str, text: str | None, question: str, source: Literal["route_model", "question"] = "route_model"
+         ) -> Span | None:
+    """The quoted words as a span of the question, or None when they are absent or not in it."""
+    occ = locate(text, question)
+    return Span(role, str(text), occ, source) if text and occ else None
+
+
+def _masked(question: str, spans: list[Span]) -> str:
+    """The question with the located spans blanked out (same length, so positions are kept)."""
+    out = question
+    for sp in spans:
+        if sp.located is not None:
+            a, b = sp.located
+            out = out[:a] + " " * (b - a) + out[b:]
+    return out
+
+
+def _overlap(a: Span, b: Span) -> bool:
+    return a.located is not None and b.located is not None and a.located[0] < b.located[1] and b.located[0] < a.located[1]
 
 
 def _zones(text: str, region: str | None) -> list[tuple[tzinfo, str]]:
@@ -606,13 +740,6 @@ def _span(w: tuple[datetime, datetime]) -> str:
     return f"({iso_utc(w[0])}, {iso_utc(w[1])}]"
 
 
-def _iso_or_none(s: str | None) -> datetime | None:
-    try:
-        return parse_iso(s) if s else None
-    except ValueError:
-        return None
-
-
 def _grounded_rule(model: RoutedForecastRun | None, q: str) -> bool:
     """Whether the routing model's selection rule is shown by the question's own words: quoted verbatim; for the last
     run issued before the half-hour, an order word and no availability wording, in a question about forecasts or runs;
@@ -629,9 +756,14 @@ def _grounded_rule(model: RoutedForecastRun | None, q: str) -> bool:
 
 
 def resolve_run(q: str, region: str | None, routed: RoutedRequest | None) -> RunRequest:
-    """The forecast run a question asks for, from the question parser and the routing model's grounded reading."""
+    """The forecast run a question asks for, from the question parser and the routing model's grounded reading. Every
+    time is converted by code from the question's words (the model's quoted words included): no model timestamp is
+    read (D26)."""
     out = RunRequest()
     model = routed.forecast_run if routed is not None else None
+    if model is not None:
+        out.spans = [sp for sp in (span("run_selection", model.selection_text, q),
+                                   span("run_half_hour", model.half_hour_text, q)) if sp is not None]
     cue_q = q
     if AS_OF_Q_RE.search(q):
         # what was public as of a cutoff is the availability selection (I-10), unless the question also singles out a
@@ -674,10 +806,9 @@ def resolve_run(q: str, region: str | None, routed: RoutedRequest | None) -> Run
         if parsed is not None and parsed.issued_at is not None:
             out.issued_at = parsed.issued_at
             out.provenance["issued_at"] = Source("question", q, "question parser")
-        if model is not None and model.selection == "issued_at":
+        if model is not None and model.selection == "issued_at" and quoted_in(model.selection_text, q):
             t, conv = issue_time_from_text(str(model.selection_text or ""), q, region)
-            claimed = _iso_or_none(model.issued_at_utc)
-            if t is not None and claimed is not None and abs(t - claimed) <= timedelta(minutes=1):
+            if t is not None:
                 if out.issued_at is not None and abs(out.issued_at - t) > timedelta(minutes=1):
                     out.status = "conflict"
                     out.conflicts = [f"issue time: {iso_utc(out.issued_at)} (question parser) or {iso_utc(t)} (route "
@@ -700,16 +831,8 @@ def resolve_run(q: str, region: str | None, routed: RoutedRequest | None) -> Run
             model_missing = ["half_hour"]
         else:
             hh, model_missing, conv = half_hour_from_text(text, q, region)
-            claimed_end = _iso_or_none(model.target_half_hour_end_utc)
-            if hh is not None and claimed_end is not None and hh[1] != claimed_end:
-                out.status = "conflict"
-                out.conflicts = [f"target half-hour: the words '{text}' read as {_span(hh)}, the route model gave an "
-                                 f"end of {iso_utc(claimed_end)}"]
-                return out
-            if hh is not None and claimed_end is not None:  # read from its words, and what the model read too
+            if hh is not None:  # read by code from the model's quoted words
                 found["route_model"] = (hh, Source("route_model", text, conv))
-            elif hh is not None:
-                model_missing = ["half_hour"]
     if len(found) == 2 and not _same(found["question"][0], found["route_model"][0]):
         out.status = "conflict"
         out.conflicts = [f"target half-hour: {_span(found['question'][0])} (question parser) or "
@@ -734,21 +857,67 @@ _RELATIVE_NARROW_RE = re.compile(r"\b(?:first|last|opening|closing)\s+(?:\w+\s+)
                                  r"half[- ]hours?)\b|\bhours?\s+(?:before|after|around)\b", re.I)
 
 
-def _day_grounded(text: str, q: str) -> bool:
-    """A whole local day is shown by the quoted words: day wording or a date, with no clock time, event or part of
-    the day in them, and nothing in the question that narrows the window ("between ... and", "in the evening", "around
-    the peak"). "Midnight to midnight" is whole-day wording."""
-    t, qq = _MIDNIGHT_TO_MIDNIGHT_RE.sub(" ", text), _MIDNIGHT_TO_MIDNIGHT_RE.sub(" ", q)
+def _day_span_ok(text: str) -> bool:
+    """Words that show one whole local day by themselves: day wording or a date, with no clock time, event, part of
+    the day or narrowing in them. "Midnight to midnight" is whole-day wording."""
+    t = _MIDNIGHT_TO_MIDNIGHT_RE.sub(" ", text)
     dated = bool(_WHOLE_DAY_RE.search(text) or _DAY_WORD_RE.search(t) or _dates(t) or _DAY_MONTH_RE.search(t))
     return dated and not _clocks(t) and not _EVENT_WORD_RE.search(t) and not _PART_OF_DAY_RE.search(t) and \
-        not _RELATIVE_NARROW_RE.search(t) and not _SUB_WINDOW_RE.search(qq)
+        not _RELATIVE_NARROW_RE.search(t) and not _SUB_WINDOW_RE.search(t)
+
+
+def _narrows(scope: str) -> bool:
+    """Wording in ``scope`` that narrows a window ("between … and", parts of the day, "around the peak" …)."""
+    return bool(_SUB_WINDOW_RE.search(_MIDNIGHT_TO_MIDNIGHT_RE.sub(" ", scope)))
+
+
+# a peak span's role: an extreme word ("highest", "peak", "top", "how high"), outside a price's own extreme or a value
+# at the peak (closed vocabulary, D26)
+_PEAK_SPAN_RE = re.compile(_EXTREME_WORD_RE.pattern + r"|\bhigh(?:er)?\b", re.I)
+
+
+def _model_measure(model: RoutedMaximum | None, q: str) -> tuple[str | None, Span | None, str | None]:
+    """The measure the model's reading names, when its quoted words show that role: they name exactly that one
+    measure (a verbatim span proves the words exist, not their role). Returns (measure, span, why not used)."""
+    if model is None or model.kind != "maximum" or model.measure not in _MEASURE_OF:
+        return None, None, None
+    want = _MEASURE_OF[str(model.measure)]
+    sp = span("measure", model.measure_text, q)
+    if sp is None:
+        return None, None, "measure: the model's words are not in the question"
+    named = [m for m, rx in _MEASURE_WORDS.items() if rx.search(sp.text)]
+    if named != [want]:
+        return None, sp, f"measure: the words '{sp.text}' name {' and '.join(named) or 'no measure'}, the reading {want}"
+    return want, sp, None
+
+
+def _peak_span(model: RoutedMaximum | None, q: str) -> tuple[Span | None, str | None]:
+    """The model's peak words, when they show that role: an extreme word in them, at a place in the question that is
+    not a price's own extreme or a value at the peak."""
+    if model is None or not model.peak_text:
+        return None, None
+    sp = span("peak", model.peak_text, q)
+    if sp is None:
+        return None, "peak: the model's words are not in the question"
+    masked = _without_contexts(q)
+    if _PEAK_SPAN_RE.search(sp.text) and any(_PEAK_SPAN_RE.search(masked[x:y]) for x, y in sp.occurrences):
+        return sp, None
+    return None, f"peak: the words '{sp.text}' ask for no extreme of demand"
 
 
 def resolve_maximum(q: str, req: InvestigateRequest, region: str | None, day: date | None, event: Any,
-                    routed: RoutedRequest | None) -> MaxRequest:
+                    routed: RoutedRequest | None, other_spans: list[Span] | None = None) -> MaxRequest:
     """The demand measure's maximum a question asks for, and its window, from the request's window fields, the
-    question parser and the routing model's grounded reading."""
+    question parser and the routing model's reading, each of its quoted words located and checked for its role (D26).
+
+    - **The measure:** the parser's, or the model's when its words name exactly that measure and a peak is evidenced
+      (the model's peak words, the parser or the bounded cue). A detected maximum that is not bound is sent back.
+    - **The window:** narrowing is looked for in the question without the located words of other temporal roles
+      (``other_spans``: the cutoff, the forecast run's selection and half-hour): a cutoff never narrows the window.
+      The model's window words must show their kind by themselves, and must not be another role's words."""
     out = MaxRequest()
+    other = list(other_spans or [])
+    scope = _masked(q, other)  # the question without the other temporal roles' located words
     parsed = requested_maxima(q)
     model = routed.maximum if routed is not None else None
     out.detected_by = [s for s, hit in (("question", bool(parsed)),
@@ -758,11 +927,17 @@ def resolve_maximum(q: str, req: InvestigateRequest, region: str | None, day: da
         return out
     # -- the measure
     measures: dict[str, Source] = {m: Source("question", q, "question parser") for m in parsed if m in _MEASURE_WORDS}
-    if model is not None and model.kind == "maximum" and model.measure in _MEASURE_OF:
-        m = _MEASURE_OF[str(model.measure)]
-        text = str(model.measure_text or "")
-        if quoted_in(text, q) and _MEASURE_WORDS[m].search(text) and _EXTREME_WORD_RE.search(_without_contexts(text)):
-            measures.setdefault(m, Source("route_model", text))
+    m_model, m_span, why = _model_measure(model, q)
+    p_span, p_why = _peak_span(model, q)
+    out.spans += [x for x in (m_span, p_span) if x is not None]
+    out.unused += [w for w in (why, p_why) if w]
+    if m_model is not None:
+        if p_span is not None or parsed or maximum_cue(q):
+            measures.setdefault(m_model, Source("route_model", str(m_span.text if m_span else ""),
+                                                "peak evidenced by " + ("the model's peak words" if p_span else
+                                                                        "the question parser" if parsed else "the cue")))
+        else:
+            out.unused.append("measure: no peak is evidenced (the model's peak words, the parser or the cue)")
     # a measure with a peak word attached ("the top 5-minute TOTALDEMAND") whose maximum was not read: not dropped
     unread = [m for m, rx in _MEASURE_WORDS.items() if m not in measures and
               _near(_without_contexts(q), rx, _EXTREME_WORD_RE, 4)]
@@ -777,17 +952,17 @@ def resolve_maximum(q: str, req: InvestigateRequest, region: str | None, day: da
     # -- the window
     kinds: dict[str, tuple[tuple[datetime, datetime] | None, Source]] = {}
     ev_window = (parse_iso(event.window_start_utc), parse_iso(event.window_end_utc)) if event is not None else None
-    parsed_kind = maximum_window_kind(q, InvestigateRequest(question=q)) if parsed else "unresolved"
+    parsed_kind = maximum_window_kind(scope, InvestigateRequest(question=q)) if parsed else "unresolved"
     if parsed_kind == "day":
         kinds["day"] = (local_day_window(day, region) if day is not None and region else None,
                         Source("question", q, f"whole local day {day} in {region}"))
     elif parsed_kind == "event":
         kinds["event"] = (ev_window, Source("question", q, "the window of the event the resolution holds"))
-    if "day" not in kinds and _WHOLE_DAY_RE.search(q) and not _EVENT_WINDOW_RE.search(q) and \
-            not _SUB_WINDOW_RE.search(_MIDNIGHT_TO_MIDNIGHT_RE.sub(" ", q)):  # "over the whole of 20 August 2026"
+    if "day" not in kinds and _WHOLE_DAY_RE.search(scope) and not _EVENT_WINDOW_RE.search(scope) and \
+            not _narrows(scope):  # "over the whole of 20 August 2026"
         kinds["day"] = (local_day_window(day, region) if day is not None and region else None,
                         Source("question", q, f"whole-day wording: whole local day {day} in {region}"))
-    if _WHOLE_DAY_RE.search(q) and _EVENT_WINDOW_RE.search(q):  # both named: two windows, unless they are one
+    if _WHOLE_DAY_RE.search(scope) and _EVENT_WINDOW_RE.search(scope):  # both named: two windows, unless they are one
         kinds.setdefault("day", (local_day_window(day, region) if day is not None and region else None,
                                  Source("question", q, f"whole local day {day} in {region}")))
         kinds.setdefault("event", (ev_window, Source("question", q, "the window of the event the resolution holds")))
@@ -795,25 +970,39 @@ def resolve_maximum(q: str, req: InvestigateRequest, region: str | None, day: da
             out.status, out.conflicts = "conflict", ["window: the whole local day or the event window"]
             return out
     if model is not None and model.kind == "maximum" and model.window in ("whole_local_day", "event", "explicit"):
-        text = str(model.window_text or "")
-        if quoted_in(text, q):
-            if model.window == "whole_local_day" and _day_grounded(text, q):
-                d = _day_of(text, q)
-                if d is not None and region and (day is None or d == day):
-                    kinds.setdefault("day", (local_day_window(d, region),
-                                             Source("route_model", text, f"whole local day {d} in {region}")))
-            elif model.window == "event" and _EVENT_WORD_RE.search(text) and not _RELATIVE_NARROW_RE.search(text):
-                kinds.setdefault("event", (ev_window, Source("route_model", text, "the window of the event held")))
-            elif model.window == "explicit":
+        w_span = span("window", model.window_text, q)
+        if w_span is None:
+            out.unused.append("window: the model's words are not in the question")
+        elif any(_overlap(w_span, o) for o in other):
+            role = next(o.role for o in other if _overlap(w_span, o))
+            out.status = "conflict"
+            out.conflicts = [f"window: the words '{w_span.text}' are read as the window and as the {role}"]
+            out.spans.append(w_span)
+            return out
+        else:
+            out.spans.append(w_span)
+            text = w_span.text
+            if model.window == "whole_local_day":
+                if _day_span_ok(text) and not _narrows(_masked(scope, [w_span])):
+                    d = _day_of(text, q)
+                    if d is not None and region and (day is None or d == day):
+                        kinds.setdefault("day", (local_day_window(d, region),
+                                                 Source("route_model", text, f"whole local day {d} in {region}")))
+                    else:
+                        out.unused.append(f"window: the day of '{text}' is not pinned down")
+                else:
+                    out.unused.append(f"window: '{text}' is not a whole day by itself, or other words narrow it")
+            elif model.window == "event":
+                if _EVENT_WORD_RE.search(text) and not _RELATIVE_NARROW_RE.search(text):
+                    kinds.setdefault("event", (ev_window, Source("route_model", text, "the window of the event held")))
+                else:
+                    out.unused.append(f"window: '{text}' names no event window by itself")
+            else:
                 w, conv = window_from_text(text, q, region)
-                c0, c1 = _iso_or_none(model.window_start_utc), _iso_or_none(model.window_end_utc)
-                if w is not None and c0 is not None and c1 is not None and not _same(w, (c0, c1)):
-                    out.status = "conflict"
-                    out.conflicts = [f"window: the words '{text}' read as {_span(w)}, the route model gave "
-                                     f"{_span((c0, c1))}"]
-                    return out
-                if w is not None and c0 is not None:
+                if w is not None:
                     kinds.setdefault("explicit", (w, Source("route_model", text, conv)))
+                else:
+                    out.unused.append(f"window: '{text}' gives no start and end that code can read")
     windows = {k: (w, src) for k, (w, src) in kinds.items() if w is not None}
     if len(windows) == 1:
         kind, (w, _) = next(iter(windows.items()))
@@ -833,6 +1022,72 @@ def resolve_maximum(q: str, req: InvestigateRequest, region: str | None, day: da
         return out
     kind, (w, src) = next(iter(windows.items()))
     out.window_kind, out.window, out.provenance["window"], out.status = kind, w, src, "bound"
+    return out
+
+
+CUTOFF_CLARIFICATION = (
+    "Which time is the as-of cutoff? The question names one, but its time, date or time zone cannot be read, so no "
+    "cutoff is assumed. Give it with its date and time zone.")
+
+
+def resolve_cutoff(q: str, given_as_of: str | None, region: str | None, day: date | None,
+                   routed: Routed | None) -> CutoffRequest:
+    """The as-of cutoff (D26): the request field when given (authoritative); else the question parser's reading and
+    the routing model's quoted words, each converted by code. A cutoff the model detected (its words, or a v12
+    timestamp) that cannot be pinned down is sent back; the model's timestamps are never read. The located words of
+    the cutoff are kept, so that they never narrow an analysis window."""
+    from .request import extract_as_of
+
+    out = CutoffRequest()
+    m = AS_OF_Q_RE.search(q)
+    if m:  # the parser's as-of clause: from the as-of words to the end of the clause
+        end = m.end() + len(re.split(r"[?;]", q[m.end():])[0][:80])
+        out.spans.append(Span("cutoff", q[m.start():end], ((m.start(), end),), "question"))
+    model_t: datetime | None = None
+    model_src: Source | None = None
+    if routed is not None and routed.as_of_text:
+        sp = span("cutoff", routed.as_of_text, q)
+        if sp is None:
+            out.notes.append("cutoff: the routing model's words are not in the question; not used")
+        elif _ISSUE_WORD_RE.search(sp.text):  # an issue time names a forecast run, never a cutoff
+            out.notes.append(f"cutoff: '{sp.text}' names a forecast's issue time, not an as-of cutoff; not used")
+        else:
+            # a cutoff the model quoted is never dropped for its wording ("as at 9 pm"): dropping one would let later
+            # data in; words without availability wording are noted
+            if not (_AVAILABILITY_RE.search(sp.text) or AS_OF_Q_RE.search(sp.text)):
+                out.notes.append(f"cutoff: '{sp.text}' has no wording about what was public or known; read as the "
+                                 "cutoff the routing model quoted")
+            out.spans.append(sp)
+            model_t, conv = _first_instant(sp.text, q, region)
+            model_src = Source("route_model", sp.text, conv)
+            out.detected_by.append("route_model")
+    legacy = routed is not None and routed.legacy_cutoff
+    if legacy and forecast_issue_time(q) is not None:
+        legacy = False
+        out.notes.append("cutoff: the v12 routing decision's cutoff is the forecast's issue time, not an as-of cutoff; "
+                         "not applied")
+    if legacy:
+        out.detected_by.append("route_model_v12")
+    if given_as_of:
+        out.detected_by.insert(0, "request")
+        out.status, out.as_of = "bound", parse_iso(given_as_of)
+        out.provenance["as_of"] = Source("request", "as_of_utc")
+        return out
+    parser_t = extract_as_of(q, region, day) or question_as_of(q, region)[0]
+    if m is not None:
+        out.detected_by.insert(0, "question")
+    if parser_t is not None and model_t is not None and abs(parser_t - model_t) > timedelta(seconds=59):
+        out.status = "conflict"
+        out.conflicts = [f"cutoff: {iso_utc(parser_t)} (question parser) or {iso_utc(model_t)} (route model's words)"]
+        return out
+    if parser_t is not None:
+        out.status, out.as_of = "bound", parser_t
+        out.provenance["as_of"] = Source("question", q, "question parser")
+    elif model_t is not None and model_src is not None:
+        out.status, out.as_of = "bound", model_t
+        out.provenance["as_of"] = model_src
+    elif model_src is not None or legacy:  # detected by the model, not pinned down: sent back, never ignored
+        out.status, out.missing = "unresolved", ["cutoff"]
     return out
 
 
@@ -907,4 +1162,10 @@ def clarifications(r: RequestResolution) -> list[str]:
     elif mx.status == "unresolved" and mx.missing != ["date"]:
         out.append(MAXIMUM_UNREAD_CLARIFICATION if mx.unread else MAXIMUM_CLARIFICATION if "measure" in mx.missing
                    else MAXIMUM_EVENT_CLARIFICATION if "event" in mx.missing else MAXIMUM_WINDOW_CLARIFICATION)
+    co = r.cutoff
+    if co.status == "conflict":
+        out.append("The as-of cutoff can be read in two ways: the question's wording and the routing model's reading "
+                   "disagree. Which is meant? Neither is applied.")
+    elif co.status == "unresolved":
+        out.append(CUTOFF_CLARIFICATION)
     return out

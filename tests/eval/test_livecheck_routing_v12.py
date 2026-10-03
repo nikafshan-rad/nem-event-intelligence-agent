@@ -609,6 +609,8 @@ def test_the_runner_refuses_without_an_approved_cap_with_overrides_or_without_a_
     for k in RUN.OVERRIDES:
         monkeypatch.delenv(k, raising=False)
     runs = list(RUN.ORDER)
+    # the frozen prompts (v12): the current code is on v13 (D26), which the frozen runner refuses, as checked below
+    monkeypatch.setattr(RUN.config, "PROMPT_VERSION", FREEZE["prompt_version"])
     assert RUN.refusal(FREEZE, runs, 8.174670, START) is None
     assert "approved task cap" in RUN.refusal(FREEZE, runs, None, START)
     assert "approved task cap" in RUN.refusal(FREEZE, runs, 8.17, START)

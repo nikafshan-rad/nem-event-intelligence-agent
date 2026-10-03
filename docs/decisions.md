@@ -747,3 +747,43 @@ Acceptance check recorded before implementation. One bounded offline PR; demand 
   - A repeated span locates nothing.
 - **Not claimed:** that truncation becomes rarer. A slimmer output is a hypothesis until separately approved Live
   verification.
+- **Amendments during implementation** (2026-10-03, before merge; the entry above is otherwise as first committed):
+  1. **Criterion 1, corrected:**
+     - D01 and F06 bind their gold readings both from their saved v12 decisions (through the adapter) and from v13
+       decisions.
+     - F07 binds its gold reading from a v13 decision. Its saved v12 decision quoted no cutoff words, because v12 had no
+       field for them. So "noon" cannot be attributed to the cutoff, it still narrows the window, and the question
+       stays sent back. The adapter invents no span.
+  2. **The cutoff's role check, loosened for safety:**
+     - **First written:** "availability or as-of wording, and no issue word".
+     - **Now:** only words naming an issue time are refused as a cutoff. Words without availability wording are used
+       and noted.
+     - **Why:** Q23's "As at 9:00 pm AEST on 5 August 2026" would otherwise be dropped, and a dropped cutoff lets later
+       data in.
+  3. **A conflict added:** the same words given as the cutoff and as a forecast run's target half-hour are a conflict,
+     and the question is sent back. A cutoff in the request field stands.
+  4. **The v12 contract kept in `agent/route_v12.py` under its v12 names:** its schema is byte-identical to the one
+     sent under v12, so the development comparison's frozen reservations (USD 0.005087 and 0.030869) still reproduce.
+     Model-facing schemas carry no docstring, which would enter the schema.
+- **Results** (records in `eval/route_v13/`; scratch ledger only; no model call):
+  - **Saved routing decisions:** 5 of 218 changed.
+    - **Newly bound, each matching its gold exactly:** D01, F06, K10 (`eval/livecheck_i15_17`) and Q11
+      (`eval/livecheck_routing_v12`).
+    - **Q23:** still sent back (it names several dates). Its v12 cutoff timestamp is now detection only.
+  - **The paraphrase matrix:** modes b and c still pass, 33 of 33 supplied in b. Mode a still fails only on P20, as
+    before. 43 verdicts changed:
+    - **38 timestamp mutations:** were contained (their timestamp disagreed with the words); now they are supplied
+      correctly from the words, since no timestamp is read.
+    - **P22's 5 rows** (absent, correct, and three mutations): the v12 cutoff timestamp is detection only, so these are
+      now sent back. Its words, quoted under v13, convert to the gold time.
+  - **Time conversion against gold:** no case where code's conversion differs from gold. Where code reads no time
+    though gold exists:
+    - Z05: the parser binds it anyway;
+    - Q14 and Q15: unchanged supply misses (below);
+    - Q23 and P22: v12 had no cutoff words.
+  - **Unchanged:** the Replay evaluation (apart from latency, trace IDs and timestamps) and the safety suite (PASS).
+- **More known limits** (unchanged by this change):
+  - An explicit window over two dates ("between 10 pm on 19 August and 8 am on 20 August") and clock words such as
+    "midday" or "noon" are not converted (Q14, Q15), so the question is sent back.
+  - A cutoff detected only by the question parser, with no time it can read, is not sent back (v12 behaviour).
+  - A cutoff's own date counts as an event date, so two dates still ask which one.

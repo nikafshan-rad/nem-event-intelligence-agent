@@ -12,11 +12,11 @@ from typing import Any
 import pytest
 
 from nem_agent.agent.dispatcher import Dispatcher
-from nem_agent.agent.live import RouteDecision
+from nem_agent.agent.live import RouteDecision, checked_route
 from nem_agent.agent.request import InvestigateRequest, forecast_issue_time, requested_measures, route
 from nem_agent.evidence import EvidenceRegistry
 from nem_agent.retrieval.search import defn_phrase, expand_query, search
-from nem_agent.service import investigate, route_policy
+from nem_agent.service import investigate, resolve_routed, route_policy
 from nem_agent.timeutil import parse_iso
 from nem_agent.trace import Trace
 from tests.provider.fake_model import FakeModel, outputs
@@ -102,15 +102,21 @@ def test_a_forecast_issue_time_is_not_an_as_of_cutoff(selection):
          "2026-07-30T21:30:00Z, and how did actual demand turn out?")
     assert forecast_issue_time(q) == parse_iso("2026-07-30T11:56:59Z")
     req = InvestigateRequest(question=q, mode="live")
-    upd, _, notes = route_policy(req, _decision(intent="forecast_review", region="NSW1",
-                                                as_of_utc="2026-07-30T11:56:59Z"))
-    assert upd["as_of_utc"] is None and any("issue time" in n for n in notes)
-    # neighbours: a real as-of question keeps its cutoff, and so does one that names both
+    # the cutoff is no longer taken from the routing decision (D26): the resolver reads it, and a v12 decision's cutoff
+    # timestamp that is the forecast's issue time is not applied
+    upd, _, _ = route_policy(req, _decision(intent="forecast_review", region="NSW1", as_of_utc="2026-07-30T11:56:59Z"))
+    assert upd["as_of_utc"] is None
+    res = resolve_routed(req, checked_route(_decision(intent="forecast_review", region="NSW1",
+                                                      as_of_utc="2026-07-30T11:56:59Z")), selection)
+    assert res.as_of is None and any("issue time" in n for n in res.requests.cutoff.notes)
+    # neighbours: a real as-of question keeps its cutoff, and so does one that names both (read from its words)
     for q2 in ("As of 2026-07-30T12:00:00Z, what did the latest forecast say for SA1?",
                "As of 2026-07-30T12:00:00Z, what did the run issued at 2026-07-30T11:56:59Z say for SA1?"):
-        upd2, _, _ = route_policy(InvestigateRequest(question=q2, mode="live"),
-                                  _decision(intent="forecast_review", as_of_utc="2026-07-30T12:00:00Z"))
-        assert upd2["as_of_utc"] == "2026-07-30T12:00:00Z" and forecast_issue_time(q2) is None
+        res2 = resolve_routed(InvestigateRequest(question=q2, mode="live"),
+                              checked_route(_decision(intent="forecast_review", as_of_utc="2026-07-30T12:00:00Z")),
+                              selection)
+        assert res2.as_of is not None and res2.as_of.isoformat() == "2026-07-30T12:00:00+00:00"
+        assert forecast_issue_time(q2) is None
 
 
 def test_the_controller_names_the_run_issued_at_that_time(selection):
