@@ -1,0 +1,177 @@
+{
+ "input": {
+  "question": "Based only on data published by noon Brisbane time on Sunday 5 October 2025, what was the highest operational demand in Queensland over that entire local day, and at what time?",
+  "request_override": {
+   "as_of_utc": "2025-10-05T02:00:00Z"
+  },
+  "scripted_reading": {
+   "intent": "market_event_review",
+   "region": "QLD1",
+   "event_date": "2025-10-05",
+   "as_of_text": "published by noon Brisbane time on Sunday 5 October 2025",
+   "needs_clarification": false,
+   "clarification_reason": null,
+   "clarification": null,
+   "out_of_scope": false,
+   "requested": {
+    "forecast_run": {
+     "selection": "none",
+     "selection_text": null,
+     "half_hour_text": null
+    },
+    "maximum": {
+     "kind": "maximum",
+     "measure": "operational_demand",
+     "measure_text": "operational demand",
+     "peak_text": "highest",
+     "window": "whole_local_day",
+     "window_text": "that entire local day"
+    }
+   }
+  },
+  "scripted_reading_note": "SYNTHETIC: written by the developer; not Live evidence"
+ },
+ "resolution": {
+  "region": {
+   "value": "QLD1",
+   "question_parser": [
+    "QLD1"
+   ],
+   "scripted_reading": "QLD1"
+  },
+  "date": {
+   "value": "2025-10-05",
+   "question_parser": [
+    "2025-10-05"
+   ],
+   "scripted_reading": "2025-10-05"
+  },
+  "measure": {
+   "value": [
+    "operational demand"
+   ],
+   "provenance": {
+    "source": "question",
+    "text": "Based only on data published by noon Brisbane time on Sunday 5 October 2025, what was the highest operational demand in Queensland over that entire local day, and at what time?",
+    "conversion": "question parser"
+   }
+  },
+  "window": {
+   "kind": "day",
+   "utc": [
+    "2025-10-04T14:00:00Z",
+    "2025-10-05T14:00:00Z"
+   ],
+   "provenance": {
+    "source": "route_model",
+    "text": "that entire local day",
+    "conversion": "whole local day 2025-10-05 in QLD1"
+   },
+   "how": "the scripted reading's words 'that entire local day', located in the question and checked for the whole-day role; the day is the question's only date, and code builds its local window in Australia/Brisbane"
+  },
+  "cutoff": {
+   "value": "2025-10-05T02:00:00Z",
+   "provenance": {
+    "source": "request",
+    "text": "as_of_utc",
+    "conversion": ""
+   },
+   "question_words": "published by noon Brisbane time on Sunday 5 October 2025",
+   "question_words_read_as": null,
+   "spans": [
+    {
+     "role": "cutoff",
+     "text": "published by noon Brisbane time on Sunday 5 October 2025",
+     "source": "route_model",
+     "occurrences": [
+      [
+       19,
+       75
+      ]
+     ],
+     "located": true
+    }
+   ],
+   "how": "the request field (override). The question's own cutoff words are located (they hold 'noon', so it does not narrow the window), but code cannot convert 'noon', so they are neither compared nor applied"
+  },
+  "notes_shown": [
+   "The as-of cutoff given with the request, 2025-10-05T02:00:00Z, is applied. The question's own wording ('published by noon Brisbane time on Sunday 5 October 2025') also names an as-of time, which could not be compared with it."
+  ],
+  "model_calls": 5
+ },
+ "result": {
+  "status": "not_established",
+  "value": 5693.0,
+  "interval_ends_utc": [
+   "2025-10-04T14:30:00Z"
+  ],
+  "source_row_ids": [
+   "OPDEM_ACTUAL_DAILY:PUBLIC_ACTUAL_OPERATIONAL_DEMAND_DAILY_20251004_20251005044001:L91"
+  ],
+  "coverage": {
+   "interval_minutes": 30,
+   "intervals_in_window": 48,
+   "intervals_held": 8,
+   "complete": false,
+   "excluded_by_as_of": 40
+  },
+  "server_verification": "verified",
+  "answer": "Not every half-hour of all of 2025-10-05 (AEST) is held and public by the as-of cutoff, so the maximum of QLD1 operational demand over it cannot be established; the highest value held and public by the as-of cutoff is 5693 MW, in the half-hour ending 2025-10-04T14:30:00Z = 2025-10-05 00:30 AEST."
+ },
+ "gold": {
+  "reading": {
+   "measure": "operational demand",
+   "region": "QLD1",
+   "window_kind": "day",
+   "window_utc": [
+    "2025-10-04T14:00:00Z",
+    "2025-10-05T14:00:00Z"
+   ],
+   "event_id": null,
+   "as_of_utc": "2025-10-05T02:00:00Z",
+   "expected_outcome": "not_established"
+  },
+  "result": {
+   "status": "not_established",
+   "value": 5693.0,
+   "interval_ends_utc": [
+    "2025-10-04T14:30:00Z"
+   ],
+   "source_row_ids": [
+    "OPDEM_ACTUAL_DAILY:PUBLIC_ACTUAL_OPERATIONAL_DEMAND_DAILY_20251004_20251005044001:L91"
+   ],
+   "intervals_held": 8,
+   "intervals_in_window": 48,
+   "excluded_rows_by_as_of": 40
+  }
+ },
+ "matches_gold": {
+  "window": true,
+  "cutoff": true,
+  "measure": true,
+  "result": true
+ },
+ "contrasts": {
+  "b_no_request_field": {
+   "status": "needs_clarification",
+   "reasons": [
+    "Which time is the as-of cutoff? The question names one, but its time, date or time zone cannot be read, so no cutoff is assumed. Give it with its date and time zone."
+   ],
+   "cutoff": "unresolved",
+   "model_calls": 1,
+   "results": 0
+  },
+  "c_cutoff_words_not_quoted": {
+   "status": "needs_clarification",
+   "reasons": [
+    "Over which window is the demand peak asked: the whole local day of the date given, the price event's window, or an explicit start and end with their time zone? The question does not pin it down, so no maximum is given in place of the one asked for."
+   ],
+   "maximum": "unresolved",
+   "unused": [
+    "window: 'that entire local day' is not a whole day by itself, or other words narrow it"
+   ],
+   "model_calls": 1,
+   "results": 0
+  }
+ }
+}

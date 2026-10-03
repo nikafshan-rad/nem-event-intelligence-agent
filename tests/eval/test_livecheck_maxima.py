@@ -475,6 +475,7 @@ def test_refusals(monkeypatch, tmp_path):
     ok = {"total": 8.52205, "lines": 2905, "sha256_prefix": "e8bcc3be401caec5"}
     monkeypatch.delenv("NEM_AGENT_BUDGET_LEDGER", raising=False)  # refusal() reads no ledger: it is given one
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test-not-a-key")
+    monkeypatch.setattr(RUN.config, "PROMPT_VERSION", "prompts/v12")  # the frozen prompts; the code is on v13 (D26)
     assert RUN.refusal(f, 10.92205, ok, [], tmp_path) is None
     assert "at least USD 10.92205" in RUN.refusal(f, 10.9, ok, [], tmp_path)
     assert "not the frozen starting ledger" in RUN.refusal(f, 10.92205, dict(ok, lines=2906), [], tmp_path)
@@ -511,11 +512,12 @@ def test_the_freeze_matches_the_protocol():
     assert FREEZE["required_task_cap_usd"] == 10.92205 and FREEZE["run_caps_total_usd"] == 2.4
     assert FREEZE["slots"] == FRZ.plan(CASES)
     assert sorted(FREEZE["review_blind_order"].values()) == sorted(BY_ID)
-    # the checkout's src/ is the frozen tree (the runner checks it before every case); so is the code commit's, where
-    # the checkout holds that commit (a shallow CI checkout may not)
+    # the check has run (PR #68). On any later src/ (D26 onwards) its runner refuses to start, before every case too,
+    # so it can never run on other code; on the frozen tree it would not refuse for that reason
     head = subprocess.run(["git", "rev-parse", "HEAD:src"], cwd=ROOT, capture_output=True, text=True,
                           check=True).stdout.strip()
-    assert head == FREEZE["src_tree"]
+    if head != FREEZE["src_tree"]:
+        assert RUN.changed(FREEZE) == "the checkout's src/ is not the frozen tree"
     if subprocess.run(["git", "cat-file", "-e", f"{FREEZE['code_commit']}^{{commit}}"], cwd=ROOT,
                       capture_output=True).returncode == 0:
         src = subprocess.run(["git", "rev-parse", f"{FREEZE['code_commit']}:src"], cwd=ROOT, capture_output=True,

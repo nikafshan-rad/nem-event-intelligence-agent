@@ -62,11 +62,16 @@ SCRIPTED = {
     "K09": (NO_RUN, {"kind": "maximum", "measure": "dispatch_total_demand",
                      "measure_text": "NSW dispatch total demand highest", "window": "whole_local_day",
                      "window_text": "across the whole day", "window_start_utc": None, "window_end_utc": None}),
+    # K10's window words include the words that identify its event ("whose lowest price came at 9:20 pm AEST on 28
+    # July 2026"), as the v13 contract asks (D26): a time held by no role's words would block the window. The shorter
+    # reading first scripted here is kept below (K10_SHORT_WINDOW), and is sent back
     "K10": (NO_RUN, {"kind": "maximum", "measure": "dispatch_total_demand",
                      "measure_text": "dispatch total demand hit its highest point", "window": "event",
-                     "window_text": "the full window of the Victorian negative-price event", "window_start_utc": None,
+                     "window_text": "the full window of the Victorian negative-price event whose lowest price came at "
+                                    "9:20 pm AEST on 28 July 2026", "window_start_utc": None,
                      "window_end_utc": None}),
 }
+K10_SHORT_WINDOW = "the full window of the Victorian negative-price event"
 
 
 def _rec(cid: str) -> dict:
@@ -240,6 +245,17 @@ def test_with_scripted_fields_the_maximum_asked_for_is_computed_and_supplied(cid
                for s in [a.statement for a in res.report.answer])  # the computed answer (D25)
 
 
+def test_with_scripted_fields_k10s_window_without_its_identifying_time_is_sent_back():
+    """D26: "9:20 pm AEST" is written outside the shorter window words, held by no role's words, so it may narrow the
+    window: the event window is not bound and no maximum is computed in its place (the guarantee, not a phrase rule)."""
+    run, mx = SCRIPTED["K10"]
+    res = resolve_routed(InvestigateRequest(question=_rec("K10")["question"], mode="live"),
+                         _route(run, {**mx, "window_text": K10_SHORT_WINDOW}, intent="market_event_review",
+                                region="VIC1", event_date="2026-07-28"), SEL)
+    assert res.requests.maximum.status == "unresolved" and res.status == "needs_clarification"
+    assert any("9:20 pm" in u for u in res.requests.maximum.unused)
+
+
 def test_with_scripted_fields_k09s_saved_wrong_maximum_is_rejected():
     res, _ = _replay("K09", scripted=True)
     assert {"REQUESTED_MAXIMUM_MISMATCH", "REQUESTED_MAXIMUM_MISSING"} & _codes(res)
@@ -300,9 +316,6 @@ def _k06_run(**kw) -> dict:
 @pytest.mark.parametrize("change,what", [
     ({"selection_text": "the last run AEMO issued before the half-hour"}, "words not in the question"),
     ({"half_hour_text": "the 7:30 to 8:00 half-hour"}, "words not in the question"),
-    ({"target_half_hour_end_utc": "2026-08-19T23:00:00Z"}, "an end the words do not give"),
-    ({"target_half_hour_end_utc": "2026-08-19T22:00:00Z"}, "the start given as the end"),
-    ({"target_half_hour_end_utc": None}, "no end claimed"),
     ({"selection": "issued_at", "issued_at_utc": "2026-08-19T21:57:01Z"}, "an issue time the question does not state"),
     ({"selection_text": "South Australia"}, "a keyword with no order relation"),
 ])
@@ -310,6 +323,19 @@ def test_an_ungrounded_or_wrong_model_reading_binds_nothing(change, what):
     res = resolve_routed(InvestigateRequest(question=K06_Q, mode="live"), _route(_k06_run(**change)), SEL)
     assert res.status == "needs_clarification", what
     assert res.requests.forecast_run.status in ("unresolved", "conflict"), what
+
+
+@pytest.mark.parametrize("claimed", ["2026-08-19T23:00:00Z", "2026-08-19T22:00:00Z", None])
+def test_a_v12_timestamp_is_not_read_and_the_half_hour_is_codes_reading_of_the_words(claimed):
+    """D26: historical model timestamps are not ground truth. Whatever the v12 decision's end (an end the words do not
+    give, the start given as the end, none), the half-hour is code's reading of the model's quoted words, which is the
+    independently checked gold (K06: the half-hour ending 2026-08-19T22:30Z). Under v12 these were sent back."""
+    res = resolve_routed(InvestigateRequest(question=K06_Q, mode="live"),
+                         _route(_k06_run(target_half_hour_end_utc=claimed)), SEL)
+    fr = res.requests.forecast_run
+    assert fr.status == "bound" and [t.isoformat() for t in fr.half_hour] == ["2026-08-19T22:00:00+00:00",
+                                                                             "2026-08-19T22:30:00+00:00"]
+    assert fr.half_hour[1].isoformat().replace("+00:00", "Z") == GOLD["K06"]["gold_numbers"][0]["valid_at_utc"]
 
 
 def test_equivalent_times_agree_and_a_disagreement_is_sent_back_naming_both_readings():
@@ -321,11 +347,18 @@ def test_equivalent_times_agree_and_a_disagreement_is_sent_back_naming_both_read
     assert hh is not None and not missing and "Adelaide time" in conv and "ACST" in conv  # two names, one instant
     hh, missing, _ = half_hour_from_text("7:30-8:00 am half-hour (Adelaide time, AEST) on 20 August 2026", K06_Q, "SA1")
     assert hh is None and missing == ["time_zone"]  # two zones that disagree: not chosen between
-    bad = resolve_routed(InvestigateRequest(question=K06_Q, mode="live"),
-                         _route(_k06_run(target_half_hour_end_utc="2026-08-19T23:00:00Z")), SEL)
+    # two readings of the question's own words that disagree (D26: no model timestamp is a reading): the parser's
+    # half-hour ending 22:30Z, and the model's quoted "starting 08:00 ACST" one, ending 23:00Z
+    q = ("For SA1, what did the last forecast run issued before the half-hour ending 2026-08-19T22:30:00Z (the "
+         "half-hour starting 08:00 ACST on 20 August 2026) give for POE50?")
+    run = {"selection": "last_issued_before", "selection_text": "the last forecast run issued before the half-hour",
+           "half_hour_text": "the half-hour starting 08:00 ACST on 20 August 2026", "target_half_hour_end_utc": None,
+           "issued_at_utc": None}
+    bad = resolve_routed(InvestigateRequest(question=q, mode="live"), _route(run), SEL)
     assert bad.requests.forecast_run.status == "conflict" and "target half-hour" in bad.reasons[0]
     assert not any(ch.isdigit() for ch in bad.reasons[0])  # the readings are in the trace, not the clarification
-    assert "2026-08-19T23:00:00Z" in bad.routing["requests"]["forecast_run"]["conflicts"][0]
+    conflict = bad.routing["requests"]["forecast_run"]["conflicts"][0]
+    assert "2026-08-19T23:00:00Z" in conflict and "2026-08-19T22:30:00Z" in conflict
 
 
 def test_parser_and_model_disagreeing_on_the_half_hour_is_a_conflict():
@@ -488,14 +521,20 @@ def test_a_resolution_built_elsewhere_still_uses_the_question_parsers():
     assert res.requests is None and requested_measures(res) == ["total demand"]
 
 
-def test_prompts_v12_describe_the_new_fields_and_keep_the_other_prompts():
-    v11, v12 = ROOT / "src" / "nem_agent" / "prompts" / "v11", ROOT / "src" / "nem_agent" / "prompts" / "v12"
-    assert config.PROMPT_VERSION == "prompts/v12"
+def test_prompts_v12_described_the_new_fields_and_v13_keeps_the_other_prompts():
+    """v12 (I-18) added the `requested` fields to v11's route prompt; v13 (D26) replaces its timestamps with quoted
+    words and changes nothing else: the synthesis and system prompts are byte-identical."""
+    pr = ROOT / "src" / "nem_agent" / "prompts"
+    v11, v12, v13 = pr / "v11", pr / "v12", pr / "v13"
+    assert config.PROMPT_VERSION == "prompts/v13"
     for name in ("synthesis.md", "system.md"):
-        assert (v11 / name).read_bytes() == (v12 / name).read_bytes()
+        assert (v11 / name).read_bytes() == (v12 / name).read_bytes() == (v13 / name).read_bytes()
     route = (v12 / "route.md").read_text()
     assert route.startswith((v11 / "route.md").read_text())
     assert "`requested`" in route and "never guess" in " ".join(route.split())
+    r13 = " ".join((v13 / "route.md").read_text().split())
+    assert "`as_of_text`" in r13 and "`peak_text`" in r13 and "Do not convert dates or times" in r13
+    assert "ISO-8601 UTC" not in r13 and "_utc" not in r13
     assert "requested" in RouteDecision.model_json_schema()["properties"]
     assert RoutedRequest.model_json_schema()["required"] == ["forecast_run", "maximum"]
 

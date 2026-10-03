@@ -511,17 +511,24 @@ def _event_for(sel: Selection, region: str, day: date) -> EventSelection | None:
 
 def resolve(req: InvestigateRequest, sel: Selection, routed: Any = None,
             given: InvestigateRequest | None = None) -> Resolution:
-    """``routed``: the routing model's structured reading of the request (``structured.RoutedRequest``), or None when
-    it reported none (Replay mode, a route without the field). None is "not reported", never "no requirement".
+    """``routed``: the routing model's reading (``structured.Routed``, or its ``RoutedRequest`` alone), or None when it
+    reported none (Replay mode, a route without the field). None is "not reported", never "no requirement".
     ``given``: the request as the user gave it, when ``req`` also carries the routing model's values (Live); only the
     user's own fields are request fields whose conflict with the question's wording is noted."""
     from .structured import (
         RequestResolution,
+        Routed,
+        RoutedRequest,
         clarifications,
         request_field_notes,
+        resolve_cutoff,
         resolve_maximum,
         resolve_run,
     )
+    from .structured import _overlap as spans_overlap
+
+    if isinstance(routed, RoutedRequest):
+        routed = Routed(routed)
 
     q = req.question
     if NON_NEM.search(q):
@@ -561,13 +568,26 @@ def resolve(req: InvestigateRequest, sel: Selection, routed: Any = None,
             kind = event.kind
         else:
             window = local_day_window(day, region)
-    as_of = parse_iso(req.as_of_utc) if req.as_of_utc else extract_as_of(q, region, day)
+    # the as-of cutoff: the request field, else the question's words and the routing model's quoted words, converted by
+    # code; a cutoff the model detected that cannot be pinned down is sent back (D26)
+    requests = RequestResolution(routed="reported" if routed is not None and routed.requested is not None
+                                 else "not reported", contract=routed.contract if routed is not None else None)
+    requests.cutoff = resolve_cutoff(q, req.as_of_utc, region, day, routed)
+    as_of = requests.cutoff.as_of
     # the forecast run and the demand maximum the question asks for: from the request, the question parsers and the
     # routing model's grounded reading, with provenance; a detected request that is not bound is sent back (I-18)
     data_intent = intent in ("market_event_review", "forecast_review")
-    requests = RequestResolution(routed="reported" if routed is not None else "not reported")
+    model_requests = routed.requested if routed is not None else None
     if data_intent:
-        requests.forecast_run = resolve_run(q, region, routed)
+        requests.forecast_run = resolve_run(q, region, model_requests)
+        clash = [(c, h) for c in requests.cutoff.spans if c.source == "route_model"
+                 for h in requests.forecast_run.spans if h.role == "run_half_hour" and spans_overlap(c, h)]
+        if clash and not req.as_of_utc:  # the same words read as the cutoff and as the target half-hour (a cutoff
+            # given in the request field stands)
+            requests.cutoff.status, requests.cutoff.as_of = "conflict", None
+            requests.cutoff.conflicts = [f"cutoff: the words '{clash[0][0].text}' are read as the cutoff and as the "
+                                         "target half-hour"]
+            as_of = None
     target = None
     if intent == "forecast_review" and region:
         # the half-hour asked about is the target; an as-of cutoff only says what was public (I-10). An explicit date or
@@ -593,12 +613,16 @@ def resolve(req: InvestigateRequest, sel: Selection, routed: Any = None,
             reasons.append("Which date is the half-hour (or period) asked about? The as-of cutoff says what was public "
                            "by then, not which day the forecast is for.")
     if data_intent:
-        requests.maximum = resolve_maximum(q, req, region, day, event, routed)
-        requests.notes = request_field_notes(q, given or req, region, day, requests.maximum)
-        # a run named relative to a half-hour that is not pinned down (held-out v6 Z05, I-16), a demand peak without
-        # its measure, or over a window that is not given (I-17), and any other detected request that is not bound
-        # (I-18): sent back, naming what is missing, rather than guessed
-        reasons += clarifications(requests)
+        # the cutoff's and a bound forecast run's located words are other roles: they never narrow the maximum's
+        # window. A run's words count only when the run is bound: words given for a run nobody asked for hold nothing
+        run_spans = requests.forecast_run.spans if requests.forecast_run.status == "bound" else []
+        requests.maximum = resolve_maximum(q, req, region, day, event, model_requests,
+                                           requests.cutoff.spans + run_spans)
+        requests.notes = request_field_notes(q, given or req, region, day, requests.maximum, requests.cutoff)
+    # a run named relative to a half-hour that is not pinned down (held-out v6 Z05, I-16), a demand peak without its
+    # measure, or over a window that is not given (I-17), any other detected request that is not bound (I-18), and a
+    # cutoff the model detected that cannot be pinned down (D26): sent back, naming what is missing, rather than guessed
+    reasons += clarifications(requests)
     needs_data = intent in ("market_event_review", "forecast_review")
     if needs_data and region is None and not reasons:
         reasons.append("Which NEM region (NSW1, QLD1, SA1, TAS1 or VIC1)?")
@@ -609,6 +633,10 @@ def resolve(req: InvestigateRequest, sel: Selection, routed: Any = None,
     status: Literal["ok", "needs_clarification", "refused"] = "needs_clarification" if reasons else "ok"
     if intent == "source_explanation" and len(regions) <= 1 and len(dates) <= 1:
         status, reasons = "ok", []
+    if requests.cutoff.status in ("unresolved", "conflict") and status == "ok":
+        # a cutoff that is detected but not pinned down is sent back for every intent, before any tool runs: never
+        # dropped (D26)
+        status, reasons = "needs_clarification", clarifications(RequestResolution(cutoff=requests.cutoff))
     return Resolution(req, intent, region, event, window, as_of, kind=kind, status=status, reasons=reasons,
                       routing={**diag, "regions_found": regions, "dates_found": [str(d) for d in dates],
                                "region_tz": REGION_TZ.get(region or "", None), "requests": requests.as_dict()},
