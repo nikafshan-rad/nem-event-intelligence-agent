@@ -137,7 +137,7 @@ def test_3_k09s_rejected_caveats_are_not_shown_and_the_maximum_still_is():
     assert not any(u.startswith("Operational demand (half-hour average) is a different measure") for u in rep.uncertainties)
     assert any(w["text"].startswith("Operational demand (half-hour average) is a different measure")
                for w in rep.validation["fallback_withheld"])
-    assert rep.summary and "was highest at 10954.2 MW" in rep.summary[0]
+    assert rep.answer and "was highest at 10954.2 MW" in rep.answer[0].statement  # the computed answer (D25)
     assert not any("10890.3" in x or "10,890.3" in x for x in [rep.headline, *rep.summary, *rep.uncertainties])
     assert any(o.value == 10954.2 and o.valid_at_utc == MAX_END for o in rep.observations)
 
@@ -260,7 +260,8 @@ def test_2_an_incomplete_or_unavailable_maximum_may_be_called_not_established():
 
 def test_2_the_controllers_complete_sentence_passes():
     res, _ = _replay("K09", _k09(**FAITHFUL_K09))
-    assert res.report.summary[0].startswith("NSW1 dispatch total demand (TOTALDEMAND) was highest at 10954.2 MW")
+    assert res.report.answer[0].statement.startswith(  # the computed answer (D25), apart from the summary
+        "NSW1 dispatch total demand (TOTALDEMAND) was highest at 10954.2 MW")
     assert res.report.validation["final_passed"] and not res.report.validation.get("repair_attempted")
 
 

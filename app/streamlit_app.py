@@ -104,7 +104,8 @@ status_icon = {"answered": "✅", "answered_with_caveats": "⚠️", "needs_clar
 v = rep["validation"]
 prov = result_provenance(rep, res.usage)
 # the label comes from the report on screen, never from the mode selector
-banner = {"replay": st.info, "live_answer": st.success, "live_fallback": st.warning, "live_no_answer": st.info}
+banner = {"replay": st.info, "live_answer": st.success, "live_fallback": st.warning, "live_no_answer": st.info,
+          "live_no_interpretation": st.warning}
 banner[prov["kind"]](f"**Result shown: {prov['label']}** · trace `{rep['trace_id']}`")
 if rep["mode"] != mode:
     st.warning(f"The result below was produced in {rep['mode'].upper()} mode. Press **Investigate** to run "
@@ -120,6 +121,8 @@ cols[1].metric("Validation", short_validation)
 cols[2].metric("Tool calls", len(res.records))
 cols[3].metric("Latency", f"{res.latency_ms / 1000:,.1f} s")
 st.caption(f"Status: {rep['status'].replace('_', ' ')} · independent validation: {prov['validation']}")
+if rep.get("answer"):  # D25: the computed answer's availability, apart from the interpretation's status
+    st.caption(f"Computed answer: {prov['computed_answer']} · interpretation: {prov['interpretation']}")
 if rep["mode"] == "live":
     lc = st.columns(4)
     lc[0].metric("Model", prov["model"] or "-")
@@ -128,6 +131,19 @@ if rep["mode"] == "live":
     lc[3].metric("Cost (USD)", "-" if prov["cost_usd"] is None else f"{prov['cost_usd']:.4f}")
     st.caption(f"generator `{prov['generator']}` · prompts `{prov['prompt']}` · cost: {prov['cost_note']}")
 st.subheader(md(rep["headline"]))
+# D25: the computed answer, rendered by code from verified results, shown apart from the narrative
+if rep.get("answer"):
+    st.markdown("**Computed answer** (computed by code from the pinned data; a value is shown only when its result "
+                "was verified)")
+    for a in rep["answer"]:
+        st.markdown(md(f"- {a['statement']}"))
+        for lim in a["limitations"]:
+            st.caption(md(lim))
+        if a["source_row_ids"]:
+            st.caption("source rows: " + ", ".join(f"`{r}`" for r in a["source_row_ids"]))
+    if rep["summary"]:
+        st.markdown("**Interpretation** (written by the model and checked by the independent validator)"
+                    if rep["mode"] == "live" else "**Narrative** (scripted controller)")
 for s in rep["summary"]:
     st.markdown(md(f"- {s}"))
 

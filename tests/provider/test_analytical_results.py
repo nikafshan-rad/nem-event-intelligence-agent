@@ -445,15 +445,15 @@ def test_a_reported_result_is_frozen():
     assert _sha(_content(rr.result)) == rr.result.digest
 
 
-def test_verification_decides_admission_only_and_the_binding_is_unchanged_either_way():
+def test_a_result_not_admitted_gives_the_unavailable_binding():
     """SCRIPTED: a stand-in dispatcher returning a synthetic series that is not the pinned data. The result is
-    reported as failed and not admitted; the binding the validator reads is today's, from the same series. Gating
-    anything on admission is the renderer migration's work, not this foundation's."""
+    reported as failed and not admitted, and since D25 the binding the validator and the model's context read is the
+    unavailable form, with the verifier's reason: the legacy binding does not stand in for a result not admitted."""
     _, rec, reg, _, window = _synthetic([100.0, 120.0, 110.0], 15)
     d = SimpleNamespace(call=lambda *a, **k: rec, store=STORE, selection=SELECTION, registry=reg,
                         results=ResultRegistry(), trace=None)
     res = SimpleNamespace(request=InvestigateRequest(question="SYNTHETIC maximum question", mode="replay"),
-                          region="NSW1", as_of=None, requests=None)
+                          region="NSW1", as_of=None, requests=None, results_not_admitted=None)
     original = DM.requested_window
     DM.requested_window = lambda _r: ("explicit", window)  # type: ignore[assignment]
     try:
@@ -461,8 +461,12 @@ def test_verification_decides_admission_only_and_the_binding_is_unchanged_either
     finally:
         DM.requested_window = original  # type: ignore[assignment]
     reported = d.results.reported()
-    assert binding == _legacy_synthetic(rec, window)
     assert reported[0].server_verification.outcome == "failed" and d.results.verified(reported[0].result.result_id) is None
+    assert res.results_not_admitted == [reported[0].result]  # what the validator holds statements against (D25)
+    legacy = _legacy_synthetic(rec, window)
+    assert binding == {k: legacy[k] for k in ("measure", "metric", "interval_minutes", "window_kind", "window_utc",
+                                              "call_id")} | {"unavailable": "the computed result could not be "
+                                                                            "verified against the pinned data (failed)"}
 
 
 def test_an_error_during_re_derivation_is_unverifiable_not_verified(monkeypatch):

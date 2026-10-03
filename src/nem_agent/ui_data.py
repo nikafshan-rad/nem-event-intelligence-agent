@@ -136,11 +136,22 @@ def result_provenance(rep: dict[str, Any], usage: dict[str, Any] | None = None) 
     fallback = bool(v.get("fallback_applied"))
     repaired = bool(v.get("repair_attempted"))
     generated = str(rep.get("generator", "")).startswith("live-model:")
+    # D25: the computed answer (code, from verified results) and the interpretation are reported apart
+    answers = rep.get("answer") or []
+    absent = str(v.get("interpretation", "")).startswith("absent")
+    computed = ("; ".join(f"{a['status'].replace('_', ' ')} ({a['verification']})" for a in answers) if answers
+                else "none")
     if rep.get("mode") != "live":
         label, kind = "REPLAY — scripted controller over real data, no LLM", "replay"
     elif fallback:
-        label, kind = (f"LIVE ({model}) — the model's answer failed validation; showing validated tool facts only",
+        label, kind = ((f"LIVE ({model}) — the model's interpretation failed validation; showing the computed answer "
+                        "and validated tool facts only") if answers else
+                       f"LIVE ({model}) — the model's answer failed validation; showing validated tool facts only",
                        "live_fallback")
+    elif generated and absent:
+        label, kind = ((f"LIVE ({model}) — the model produced no valid interpretation; showing only the answer "
+                        "computed by code") if answers else
+                       f"LIVE ({model}) — the model produced no valid answer"), "live_no_interpretation"
     elif generated:
         label, kind = f"LIVE — answer written by {model}, checked by the independent validator", "live_answer"
     else:
@@ -151,11 +162,14 @@ def result_provenance(rep: dict[str, Any], usage: dict[str, Any] | None = None) 
         validation = "no generated answer"
     elif fallback:
         validation = "rejected after one repair: facts-only fallback" if repaired else "rejected: facts-only fallback"
+    elif absent:
+        validation = "no valid model output to validate"
     else:
         validation = "passed after one repair" if repaired else "passed on the first draft"
     u = usage or {}
     return {"kind": kind, "label": label, "model": model, "prompt": versions.get("prompt"),
-            "generator": rep.get("generator"), "validation": validation,
+            "generator": rep.get("generator"), "validation": validation, "computed_answer": computed,
+            "interpretation": v.get("interpretation") or ("scripted" if rep.get("mode") != "live" else "unknown"),
             "model_calls": u.get("model_calls", 0), "input_tokens": u.get("input_tokens", 0),
             "output_tokens": u.get("output_tokens", 0), "cost_usd": u.get("cost_usd"),
             "cost_note": u.get("cost_note")}

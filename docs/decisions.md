@@ -458,3 +458,183 @@ Acceptance check recorded before implementation. A foundation change: it claims 
   - **Limitations are not displayed:** their deterministic texts are not shown anywhere yet.
   - **Scope:** only demand maxima.
   - **No quality claim:** this is not a claim of better Live answers; Live is unverified.
+
+## D25. Deterministic rendering of verified demand maxima, in Live and Replay (2026-10-03)
+
+Acceptance check recorded before implementation. One bounded offline PR; demand maxima only.
+
+- **Problem.** Since D24 each computed maximum is a typed result, admitted only by the runtime verifier, but nothing
+  reads the admission: the controller's sentence is still written from the legacy binding, sits in `summary` among the
+  model's lines, and is re-assembled by the fallback (I-21) from provenance.
+- **Decision** (`render.py`):
+  - **One renderer** turns each computed result into a `RenderedResult`: result ID, kind, status, the verifier's
+    outcome, the statement, its deterministic limitations and its source rows. The statement's wording is today's
+    controller sentence, from one shared wording function: ties (every interval), units, interval semantics ("the
+    5-minute interval ending …"), the requested window, coverage and as-of wording are kept.
+  - **Only an admitted result gives a value.** `established` states the maximum; `not_established` states that no
+    maximum is established and gives the highest value held as that, never as the maximum; `unavailable` gives its
+    reason; a result the verifier did not admit (`failed` or `unverifiable`) is rendered as `not_verified`, with no
+    value. The legacy binding never stands in: for such a result, the binding the validator and the model's context
+    read is the unavailable form, with the verifier's reason.
+  - **The computed answer is apart from the model's interpretation.** The report gains an additive `answer` field
+    (the rendered results, set only by the controller); the computed sentence is no longer put into `summary`, which
+    then holds only the interpretation (the model's lines in Live, the scripted lines in Replay). The trace keeps its
+    `max_answer` event with the same text, so the frozen scorers read what they read before.
+  - **Validation is unchanged for the model's text**: its draft and repair, including its own headline, are checked
+    exactly as before, before anything is shown. The `answer` statements are validated too, as narratives
+    (`answer[i]`) with their claims, and P2 counts them as stating the maximum. No phrase rule is added and no check
+    is retired.
+  - **The fallback shows the same rendered answer** (no second rendering): kept unless a critical violation names it,
+    in the first validation or in the fallback's own; an established answer is still gated by I-21's checks (binding,
+    evidence, region, window, coverage, as-of, claims), and with one kept, model notes are withheld as in I-21. It
+    stays a fallback, never supplied.
+- **API and display changes (explicit):**
+  - **API:** a new `answer` field on the report; for a question with a computed maximum, `summary` no longer holds the
+    computed sentence; violation details naming summary positions shift by the lines removed. Nothing else changes.
+  - **App:** when `answer` is present, a "Computed answer" section (statement, limitations, source rows) above the
+    narrative, which is then labelled as the model's interpretation (in Live); otherwise the display is unchanged.
+  - **Unchanged:** the headline, status, fallback classification, case-note content, and every answer to a question
+    without a computed maximum.
+- **Acceptance check** (offline):
+  1. **The eight saved replays holding a maximum** (Z04 ×2, K11 ×3, K09 ×3): the answer is rendered from the
+     admitted result, its statement equal to today's controller sentence, with its limitations and source rows;
+     `summary` holds the interpretation only; no maximum sentence appears twice; `fallback_applied`, `final_passed`,
+     status, headline and the critical codes (first, after repair, after the fallback) are unchanged.
+  2. **Records without a computed maximum:** identical in a both-ways replay (shown answer, validation, trace); every
+     record that cannot be replayed is accounted for.
+  3. **Not admitted:** a tampered in-run result (`failed`) and one that cannot be checked (`unverifiable`) are rendered
+     as `not_verified`, with no value; the validator's binding and the model's context are the unavailable form; no
+     legacy value appears anywhere in the shown answer.
+  4. **Incomplete coverage** (an as-of cutoff inside the window): `not_established`, the highest value held labelled
+     as not a maximum, with the incomplete-window and as-of limitations.
+  5. **Ties:** every tied interval stated, each with its claim and source rows.
+  6. **Adversarial model text** (scripted variants of slots 53 and 54): the computed answer is unchanged and shown;
+     the model's text is validated as before; the answer stays a fallback where it was one, with the model's notes
+     withheld (I-21).
+  7. **The same answer** in a normal answer and in its fallback.
+  8. **Safeguards:** all tests pass, with the assertions that looked for the computed sentence in `summary` moved to
+     `answer` (listed in the PR); the Replay evaluation (no case asks for a maximum) and the safety suite are
+     unchanged; ruff and mypy pass.
+- **Result** (offline; branch `feat/rendered-maximum-answer`; the acceptance check above):
+  1. **The eight saved replays:** each answer is rendered from its admitted result (established, verified). Its
+     statement is today's controller sentence, character for character, with the result's limitations and source
+     rows. `summary` holds the interpretation only, and no maximum sentence appears twice.
+     - **Unchanged:** `fallback_applied` (K09 ×3), `final_passed`, status, headline and every critical code.
+     - **Moved:** a violation detail naming a summary position is now one lower (one case, slot 53's
+       `DEMAND_EXTREME_UNVERIFIED`, `summary[1]` → `summary[0]`).
+  2. **Both ways** (`main` `dba207c` against this branch):
+     - 215 records replayed; **0 changes** in the 207 without a computed maximum;
+     - in the 8 with one, changes only in `summary` (the sentence moved), the new `answer`, `display_rewrites`
+       positions, and the fallbacks' `fallback_result` (now per answer);
+     - the same 217 non-replayable files accounted for; none holds a computed maximum;
+     - the Replay evaluation and the safety suite are identical (timestamps and latencies masked).
+  3. **Not admitted** (`failed`, `unverifiable`): rendered as `not_verified` with no value, no limitations and no
+     controller claim; the binding and the model's context are the unavailable form. **Correction to item 3 above:**
+     "no legacy value appears anywhere in the shown answer" was too broad. The controller states no value, but a tool
+     value the model itself listed as an observation (with its source row) is still shown as an observation, not as a
+     maximum.
+  4. **Further checks:** incomplete coverage, ties, adversarial model text, the model's own headline still validated,
+     a missing interpretation not erasing the computed answer, and the same answer in a normal answer and its
+     fallback (25 new tests, `tests/provider/test_rendered_answer.py`).
+  5. **Existing tests changed** (assertions moved, none weakened):
+     - those that looked for the computed sentence in `summary` now read `answer` (`test_requested_maximum.py`,
+       `test_requested_result_text.py`, `test_structured_requests.py`);
+     - PR #64's summary-position provenance tests now cover the answer and its claims (`test_fallback_requested_result.py`);
+     - the narrative-place test includes `answer[i]` (`test_claim_times.py`);
+     - the I-17 stand-in dispatcher re-derives from its own synthetic series (a labelled fixture), and its blocked call
+       now reads as not verified (a run-time block cannot be re-derived);
+     - D24's admission test asserts the D25 gate.
+
+     1821 tests passed; ruff and mypy are clean.
+- **Limitations:**
+  - **Not verified is coarse:** a run-time block (a policy limit) reads as "could not be verified" rather than naming
+    the block, which the trace and the result keep.
+  - **Model context wording:** the model's context note still says the controller states the maximum "in the
+    summary". Changing it would be a prompt change, so it is left as is.
+  - **Case notes** carry neither `summary` nor `answer`, as before.
+  - **Display:** limitations and source rows are shown only in the app's new section; the API carries them in
+    `answer`.
+  - **Missing interpretation:** a report with no valid model output now shows the computed answer under an
+    "abstained" status. No saved record exercises this; it is scripted only.
+  - **Scope:** only demand maxima.
+  - **Not a quality claim:** this is not a claim of better Live answers; Live is unverified.
+- **Integration review** (PR #66, before merge; offline):
+  1. **The model cannot reach the computed answer.** These are refused or ignored:
+     - a model draft carrying `answer`, `results`, `statement`, `limitations`, `source_row_ids`, `verification`,
+       `result_id` or `server_verification` (refused: `extra="forbid"`);
+     - a repair patch targeting `answer[…]` or `results[…]` (ignored by `apply_patch`, even when listed as failing);
+     - a violation naming `answer[i]`, which is no draft item, so the repair is full and the controller renders the
+       answer again, unchanged;
+     - a model line dressed as a "Computed answer", which stays in the interpretation and is checked there.
+  2. **Correction: an unadmitted result in any words.** Gating the binding (D25) also switched off the headline check
+     for that maximum, so a headline or note could still give the unverified value in words no maximum rule reads.
+     - **The new check,** `REQUESTED_RESULT_NOT_VERIFIED`, is structural, not lexical. A statement (headline, the
+       model's own headline, summary, explanations, findings, notes) may not give a number whose claim traces to the
+       unadmitted result's own source rows, or an untraced number equal to its value.
+     - **What it reads:** rows, not evidence IDs, so the model's own evidence for the same row counts. Another row's
+       equal value does not.
+     - **Observations** (tool values with their source rows) may remain. They never state a maximum, and the controller
+       adds none for an unadmitted result.
+     - **Where it runs:** in the first validation, at repair and after the fallback. It runs only when a result is not
+       admitted, which no saved replay has.
+  3. **Correction: presentation.**
+     - **The status:** with a computed answer, the validation record carries `interpretation`, one of:
+       - `validated`;
+       - `withheld: it failed validation (facts-only fallback)`;
+       - `absent: the model produced no valid output` (recorded by the controller when it has no valid model report,
+         never by the model);
+       - `scripted` (Replay).
+     - **The app:** the computed answer's status (for example, "established (verified)") and the interpretation's are
+       shown apart. A missing interpretation is labelled as such ("the model produced no valid interpretation; showing
+       only the answer computed by code"); before this correction it read "answer written by …, passed on the first
+       draft".
+     - **A fallback stays a fallback:** its banner now names the computed answer and validated tool facts.
+     - **Unchanged:** reports without a computed answer.
+  4. **Consumers of `summary`, audited:**
+
+     | Consumer | Needs the computed answer? | Status |
+     | --- | --- | --- |
+     | The app | Yes | Shows `answer` in its own section |
+     | The API (`/investigate`, `/schema/report`) | Yes, for clients | **Migration:** `summary` is the interpretation only; the computed answer is in `answer`; `summary_v1(report)` gives the pre-D25 reading (for the saved Live K11 ×3 and Z04 records, exactly what they showed); `schema_version` is unchanged, since a bump would alter every report |
+     | CLI `investigate` | Yes | Prints the headline only; the full report it writes includes `answer` |
+     | Replay evaluation runner | Gold numbers only | Read from observations, which hold the computed maximum's row (tested); its narrative text is only for counting causal wording |
+     | Validator checks of `summary` (notice timing, document claims) | No | Not about maxima; the maximum checks read `answer` |
+     | Display rewriting | No | The computed statement is plain text already |
+     | Case notes | No | Never carried `summary` |
+     | Frozen and past-check readers (`eval/livecheck_i15_17`, `eval/holdout_v6`, `eval/live_check_dev2`, `eval/live_check_p1_dev`) | Their saved records only | All predate D25, so they read what they always read. A future run under a frozen protocol would show reviewers `summary` without the computed answer: a new protocol must read `answer` (or `summary_v1`). Frozen code is unchanged. |
+  5. **Evidence:**
+     - 30 new tests: 27 in `tests/provider/test_answer_integration.py` (including the app's labels, through
+       `ui_data.result_provenance`) and 3 in `tests/api/test_api_answer.py`;
+     - the both-ways replay, the Replay evaluation and the safety suite, as in the PR.
+  6. **Still not covered:**
+     - a Live answer with no valid model output and no computed maximum is still labelled as passed (a pre-existing
+       labelling issue outside this scope);
+     - an untraced number that rounds the unadmitted value ("about 7,500 MW") is not matched in a note;
+     - observations may still list the unadmitted row as a tool value.
+- **API contract, made machine-detectable** (PR #66, before merge):
+  - **The discriminator:** `schema_version`. **"2"** marks a report in which the code rendered a separate computed
+    answer: the computed answer is in `answer`, and `summary` holds only the interpretation. **"1"** marks every
+    other report, and every report before D25: `summary` holds everything shown, a computed sentence included.
+    - The controller sets it, never model output: the model's schema has no such field.
+    - A format-1 report cannot carry `answer`; the schema refuses it. A format-2 report may hold an empty `answer`
+      (a fallback that kept none of it); its `summary` is still the interpretation only.
+  - **Reading the primary answer:** in format 2, from `answer` (each statement, with its limitations and source
+    rows); in format 1, from `summary`, as before.
+  - **The adapter:** `report.summary_v1(report)` reads either format as format 1 (in format 2, the computed
+    statements and then the summary; in format 1, the summary). `report.report_format(report)` gives the format, and
+    a record without `schema_version` is format 1.
+  - **Smallest compatible change:** only reports with a computed answer change format; every other report, and every
+    historical record, is format 1 and byte-for-byte unchanged. No historical record or frozen protocol is rewritten.
+  - **The frozen exporters** (`scripts/live_diagnose.py`, `eval/livecheck_i15_17/run_case.py`, frozen by the
+    development comparison) save a fixed set of report fields, which includes neither `schema_version` nor `answer`.
+    - **Existing records:** every saved record is pre-D25, so this is correct for them.
+    - **A future Live run must not use them unchanged:** its records would lose the computed answer and read as format
+      1. A new protocol needs an exporter that keeps both fields. A post-D24 run is also detectable from its trace
+      (the `analytical_result` event).
+- **The precise guarantee of `REQUESTED_RESULT_NOT_VERIFIED`:**
+  - **Blocked:** for a result the verifier did not admit, a statement giving its value as a number whose claim traces
+    to one of the result's own source rows (within the claim's rounding), or as an untraced number equal to its
+    value, in the headline (shown or the model's own), summary, explanations, findings or notes.
+  - **Not semantic containment.** Not matched: an untraced rounding or paraphrase of the value ("about 7,500 MW"),
+    a statement that gives no number, and an observation listing the row as a tool value. These are recorded
+    limitations, not to be closed with phrase rules.

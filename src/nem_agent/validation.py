@@ -36,7 +36,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from .evidence import EvidenceRegistry
-from .report import InvestigationReport
+from .report import InvestigationReport, NumericClaim
 from .retrieval.corpus import INJECTION_RE, NOTICE_NUMBER_RE, cancelled_notices
 from .timeutil import NEM_TZ, REGION_TZ, iso_utc, local_day_window, local_str, parse_iso, region_zone
 
@@ -200,7 +200,8 @@ def _headlines(r: InvestigationReport) -> list[tuple[str, str]]:
 
 
 def _narratives(r: InvestigationReport) -> list[tuple[str, str]]:
-    out = _headlines(r) + [(f"summary[{i}]", s) for i, s in enumerate(r.summary)]
+    out = _headlines(r) + [(f"answer[{i}]", a.statement) for i, a in enumerate(r.answer)]  # D25: checked like the rest
+    out += [(f"summary[{i}]", s) for i, s in enumerate(r.summary)]
     out += [(f"possible_explanations[{i}]", h.statement) for i, h in enumerate(r.possible_explanations)]
     out += [(f"published_findings[{i}]", f.statement) for i, f in enumerate(r.published_findings)]
     if r.forecast_comparison:
@@ -793,7 +794,8 @@ def requested_max_violations(report: InvestigationReport, registry: EvidenceRegi
 
     def demand(ev: Any) -> bool:
         return ev.metric == "dispatch_totaldemand" or ev.metric.startswith("opdemand")
-    stating = [s for text in [report.headline, *report.summary] for s in SENTENCE_RE.split(QUOTED_RE.sub(" ", text))]
+    stating = [s for text in [report.headline, *(a.statement for a in report.answer), *report.summary]
+               for s in SENTENCE_RE.split(QUOTED_RE.sub(" ", text))]
     given = {key(ev) for s in stating for v, _, _ in numbers(s) for c in report.numeric_claims
              if abs(v - c.value) <= c.rounding + 1e-9 and (ev := registry.get(c.evidence_id)) is not None}
     out: list[Violation] = []
@@ -832,6 +834,37 @@ def requested_max_violations(report: InvestigationReport, registry: EvidenceRegi
                                      f"but every interval of that window is held and {actual}. A caveat may still "
                                      "concern data quality, revisions, or evidence outside that window"))
     out += _headline_answers(report, registry, bindings, numbers, key, demand)
+    return out
+
+
+def unadmitted_result_violations(report: InvestigationReport, registry: EvidenceRegistry, not_admitted: list[Any],
+                                 sentences: list[tuple[str, str]], numbers: Any) -> list[Violation]:
+    """``REQUESTED_RESULT_NOT_VERIFIED`` (D25): a sentence anywhere (headline, the model's own headline, summary,
+    explanations, findings, notes) gives the value of a computed result the runtime verifier did not admit. Matched by
+    evidence, not wording: a number whose claim traces to one of the result's own source rows (the value, or a rounding
+    of it within the claim's rounding), or an untraced number equal to its value. A traced value of another row or
+    measure is not this one, and an observation (a tool value with its source row) is not a statement.
+
+    The guarantee is exactly that: those restatements of the value are blocked. It is not semantic containment. An
+    untraced rounding or paraphrase of the value ("about 7,500 MW"), a statement giving no number, or an observation
+    listing the row is not matched."""
+    out: list[Violation] = []
+    for r in not_admitted:
+        value = r.maximum if r.maximum is not None else r.highest_held
+        rows = set(r.source_row_ids)
+        if value is None or not rows:
+            continue
+        for where, sentence in sentences:
+            for v, _, _ in numbers(sentence):
+                claims = [c for c in report.numeric_claims if abs(v - c.value) <= c.rounding + 1e-9]
+                evs = [ev for c in claims if (ev := registry.get(c.evidence_id)) is not None]
+                traced = any(ev.metric == r.metric and rows & set(ev.source_row_ids) for ev in evs)
+                if traced or (not evs and abs(v - value) <= 0.005 + 1e-9):
+                    out.append(Violation("REQUESTED_RESULT_NOT_VERIFIED", "critical",
+                                         f"{_item(report, where, sentence)}: {v:g} is the {r.identity.measure} "
+                                         f"maximum the code computed, which the runtime verifier did not admit, so "
+                                         "it may not be stated; say only that the maximum cannot be given"))
+                    break
     return out
 
 
@@ -2003,7 +2036,7 @@ def validate(report: InvestigationReport, registry: EvidenceRegistry, *, as_of: 
              window: tuple[datetime, datetime] | None = None, records: list[Any] | None = None,
              forecast_run: dict[str, Any] | None = None, demand_max: list[dict[str, Any]] | None = None,
              required_tools: tuple[str, ...] = (), event_kind: str | None = None,
-             approval_records: Sequence[Any] = ()) -> ValidationResult:
+             approval_records: Sequence[Any] = (), not_admitted: list[Any] | None = None) -> ValidationResult:
     """``approval_records``: approval records (``approvals.Approval``) that belong to this answer. An investigation
     never has one, so the service passes none and every action claim fails."""
     res = ValidationResult()
@@ -2433,6 +2466,11 @@ def validate(report: InvestigationReport, registry: EvidenceRegistry, *, as_of: 
         V.extend(found)
         mismatched = {(hit.group(1), float(hit.group(2))) for v in found if v.code == "REQUESTED_MAXIMUM_MISMATCH"
                       and (hit := re.match(r"([^:]+): (-?[\d.]+) is stated", v.detail))}
+    # -- a computed result the runtime verifier did not admit (D25): no statement gives its value, in any words
+    if not_admitted:
+        res.checks_run.append("unadmitted_result")
+        V.extend(unadmitted_result_violations(report, registry, not_admitted, result_texts,
+                                              lambda s: number_spans(s, chunk_ids, titles(s))))
     # -- the half-hour a forecast-run request names, named by its own end or start (I-19)
     if forecast_run and forecast_run.get("half_hour_utc"):
         res.checks_run.append("requested_interval")
@@ -2578,22 +2616,20 @@ WITHHELD_LABEL = ("rejected model text: withheld with the narrative that failed 
 
 
 def _result_refusal(report: InvestigationReport, registry: EvidenceRegistry, result: ValidationResult,
-                    as_of: datetime | None, bindings: list[dict[str, Any]], line: dict[str, Any]) -> str | None:
-    """Why the controller's line stating a requested maximum (its provenance, ``line``) may not be kept in a fallback,
-    or None when it may: its binding, measure, region, window, coverage, evidence, as-of eligibility and claims are
-    checked, and no critical violation may name the line or its claims."""
+                    as_of: datetime | None, bindings: list[dict[str, Any]], k: int,
+                    claims: list[NumericClaim]) -> str | None:
+    """Why the computed answer ``answer[k]`` (an established maximum, rendered from an admitted result) may not be kept
+    in a fallback, or None when it may: its binding (the k-th), measure, region, window, coverage, evidence, as-of
+    eligibility and the controller's own claims for it (recorded when it was rendered) are checked, and no critical
+    violation may name the answer or its claims (I-21)."""
     from .agent.demand_max import MEASURES
 
-    j = line.get("binding")
-    if not isinstance(j, int) or not 0 <= j < len(bindings):
-        return "no requested-maximum binding matches its provenance"
-    b = bindings[j]
+    if not 0 <= k < len(bindings):
+        return "no requested-maximum binding matches the answer"
+    b = bindings[k]
     measure = b.get("measure")
     if measure not in MEASURES or b.get("metric") != MEASURES[str(measure)][3]:
         return "the binding is not a known demand measure"
-    i = line.get("summary_index")
-    if not isinstance(i, int) or not 0 <= i < len(report.summary) or report.summary[i] != line.get("text"):
-        return "the line is not where the controller wrote it"
     held, expected = b.get("intervals_held"), b.get("intervals_in_window")
     if b.get("complete") is not True or "unavailable" in b or not isinstance(held, int) or \
             not isinstance(expected, int) or held < expected:
@@ -2620,12 +2656,11 @@ def _result_refusal(report: InvestigationReport, registry: EvidenceRegistry, res
         if as_of is not None and (ev.evidence_class == "retrospective_context" or not ev.available_at_utc
                                   or parse_iso(ev.available_at_utc) > as_of):
             return f"{eid}: not available at the as-of cutoff"
-    claims = list(line.get("claims") or [])
     if not claims or {c.evidence_id for c in claims} != set(eids) or \
             any(abs(c.value - float(b["value"])) > c.rounding + 1e-9 for c in claims):
-        return "the line's claims are not the binding's evidence"
+        return "the answer's claims are not the binding's evidence"
     for v in result.critical:
-        if v.detail.startswith((f"summary[{i}]", *(f"{c.claim_id}:" for c in claims))):
+        if v.detail.startswith((f"answer[{k}]", *(f"{c.claim_id}:" for c in claims))):
             return f"named by a critical violation ({v.code})"
     return None
 
@@ -2636,12 +2671,12 @@ def facts_only(report: InvestigationReport, registry: EvidenceRegistry, result: 
     """Safe fallback after failed validation: keep only independently valid observations, no narrative. A value from a
     forecast run that stands in for the one asked for is not shown either (I-9).
 
-    I-21: when the controller holds a complete, validated requested demand maximum (``bindings``, the resolution's
-    ``demand_max``), the fallback keeps the line the controller wrote stating it, with the controller's own claims, as
-    recorded in the report's provenance when it was built (never found by its wording), and only if
-    ``_result_refusal`` finds nothing; a binding in ``exclude`` is not kept (the fallback's own validation named it).
-    Every note the model wrote is then withheld, recorded verbatim in ``diag`` (never shown), and the notes the code
-    wrote are kept, with ``NOTES_WITHHELD``. The answer stays a fallback. Without such a maximum, nothing changes."""
+    D25 and I-21: the computed answer (``answer``, rendered from admitted results; the model's text never sets it) is
+    the same in the fallback, with the controller's own claims for it (recorded when it was rendered), except an
+    answer a critical violation names, here or in the fallback's own validation (``exclude``). An established maximum
+    is kept only if ``_result_refusal`` finds nothing (``bindings``, the resolution's ``demand_max``). With one kept,
+    every note the model wrote is withheld, recorded verbatim in ``diag`` and labelled, and the notes the code wrote
+    are kept, with ``NOTES_WITHHELD``. The answer stays a fallback. Without one, the notes are as before."""
     substituted = {m.group(1) for v in result.critical if v.code == "FORECAST_RUN_SUBSTITUTED"
                    and (m := re.match(r"(ev\d{4})", v.detail))}
     good_obs = []
@@ -2658,15 +2693,25 @@ def facts_only(report: InvestigationReport, registry: EvidenceRegistry, result: 
     codes = sorted({v.code for v in result.critical})
     named = {m.group(0) for v in result.critical if (m := re.match(r"(?:uncertainties|missing_evidence)\[\d+\]", v.detail))}
     prov = report._provenance or {}
-    retained: list[dict[str, Any]] = []
+    answer_claims = prov.get("answer_claims") or []
+    kept: list[tuple[int, Any, list[NumericClaim]]] = []
     refused: list[dict[str, Any]] = []
-    for line in prov.get("result_lines") or [] if bindings else []:
-        why = ("named by a critical violation in the fallback's own validation" if line.get("binding") in exclude
-               else _result_refusal(report, registry, result, as_of, bindings or [], line))
-        (refused if why else retained).append(line | ({"reason": why} if why else {}))
-    if not retained:
+    for k, ans in enumerate(report.answer):
+        claims = list(answer_claims[k]) if k < len(answer_claims) else []
+        named_by = next((v for v in result.critical if v.detail.startswith(f"answer[{k}]")), None)
+        why = ("named by a critical violation in the fallback's own validation" if k in exclude
+               else f"named by a critical violation ({named_by.code})" if named_by is not None
+               else _result_refusal(report, registry, result, as_of, bindings or [], k, claims)
+               if ans.status == "established" else None)
+        if why:
+            refused.append({"answer_index": k, "result_id": ans.result_id, "status": ans.status, "reason": why})
+        else:
+            kept.append((k, ans, claims))
+    computed = {"answer": [ans for _, ans, _ in kept], "summary": [],
+                "numeric_claims": [c.model_copy() for _, _, cs in kept for c in cs]}
+    if not any(ans.status == "established" for _, ans, _ in kept):
         update: dict[str, Any] = {
-            "summary": [], "numeric_claims": [],
+            **computed,
             # model-written caveats are kept, except any that a critical violation names or that claims an approval
             # or a write (never shown without a record)
             "uncertainties": [*(u for i, u in enumerate(report.uncertainties)
@@ -2685,8 +2730,7 @@ def facts_only(report: InvestigationReport, registry: EvidenceRegistry, result: 
                                                ("missing_evidence", report.missing_evidence, code_m))
                     for i, text in enumerate(notes) if i not in code for where in [f"{field}[{i}]"]]
         update = {
-            "summary": [line["text"] for line in retained],
-            "numeric_claims": [c.model_copy() for line in retained for c in line["claims"]],
+            **computed,
             # only the notes the code wrote, with the same exclusions as above; the model's are withheld
             "uncertainties": [*(u for i, u in enumerate(report.uncertainties) if i in code_u
                                 and f"uncertainties[{i}]" not in named and not action_claims(u)),
@@ -2704,10 +2748,10 @@ def facts_only(report: InvestigationReport, registry: EvidenceRegistry, result: 
     out._model_headline = None  # withheld with the rest of the narrative
     out._provenance = {}  # the fallback is final: nothing reads it again
     if diag is not None:
-        diag["result_retained"] = [{"binding": line["binding"], "fallback_summary_index": k, "text": line["text"],
-                                    "claim_ids": [c.claim_id for c in line["claims"]]}
-                                   for k, line in enumerate(retained)]
-        diag["result_not_retained"] = [{"binding": line.get("binding"), "reason": line["reason"]} for line in refused]
+        diag["result_retained"] = [{"answer_index": k, "fallback_answer_index": n, "result_id": ans.result_id,
+                                    "status": ans.status, "statement": ans.statement,
+                                    "claim_ids": [c.claim_id for c in cs]} for n, (k, ans, cs) in enumerate(kept)]
+        diag["result_not_retained"] = refused
         diag["withheld"] = withheld
     return out
 
@@ -2743,6 +2787,18 @@ def merge_repeated_observations(report: InvestigationReport,
     return report.model_copy(update={"observations": kept}), list(merged.values())
 
 
+def interpretation_status(report: InvestigationReport, fallback: bool) -> str:
+    """The status of the narrative shown besides the computed answer (D25), from the report and the controller's own
+    record of a missing model report (never from model output)."""
+    if report.mode != "live":
+        return "scripted"
+    if (report._provenance or {}).get("interpretation") == "absent":
+        return "absent: the model produced no valid output"
+    if not str(report.generator).startswith("live-model:"):
+        return "none: no answer was generated"
+    return "withheld: it failed validation (facts-only fallback)" if fallback else "validated"
+
+
 def validate_and_finalize(report: InvestigationReport, registry: EvidenceRegistry, records: list[Any], res: Any,
                           trace: Any) -> InvestigationReport:
     from .agent.playbook import PLAYBOOKS
@@ -2753,8 +2809,9 @@ def validate_and_finalize(report: InvestigationReport, registry: EvidenceRegistr
     kind = res.kind if res is not None else None
     run = getattr(res, "forecast_run", None)
     maxima = getattr(res, "demand_max", None)
+    unadmitted = getattr(res, "results_not_admitted", None)
     first = validate(report, registry, as_of=as_of, window=window, records=records, required_tools=req, event_kind=kind,
-                     forecast_run=run, demand_max=maxima)
+                     forecast_run=run, demand_max=maxima, not_admitted=unadmitted)
     info: dict[str, Any] = {"initial": first.as_dict(), "fallback_applied": False,
                             "repair_attempted": bool(report.validation.get("repair_attempted"))}
     final = report
@@ -2762,16 +2819,16 @@ def validate_and_finalize(report: InvestigationReport, registry: EvidenceRegistr
         fb: dict[str, Any] = {}
         final = facts_only(report, registry, first, as_of, maxima, diag=fb)
         second = validate(final, registry, as_of=as_of, window=window, records=records, required_tools=req,
-                          event_kind=kind, forecast_run=run, demand_max=maxima)
+                          event_kind=kind, forecast_run=run, demand_max=maxima, not_admitted=unadmitted)
         # a kept result must also pass the fallback's own validation (I-21): one named there is not kept
-        named_kept = frozenset(r["binding"] for r in fb.get("result_retained", []) for v in second.critical
-                               if v.detail.startswith((f"summary[{r['fallback_summary_index']}]",
+        named_kept = frozenset(r["answer_index"] for r in fb.get("result_retained", []) for v in second.critical
+                               if v.detail.startswith((f"answer[{r['fallback_answer_index']}]",
                                                        *(f"{c}:" for c in r["claim_ids"]))))
         if named_kept:
             fb = {}
             final = facts_only(report, registry, first, as_of, maxima, exclude=named_kept, diag=fb)
             second = validate(final, registry, as_of=as_of, window=window, records=records, required_tools=req,
-                              event_kind=kind, forecast_run=run, demand_max=maxima)
+                              event_kind=kind, forecast_run=run, demand_max=maxima, not_admitted=unadmitted)
         info.update(fallback_applied=True, after_fallback=second.as_dict())
         if fb.get("result_retained") or fb.get("result_not_retained"):
             # diagnostics only, outside the displayed answer: the controller's result kept or not, and every model
@@ -2784,6 +2841,10 @@ def validate_and_finalize(report: InvestigationReport, registry: EvidenceRegistr
                 trace.add("validate", "fallback_withheld", items=fb["withheld"])
     if not first.critical and first.ruled_out:  # the answer is shown: its validated exclusions (I-7c)
         info["ruled_out_explanations"] = first.ruled_out
+    # D25: with a computed answer, the interpretation's status is recorded apart from it (``answer``); an answer without
+    # one is recorded exactly as before
+    if report.answer:
+        info["interpretation"] = interpretation_status(report, info["fallback_applied"])
     info["passed"] = not (first.critical and info.get("after_fallback", {}).get("n_critical", 1))
     info["final_passed"] = (not first.critical) or info.get("after_fallback", {}).get("n_critical", 1) == 0
     final = final.model_copy(update={"validation": {**report.validation, **info}})

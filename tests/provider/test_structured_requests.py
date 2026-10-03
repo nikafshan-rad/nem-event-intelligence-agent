@@ -237,7 +237,7 @@ def test_with_scripted_fields_the_maximum_asked_for_is_computed_and_supplied(cid
     v = res.report.validation
     assert v["final_passed"] and not v["fallback_applied"], v["initial"]["violations"]
     assert any(f"was highest at {g['value']:g} MW" in s or f"was highest at {g['value']} MW" in s
-               for s in res.report.summary)
+               for s in [a.statement for a in res.report.answer])  # the computed answer (D25)
 
 
 def test_with_scripted_fields_k09s_saved_wrong_maximum_is_rejected():

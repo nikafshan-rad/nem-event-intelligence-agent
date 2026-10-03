@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
 
+from .render import RenderedResult
 from .results import ReportedResult
 
 Status = Literal["answered", "answered_with_caveats", "needs_clarification", "abstained", "refused"]
@@ -110,7 +111,17 @@ class SearchScope(_M):
 
 
 class InvestigationReport(_M):
-    schema_version: Literal["1"] = "1"
+    # The report's format (D25), machine-detectable:
+    # - "2": the code rendered a separate computed answer: it is in ``answer``, and ``summary`` holds only the
+    #   interpretation (the model's lines in Live, the scripted lines in Replay). Set by the controller, never by model
+    #   output, and only on reports that carry a computed result.
+    # - "1": every other report, and every report before D25: ``summary`` holds everything shown, a computed sentence
+    #   included. A report with no ``schema_version`` (a record written by an exporter that does not keep it) is "1".
+    # ``summary_v1`` reads either the way format 1 is read.
+    schema_version: Literal["1", "2"] = Field("1", description=(
+        "Report format. '2': the computed answer is in `answer` and `summary` is the interpretation only. '1': "
+        "`summary` holds everything shown (no separate computed answer). Read `summary` as format 1 with "
+        "`summary_v1`."))
     question: str
     mode: Mode
     intent: Literal["market_event_review", "forecast_review", "source_explanation"] | None
@@ -139,9 +150,23 @@ class InvestigationReport(_M):
     # D24: typed results the code computed (demand maxima), each with the producing server's verification statement at
     # response time; set only by the controller, never by model output, and not trusted when read back from JSON
     # (``results.verify_loaded`` re-derives them from the pinned store). Nothing displays or validates them yet.
+    # D25: the computed answer, rendered by ``render.render_result`` from results the runtime verifier admitted (a result
+    # it did not admit is rendered with no value); set only by the controller, apart from the model's interpretation
+    # (``summary`` and the rest), and validated like every other narrative (``answer[i]``)
+    answer: list[RenderedResult] = Field(default_factory=list, description=(
+        "The computed answer: each computed result rendered deterministically from a verified result, with its "
+        "limitations and source rows; apart from the narrative, which is the interpretation"))
     results: list[ReportedResult] = Field(default_factory=list, description=(
         "Typed analytical results computed by code (analytical_result/1), with the producing server's verification "
         "statement; re-verify against the pinned store before relying on a result read back from JSON"))
+    @model_validator(mode="after")
+    def _format_matches_answer(self) -> InvestigationReport:
+        """A report carrying a computed answer is format 2; format 1 has no ``answer`` (D25). Format 2 may hold an empty
+        ``answer`` (a fallback that kept none of it): its ``summary`` is still the interpretation only."""
+        if self.answer and self.schema_version != "2":
+            raise ValueError("a report carrying a computed answer (`answer`) must have schema_version '2'")
+        return self
+
     # The model's own headline when the controller shows another (Live, I-3c): validated like the shown headline, so
     # replacing it hides nothing the validator would act on, and never serialised or shown.
     _model_headline: str | None = PrivateAttr(default=None)
@@ -151,6 +176,22 @@ class InvestigationReport(_M):
     # ``controller_notes``, the positions of the uncertainties and missing-evidence items the code wrote. The facts-only
     # fallback reads it (``validation.facts_only``); nothing else does.
     _provenance: dict[str, Any] = PrivateAttr(default_factory=dict)
+
+
+def report_format(report: InvestigationReport | dict[str, Any]) -> Literal["1", "2"]:
+    """The report's format (D25): "2" when it says so, else "1" (including a record with no ``schema_version``)."""
+    d = report.model_dump() if isinstance(report, InvestigationReport) else report
+    return "2" if d.get("schema_version") == "2" else "1"
+
+
+def summary_v1(report: InvestigationReport | dict[str, Any]) -> list[str]:
+    """``summary`` read as format 1 (the compatibility adapter, D25): everything a format-1 reader showed as the summary.
+    Format 2: the computed answer's statements, then the interpretation (for the saved Live runs with a maximum, exactly
+    what they showed). Format 1: ``summary`` itself."""
+    d = report.model_dump() if isinstance(report, InvestigationReport) else report
+    if report_format(d) == "2":
+        return [a["statement"] for a in d.get("answer") or []] + list(d.get("summary") or [])
+    return list(d.get("summary") or [])
 
 
 def report_json_schema() -> dict[str, Any]:

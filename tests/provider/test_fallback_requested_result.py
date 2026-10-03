@@ -98,8 +98,9 @@ def test_the_fallback_states_the_computed_maximum_and_shows_no_model_note(which)
     # still a fallback, never supplied
     assert v["fallback_applied"] and rep.status == "answered_with_caveats"
     assert rep.headline.startswith("Validated facts only")
-    # the controller's line, first and alone, with the controller's own claim on the bound evidence
-    assert rep.summary == [LINE]
+    # the computed answer (D25: rendered from the admitted result, apart from the summary), with the controller's own
+    # claim on the bound evidence; no summary in a fallback
+    assert [a.statement for a in rep.answer] == [LINE] and rep.summary == []
     assert [(c.claim_id, c.value) for c in rep.numeric_claims] == [("controller_max_ev1605", 10954.2)]
     assert any(o.value == 10954.2 and o.valid_at_utc == MAX_END for o in rep.observations)
     # no model note shown; the code's disclosures are
@@ -110,8 +111,10 @@ def test_the_fallback_states_the_computed_maximum_and_shows_no_model_note(which)
     withheld = [w["text"] for w in v["fallback_withheld"]]
     assert sorted(withheld) == sorted(_model_notes(K09[which]))
     assert not any(t in shown for t in withheld)
-    assert v["fallback_result"] == {"retained": [{"binding": 0, "fallback_summary_index": 0, "text": LINE,
-                                                  "claim_ids": ["controller_max_ev1605"]}], "not_retained": []}
+    (kept,) = v["fallback_result"]["retained"]
+    assert (kept["answer_index"], kept["fallback_answer_index"], kept["status"], kept["statement"],
+            kept["claim_ids"]) == (0, 0, "established", LINE, ["controller_max_ev1605"])
+    assert v["fallback_result"]["not_retained"] == []
     names = [e["name"] for e in res.trace.as_dict()["events"]]
     assert "fallback_result" in names and "fallback_withheld" in names
     # the fallback passes its own validation
@@ -120,12 +123,17 @@ def test_the_fallback_states_the_computed_maximum_and_shows_no_model_note(which)
 
 @pytest.mark.parametrize("which", ["slot 53", "slot 54"])
 def test_drafts_and_repairs_are_checked_exactly_as_before(which):
-    """The saved Live run (code 205974b, the validator on main) recorded the same violations, item for item."""
+    """The saved Live run (code 205974b, the validator on main) recorded the same violations, item for item. Since D25
+    the computed sentence is no longer the summary's first line, so a summary position is one lower than recorded."""
+    import re
+
+    def shifted(detail: str) -> str:
+        return re.sub(r"^summary\[(\d+)\]", lambda m: f"summary[{int(m.group(1)) - 1}]", detail)
     rec, v = _rec(K09[which]), _replay(K09[which]).report.validation
     assert [(x["code"], x["detail"]) for x in v["pre_repair"]["violations"] if x["severity"] == "critical"] == \
-        [tuple(x) for x in rec["validation"]["pre_repair"]]
+        [(c, shifted(d)) for c, d in rec["validation"]["pre_repair"]]
     assert [(x["code"], x["detail"]) for x in v["initial"]["violations"] if x["severity"] == "critical"] == \
-        [tuple(x) for x in rec["validation"]["final_candidate"]]
+        [(c, shifted(d)) for c, d in rec["validation"]["final_candidate"]]
 
 
 def test_the_v12_k09_draft_is_still_rejected_at_its_items():
@@ -142,11 +150,11 @@ def _built(monkeypatch, label: str = K09["slot 54"], draft_fn=None):
     return got[0]
 
 
-def test_provenance_is_recorded_when_the_controller_writes_the_line(monkeypatch):
+def test_the_answer_and_its_claims_are_recorded_when_the_controller_renders_it(monkeypatch):
     report, _, res = _built(monkeypatch)
-    lines = report._provenance["result_lines"]
-    assert [(x["binding"], x["summary_index"], x["text"]) for x in lines] == [(0, 0, LINE)]
-    assert [c.claim_id for c in lines[0]["claims"]] == ["controller_max_ev1605"]
+    assert [(a.status, a.statement) for a in report.answer] == [("established", LINE)]
+    assert LINE not in report.summary  # apart from the interpretation (D25)
+    assert [[c.claim_id for c in cs] for cs in report._provenance["answer_claims"]] == [["controller_max_ev1605"]]
     assert res.demand_max[0]["complete"] and res.demand_max[0]["evidence_ids"] == ["ev1605"]
     assert report._provenance["controller_notes"] == {"uncertainties": [], "missing_evidence": []}
 
@@ -160,8 +168,8 @@ def test_a_model_line_repeating_the_controllers_sentence_gets_no_provenance(monk
         d["summary"] = [*d.get("summary", []), LINE]
         return d
     report, _, _ = _built(monkeypatch, draft_fn=fn)
-    assert report.summary.count(LINE) == 2
-    assert [x["summary_index"] for x in report._provenance["result_lines"]] == [0]  # the controller's line only
+    assert report.summary.count(LINE) == 1  # the model's copy: interpretation, with no provenance at all
+    assert [a.statement for a in report.answer] == [LINE] and len(report._provenance["answer_claims"]) == 1
 
 
 def test_no_model_output_can_set_or_carry_provenance():
@@ -169,24 +177,28 @@ def test_no_model_output_can_set_or_carry_provenance():
     assert "provenance" not in json.dumps(InvestigationReport.model_json_schema())
     draft = _rec(K09["slot 54"])["drafts"]["synthesis:draft"]
     ModelReport.model_validate(draft)  # the real draft parses
-    for key in ("_provenance", "provenance"):
+    for key in ("_provenance", "provenance", "answer", "results"):
         with pytest.raises(ValueError, match="Extra inputs are not permitted"):
             ModelReport.model_validate({**draft, key: {"result_lines": [{"binding": 0, "summary_index": 1}]}})
 
 
-def test_provenance_is_never_serialised(monkeypatch):
-    report, _, _ = _built(monkeypatch)
-    assert report._provenance["result_lines"] and "provenance" not in report.model_dump_json()
-    again = InvestigationReport.model_validate_json(report.model_dump_json())
-    assert again._provenance == {}  # a report read back from JSON has none: its fallback keeps nothing
-
-
-def test_a_line_no_longer_where_the_controller_wrote_it_is_not_kept(monkeypatch):
+def test_provenance_is_never_serialised_and_a_read_back_answer_is_not_kept(monkeypatch):
     report, registry, res = _built(monkeypatch)
-    moved = report.model_copy(update={"summary": ["SYNTHETIC other line", *report.summary]})
+    assert report._provenance["answer_claims"] and "provenance" not in report.model_dump_json()
+    again = InvestigationReport.model_validate_json(report.model_dump_json())
+    assert again._provenance == {} and again.answer == report.answer  # the answer is data; its claims are not
     diag: dict = {}
-    out = facts_only(moved, registry, ValidationResult(), None, res.demand_max, diag=diag)
-    assert out.summary == [] and diag["result_not_retained"][0]["reason"] == "the line is not where the controller wrote it"
+    out = facts_only(again, registry, ValidationResult(), None, res.demand_max, diag=diag)
+    assert out.answer == [] and diag["result_not_retained"][0]["reason"] == \
+        "the answer's claims are not the binding's evidence"  # fails closed
+
+
+def test_an_answer_with_no_binding_is_not_kept(monkeypatch):
+    report, registry, _ = _built(monkeypatch)
+    diag: dict = {}
+    out = facts_only(report, registry, ValidationResult(), None, [], diag=diag)
+    assert out.answer == [] and diag["result_not_retained"][0]["reason"] == \
+        "no requested-maximum binding matches the answer"
 
 
 # ------------------------------------------------------------------------------------------------ eligibility
@@ -216,7 +228,7 @@ def _refusal(monkeypatch, *, report_edit=None, binding_edit=None, as_of=None, vi
 ])
 def test_a_binding_failing_one_check_is_not_kept_and_the_notes_are_as_before(monkeypatch, edit, why):
     out, diag, report = _refusal(monkeypatch, binding_edit=edit)
-    assert out.summary == [] and out.numeric_claims == [] and diag["result_retained"] == []
+    assert out.answer == [] and out.numeric_claims == [] and diag["result_retained"] == []
     assert diag["result_not_retained"][0]["reason"].startswith(why)
     assert out.uncertainties == [*report.uncertainties, WITHHELD_LINE]  # unchanged behaviour: notes kept
     assert diag["withheld"] == []
@@ -224,40 +236,41 @@ def test_a_binding_failing_one_check_is_not_kept_and_the_notes_are_as_before(mon
 
 def test_another_region_is_not_kept(monkeypatch):
     out, diag, _ = _refusal(monkeypatch, report_edit={"region": "VIC1"})
-    assert out.summary == [] and diag["result_not_retained"][0]["reason"].startswith("ev1605: another region")
+    assert out.answer == [] and diag["result_not_retained"][0]["reason"].startswith("ev1605: another region")
 
 
 def test_evidence_not_available_at_the_as_of_cutoff_is_not_kept(monkeypatch):
     from nem_agent.timeutil import parse_iso
 
     out, diag, _ = _refusal(monkeypatch, as_of=parse_iso("2026-07-29T09:00:00Z"))
-    assert out.summary == [] and diag["result_not_retained"][0]["reason"] == \
+    assert out.answer == [] and diag["result_not_retained"][0]["reason"] == \
         "ev1605: not available at the as-of cutoff"
 
 
-@pytest.mark.parametrize("detail", ["summary[0]: SYNTHETIC", "controller_max_ev1605: SYNTHETIC"])
-def test_a_line_or_claim_named_by_a_critical_violation_is_not_kept(monkeypatch, detail):
+@pytest.mark.parametrize("detail", ["answer[0]: SYNTHETIC", "controller_max_ev1605: SYNTHETIC"])
+def test_an_answer_or_claim_named_by_a_critical_violation_is_not_kept(monkeypatch, detail):
     out, diag, _ = _refusal(monkeypatch, violations=[Violation("CLAIM_VALUE_MISMATCH", "critical", detail)])
-    assert out.summary == [] and diag["result_not_retained"][0]["reason"] == \
+    assert out.answer == [] and diag["result_not_retained"][0]["reason"] == \
         "named by a critical violation (CLAIM_VALUE_MISMATCH)"
 
 
-def test_a_line_the_fallbacks_own_validation_names_is_dropped_and_recorded(monkeypatch):
-    """SCRIPTED: the fallback's own validation is made to name the kept line; it is rebuilt without it, the model notes
-    are then kept as before, and the missing maximum is recorded (P2), so the record is honest."""
+def test_an_answer_the_fallbacks_own_validation_names_is_dropped_and_recorded(monkeypatch):
+    """SCRIPTED: the fallback's own validation is made to name the kept answer; it is rebuilt without it, the model
+    notes are then kept as before, and the missing maximum is recorded (P2), so the record is honest."""
     real = V.validate
 
     def named(report, *a, **kw):
         out = real(report, *a, **kw)
-        if report.headline.startswith("Validated facts only") and report.summary:
-            out.violations.append(Violation("CLAIM_VALUE_MISMATCH", "critical", "summary[0]: SYNTHETIC"))
+        if report.headline.startswith("Validated facts only") and report.answer:
+            out.violations.append(Violation("CLAIM_VALUE_MISMATCH", "critical", "answer[0]: SYNTHETIC"))
         return out
     monkeypatch.setattr(V, "validate", named)
     rep = _replay(K09["slot 54"]).report
     v = rep.validation
-    assert rep.summary == [] and v["fallback_result"]["retained"] == []
-    assert v["fallback_result"]["not_retained"] == [
-        {"binding": 0, "reason": "named by a critical violation in the fallback's own validation"}]
+    assert rep.answer == [] and v["fallback_result"]["retained"] == []
+    (refused,) = v["fallback_result"]["not_retained"]
+    assert (refused["answer_index"], refused["status"], refused["reason"]) == (
+        0, "established", "named by a critical violation in the fallback's own validation")
     assert any(u.startswith("The highest dispatch TOTALDEMAND level") for u in rep.uncertainties)
     assert {x["code"] for x in v["after_fallback"]["violations"]} >= {"REQUESTED_MAXIMUM_MISSING"}
     assert v["fallback_applied"] and not v["final_passed"]
@@ -291,20 +304,20 @@ def test_fallbacks_without_a_requested_maximum_keep_their_notes(label, cid):
     rep = _replay(label, cid).report
     v = rep.validation
     assert v["fallback_applied"] and "fallback_result" not in v and "fallback_withheld" not in v
-    assert rep.summary == [] and rep.uncertainties[-1] == WITHHELD_LINE and NOTES_WITHHELD not in rep.uncertainties
+    assert rep.summary == [] and rep.answer == [] and rep.uncertainties[-1] == WITHHELD_LINE
+    assert NOTES_WITHHELD not in rep.uncertainties
 
 
 def test_two_maxima_bound_are_both_kept(monkeypatch):
-    """SCRIPTED: a second binding (a copy of the first) with its own controller line."""
+    """SCRIPTED: a second binding (a copy of the first) with its own rendered answer and claims."""
     report, registry, res = _built(monkeypatch)
-    line = report._provenance["result_lines"][0]
-    two = report.model_copy(update={"summary": [LINE, LINE, *report.summary[1:]]})
-    two._provenance = {**report._provenance,
-                       "result_lines": [line, {**line, "binding": 1, "summary_index": 1}]}
+    two = report.model_copy(update={"answer": [report.answer[0], report.answer[0]]})
+    two._provenance = {**report._provenance, "answer_claims": report._provenance["answer_claims"] * 2}
     diag: dict = {}
     out = facts_only(two, registry, ValidationResult(), None, [res.demand_max[0], copy.deepcopy(res.demand_max[0])],
                      diag=diag)
-    assert out.summary == [LINE, LINE] and [r["binding"] for r in diag["result_retained"]] == [0, 1]
+    assert [a.statement for a in out.answer] == [LINE, LINE]
+    assert [r["answer_index"] for r in diag["result_retained"]] == [0, 1]
 
 
 def test_the_codes_own_notes_are_kept_and_a_model_copy_of_one_counts_as_the_codes(monkeypatch):
@@ -320,7 +333,7 @@ def test_the_codes_own_notes_are_kept_and_a_model_copy_of_one_counts_as_the_code
         return d
     rep = _replay(K09["slot 54"], draft_fn=fn).report
     v = rep.validation
-    assert rep.summary == [LINE] and len(rep.missing_evidence) == 1  # shown once, in plain words (I-4)
+    assert [a.statement for a in rep.answer] == [LINE] and len(rep.missing_evidence) == 1  # once, in plain words
     assert any(r["original"] == note and r["where"] == "missing_evidence[0]" for r in v["display_rewrites"])
     assert note not in [w["text"] for w in v["fallback_withheld"]]
 
@@ -341,8 +354,8 @@ def test_replay_answers_keep_every_note_their_code_wrote(monkeypatch):
     question = _rec("L3-holdout-v6", "Z04")["question"]
     res = investigate(InvestigateRequest(question=question, mode="replay"), write_trace=False)
     rep, v, built = res.report, res.report.validation, calls[0]
-    assert built._provenance["result_lines"] and built.uncertainties
-    assert v["fallback_applied"] and len(rep.summary) == 1 and "was highest at 1367.32 MW" in rep.summary[0]
+    assert built._provenance["answer_claims"] and built.uncertainties
+    assert v["fallback_applied"] and len(rep.answer) == 1 and "was highest at 1367.32 MW" in rep.answer[0].statement
     assert v["fallback_withheld"] == [] and NOTES_WITHHELD not in rep.uncertainties
     assert rep.uncertainties == [*built.uncertainties, WITHHELD_LINE]
     assert rep.missing_evidence == built.missing_evidence
@@ -376,7 +389,7 @@ def test_no_adversarial_note_is_shown_and_every_one_is_recorded(label):
         return d
     rep = _replay(label, draft_fn=fn).report
     v = rep.validation
-    assert v["fallback_applied"] and rep.summary == [LINE]  # the controller's line first, whatever is listed first
+    assert v["fallback_applied"] and [a.statement for a in rep.answer] == [LINE] and rep.summary == []
     shown = _shown(rep)
     assert not any(n in shown for n in notes) and "10,890.3" not in shown
     assert set(notes) <= {w["text"] for w in v["fallback_withheld"]}
@@ -384,9 +397,9 @@ def test_no_adversarial_note_is_shown_and_every_one_is_recorded(label):
 
 
 def test_the_substitute_value_listed_first_does_not_lead(monkeypatch):
-    """Slot 53 lists 10890.3 first among its observations; the controller's line still comes first."""
+    """Slot 53 lists 10890.3 first among its observations; the computed answer states the maximum regardless."""
     rep = _replay(K09["slot 53"]).report
-    assert rep.observations[0].value == 10890.3 and rep.summary == [LINE]
+    assert rep.observations[0].value == 10890.3 and [a.statement for a in rep.answer] == [LINE]
 
 
 # ------------------------------------------------------------------------------------------------ P2
@@ -397,18 +410,20 @@ def _missing(report, registry, res) -> list[str]:
 
 def test_a_maximum_only_listed_as_an_observation_is_not_given(monkeypatch):
     report, registry, res = _built(monkeypatch)
-    assert not _missing(report, registry, res)  # the controller's line states it
-    listed = report.model_copy(update={"summary": [], "numeric_claims": report._provenance["result_lines"][0]["claims"]})
+    assert not _missing(report, registry, res)  # the computed answer states it
+    listed = report.model_copy(update={"answer": [], "summary": [],
+                                       "numeric_claims": report._provenance["answer_claims"][0]})
     assert any(o.evidence_id == "ev1605" for o in listed.observations)
     assert _missing(listed, registry, res)
 
 
 def test_the_shown_headline_gives_it_and_a_hidden_model_headline_does_not(monkeypatch):
     report, registry, res = _built(monkeypatch)
-    claims = report._provenance["result_lines"][0]["claims"]
-    shown = report.model_copy(update={"summary": [], "numeric_claims": claims, "headline": LINE})
+    claims = report._provenance["answer_claims"][0]
+    shown = report.model_copy(update={"answer": [], "summary": [], "numeric_claims": claims, "headline": LINE})
     assert not _missing(shown, registry, res)
-    hidden = report.model_copy(update={"summary": [], "numeric_claims": claims, "headline": "SYNTHETIC headline."})
+    hidden = report.model_copy(update={"answer": [], "summary": [], "numeric_claims": claims,
+                                       "headline": "SYNTHETIC headline."})
     hidden._model_headline = LINE
     assert _missing(hidden, registry, res)
 

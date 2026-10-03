@@ -35,7 +35,6 @@ from nem_agent.report import NumericClaim, Observation
 from nem_agent.results import ResultRegistry
 from nem_agent.selection import load_selection
 from nem_agent.service import investigate
-from nem_agent.store import Store
 from nem_agent.validation import validate
 from tests.provider.fake_model import FakeModel
 
@@ -123,7 +122,9 @@ def test_3_the_live_controller_supplies_z04s_maximum():
     b = res.resolution.demand_max[0]
     assert (b["measure"], b["value"], b["interval_ends_utc"], b["complete"]) == ("total demand", 1367.32, [MAX_END], True)
     assert b["window_kind"] == "day" and b["window_utc"] == DAY and b["intervals_held"] == b["intervals_in_window"] == 288
-    line = res.report.summary[0]
+    (a,) = res.report.answer  # the computed answer (D25), rendered from the admitted result, apart from the summary
+    assert (a.status, a.verification) == ("established", "verified")
+    line = a.statement
     assert "dispatch total demand (TOTALDEMAND) was highest at 1367.32 MW" in line
     assert "ending 2026-07-28T21:55:00Z = 2026-07-29 07:55 AEST" in line
     o = next(o for o in res.report.observations if o.evidence_id == b["evidence_ids"][0])
@@ -139,18 +140,19 @@ def test_3_replay_mode_supplies_z04s_maximum():
     res = investigate(InvestigateRequest(question=_z04()["question"], mode="replay"), write_trace=False)
     b = res.resolution.demand_max[0]
     assert (b["value"], b["interval_ends_utc"], b["complete"]) == (1367.32, [MAX_END], True)
-    assert any("was highest at 1367.32 MW" in s and "2026-07-29 07:55 AEST" in s for s in res.report.summary)
+    assert any("was highest at 1367.32 MW" in a.statement and "2026-07-29 07:55 AEST" in a.statement
+               for a in res.report.answer)
     assert res.report.validation["final_passed"] and not res.report.validation["fallback_applied"]
 
 
 def test_1_z04s_saved_answer_without_the_maximum_is_rejected():
     """The saved draft gave TOTALDEMAND at the price peak and operational demand's maximum, not the maximum asked for:
-    without the controller's sentence it does not answer, so it is not shown as an answer."""
+    without the controller's computed answer it does not answer, so it is not shown as an answer."""
     res, _ = _replay()
     b = res.resolution.demand_max
     ids = set(b[0]["evidence_ids"])
     saved = res.report.model_copy(update={
-        "summary": res.report.summary[1:], "numeric_claims": [c for c in res.report.numeric_claims if c.evidence_id not in ids],
+        "answer": [], "numeric_claims": [c for c in res.report.numeric_claims if c.evidence_id not in ids],
         "observations": [o for o in res.report.observations if o.evidence_id not in ids], "validation": {}})
     out = validate(saved, res.registry, records=res.records, demand_max=b)
     assert [v.code for v in out.critical] == ["REQUESTED_MAXIMUM_MISSING"]
@@ -213,15 +215,35 @@ def _resolution(as_of: str | None = None) -> Resolution:
                       "market_event_review", "TAS1", None, None, None, routing={"dates_found": ["2026-07-29"]})
 
 
-def _dispatcher(series: list[dict] | None, status: str = "ok", reason: str | None = None):
-    """A stand-in dispatcher returning SYNTHETIC series. Since D24 the computation also submits its typed result to the
-    investigation's result registry, which re-derives it from the pinned store: a synthetic series is not the pinned
-    data, so its result is reported as failed and not admitted, while the binding read here is unchanged."""
+def _dispatcher(series: list[dict] | None, status: str = "ok", reason: str | None = None,
+                reg: EvidenceRegistry | None = None):
+    """A stand-in dispatcher returning SYNTHETIC series. Since D24 the computation submits its typed result to the
+    investigation's result registry, which re-derives it from the store, and since D25 only an admitted result gives
+    the binding a value. Its store is SYNTHETIC: the same series (``synthetic_store`` re-derives from it), so these
+    controls test the validator against admitted results, as before."""
     def call(name, args, *, call_id=None, origin="controller"):
         return SimpleNamespace(status=status, call_id=call_id, blocked_reason=reason,
                                data={"series": series or []}, view={"excluded_not_yet_available_at_as_of": 0})
-    return SimpleNamespace(call=call, store=Store(), selection=load_selection(), registry=EvidenceRegistry(),
-                           results=ResultRegistry(), trace=None)
+    reg = reg if reg is not None else EvidenceRegistry()
+    store = SimpleNamespace(data_version="SYNTHETIC", synthetic={"series": series or [], "status": status,
+                                                                 "reason": reason, "registry": reg})
+    return SimpleNamespace(call=call, store=store, selection=load_selection(), registry=reg, results=ResultRegistry(),
+                           trace=None)
+
+
+@pytest.fixture
+def synthetic_store(monkeypatch):
+    """SYNTHETIC: a stand-in dispatcher's series is the store its results are re-derived from (D24)."""
+    real = demand_max.rederive
+
+    def rederive(identity, store, selection):
+        s = getattr(store, "synthetic", None)
+        if s is None:
+            return real(identity, store, selection)
+        return demand_max.result_from_output(identity, s["status"], {"series": s["series"]},
+                                             {"excluded_not_yet_available_at_as_of": 0}, s["registry"], "rederive",
+                                             s["reason"])
+    monkeypatch.setattr(demand_max, "rederive", rederive)
 
 
 def _report(summary: list[str], claims: list[tuple[str, float]], reg: EvidenceRegistry):
@@ -230,7 +252,8 @@ def _report(summary: list[str], claims: list[tuple[str, float]], reg: EvidenceRe
                        interval_minutes=ev.interval_minutes, evidence_id=e, source_row_ids=ev.source_row_ids,
                        evidence_class=ev.evidence_class, label=ev.metric) for e, _ in claims if (ev := reg.get(e))]
     return base.model_copy(update={
-        "headline": "SYNTHETIC answer.", "summary": summary, "possible_explanations": [], "published_findings": [],
+        "headline": "SYNTHETIC answer.", "summary": summary, "answer": [], "results": [],  # not the base's (D25)
+        "possible_explanations": [], "published_findings": [],
         "citations": [], "uncertainties": [], "missing_evidence": [], "forecast_comparison": None, "validation": {},
         "observations": obs, "numeric_claims": [NumericClaim(claim_id=f"n{i}", text=f"{v}", value=v, unit="MW",
                                                              evidence_id=e, rounding=0.005)
@@ -241,12 +264,12 @@ def _max_codes(report, reg, binding) -> list[str]:
     return [v.code for v in validate(report, reg, demand_max=binding).critical if "MAXIMUM" in v.code]
 
 
-def test_an_equal_number_from_another_measure_does_not_satisfy_a_total_demand_request():
+def test_an_equal_number_from_another_measure_does_not_satisfy_a_total_demand_request(synthetic_store):
     reg, series, ids = _series({"2026-07-28T21:55:00Z": 1452.0})
     op = reg.add(evidence_class="observed", metric="opdemand_actual", value=1452.0, unit="MW", region="TAS1",
                  valid_at_utc="2026-07-28T22:00:00Z", interval_minutes=30, source_row_ids=["SYNTH:OP"], source_urls=[],
                  tool_call_id="t")
-    binding = [demand_max.compute(_dispatcher(series), _resolution(), "total demand")]
+    binding = [demand_max.compute(_dispatcher(series, reg=reg), _resolution(), "total demand")]
     assert binding[0]["evidence_ids"] == [ids["2026-07-28T21:55:00Z"]]
     as_peak = _report(["TAS1 total demand peaked at 1452 MW in the half-hour ending 2026-07-28T22:00:00Z."],
                       [(op.evidence_id, 1452.0)], reg)
@@ -256,23 +279,23 @@ def test_an_equal_number_from_another_measure_does_not_satisfy_a_total_demand_re
     assert _max_codes(labelled, reg, binding) == ["REQUESTED_MAXIMUM_MISSING"]
 
 
-def test_a_value_at_the_price_peak_satisfies_the_request_only_when_it_is_the_maximum():
+def test_a_value_at_the_price_peak_satisfies_the_request_only_when_it_is_the_maximum(synthetic_store):
     reg, series, ids = _series({"2026-07-29T10:05:00Z": 1400.0, "2026-07-28T21:55:00Z": 1367.32})
-    binding = [demand_max.compute(_dispatcher(series), _resolution(), "total demand")]
+    binding = [demand_max.compute(_dispatcher(series, reg=reg), _resolution(), "total demand")]
     at_peak = _report(["At the price peak, TAS1 total demand peaked at 1400 MW in the interval ending "
                        "2026-07-29T10:05:00Z."], [(ids["2026-07-29T10:05:00Z"], 1400.0)], reg)
     assert _max_codes(at_peak, reg, binding) == []  # here the price peak's interval is the maximum
     reg2, series2, ids2 = _series({"2026-07-29T10:05:00Z": 1321.81, "2026-07-28T21:55:00Z": 1367.32})
-    binding2 = [demand_max.compute(_dispatcher(series2), _resolution(), "total demand")]
+    binding2 = [demand_max.compute(_dispatcher(series2, reg=reg2), _resolution(), "total demand")]
     not_max = _report(["TAS1 total demand peaked at 1321.81 MW in the interval ending 2026-07-29T10:05:00Z."],
                       [(ids2["2026-07-29T10:05:00Z"], 1321.81)], reg2)
     assert _max_codes(not_max, reg2, binding2) == ["REQUESTED_MAXIMUM_MISSING", "REQUESTED_MAXIMUM_MISMATCH"]
 
 
-def test_tied_maxima_are_all_stated_and_either_satisfies_the_request():
+def test_tied_maxima_are_all_stated_and_either_satisfies_the_request(synthetic_store):
     ends = ["2026-07-28T21:55:00Z", "2026-07-29T09:00:00Z"]
     reg, series, ids = _series({e: 1367.32 for e in ends})
-    binding = [demand_max.compute(_dispatcher(series), _resolution(), "total demand")]
+    binding = [demand_max.compute(_dispatcher(series, reg=reg), _resolution(), "total demand")]
     assert binding[0]["interval_ends_utc"] == ends and len(binding[0]["evidence_ids"]) == 2
     claimed: list[str] = []
     line = demand_max.sentence(binding[0], "TAS1", lambda e: claimed.append(e) or "1367.32 MW", None)
@@ -287,9 +310,12 @@ def test_tied_maxima_are_all_stated_and_either_satisfies_the_request():
 
 @pytest.mark.parametrize("dispatcher,why", [
     (_dispatcher([]), "no value of the measure is held for the window"),
-    (_dispatcher(None, "blocked", "'get_price_timeline' already called 3 times"), "returned blocked"),
+    # a run-time policy block cannot be re-derived from the store, so its result is unverifiable and, since D25, not
+    # admitted: the binding gives the verifier's reason instead of the block (which the trace and the result keep)
+    (_dispatcher(None, "blocked", "'get_price_timeline' already called 3 times"),
+     "could not be verified against the pinned data (unverifiable)"),
 ])
-def test_missing_data_or_a_blocked_call_says_the_maximum_cannot_be_given(dispatcher, why):
+def test_missing_data_or_a_blocked_call_says_the_maximum_cannot_be_given(dispatcher, why, synthetic_store):
     reg, _, ids = _series({})
     binding = [demand_max.compute(dispatcher, _resolution(), "total demand")]
     assert why in binding[0]["unavailable"] and "evidence_ids" not in binding[0]
@@ -308,7 +334,7 @@ def test_an_as_of_cutoff_that_hides_part_of_the_window_is_said():
                       write_trace=False)
     b = res.resolution.demand_max[0]
     assert not b["complete"] and b["excluded_by_as_of"] > 0 and b["intervals_held"] < b["intervals_in_window"]
-    line = next(s for s in res.report.summary if s.startswith("Not every 5-minute interval"))
+    line = next(a.statement for a in res.report.answer if a.statement.startswith("Not every 5-minute interval"))
     assert "held and public by the as-of cutoff" in line and "cannot be established" in line
     assert res.report.validation["final_passed"]
 
@@ -321,7 +347,7 @@ def test_an_operational_demand_maximum_is_answered_with_operational_demand():
     assert (b["metric"], b["value"], b["interval_ends_utc"], b["complete"]) == (
         "opdemand_actual", 1452.0, ["2026-07-28T22:00:00Z"], True)
     assert any("TAS1 operational demand was highest at 1452 MW in the half-hour ending 2026-07-28T22:00:00Z" in s
-               for s in res.report.summary)
+               for s in [a.statement for a in res.report.answer])
     assert res.report.validation["final_passed"] and not res.report.validation["fallback_applied"]
     # TOTALDEMAND's maximum (the same day, its own evidence) stated as operational demand's peak is another measure
     tot = next(e for e, ev in res.registry.items.items() if ev.metric == "dispatch_totaldemand"
@@ -392,14 +418,15 @@ def test_an_event_maximum_uses_the_event_window_and_a_whole_day_maximum_the_day(
     assert (b["window_kind"], b["window_utc"], b["complete"]) == ("event", VIC_EVENT, True)
     assert (b["value"], b["interval_ends_utc"]) == (7867.57, ["2026-07-28T22:10:00Z"])
     assert any("was highest at 7867.57 MW" in s and "over the event window, 2026-07-27T23:00:00Z to "
-               "2026-07-28T23:30:00Z" in s for s in ev.report.summary)
+               "2026-07-28T23:30:00Z" in s for s in [a.statement for a in ev.report.answer])
     assert ev.report.validation["final_passed"] and not ev.report.validation["fallback_applied"]
     day = investigate(InvestigateRequest(question=VIC_DAY_Q, mode="replay"), write_trace=False)
     d = day.resolution.demand_max[0]
     assert (d["window_kind"], d["window_utc"], d["complete"]) == ("day", ["2026-07-28T14:00:00Z", "2026-07-29T14:00:00Z"],
                                                                   True)
     assert (d["value"], d["interval_ends_utc"]) == (8700.91, ["2026-07-29T08:30:00Z"])  # not the event's maximum
-    assert any("was highest at 8700.91 MW" in s and "over all of 2026-07-29 (AEST)" in s for s in day.report.summary)
+    assert any("was highest at 8700.91 MW" in s and "over all of 2026-07-29 (AEST)" in s
+               for s in [a.statement for a in day.report.answer])
     assert day.report.validation["final_passed"] and not day.report.validation["fallback_applied"]
 
 
@@ -443,7 +470,8 @@ def test_an_explicit_request_window_is_used_exactly_and_the_days_maximum_does_no
     assert (b["window_kind"], b["window_utc"], b["complete"]) == ("explicit", [w["window_start_utc"], w["window_end_utc"]],
                                                                   True)
     assert (b["value"], b["interval_ends_utc"]) == (1164.48, ["2026-07-29T00:10:00Z"])  # not the day's 1367.32
-    assert any("over the requested window, 2026-07-29T00:00:00Z to 2026-07-29T06:00:00Z" in s for s in rep.report.summary)
+    assert any("over the requested window, 2026-07-29T00:00:00Z to 2026-07-29T06:00:00Z" in s
+               for s in [a.statement for a in rep.report.answer])
     # Z04's saved tool calls cover the whole day: its maximum (ev0284) stated as the window's peak is rejected
     rec = _z04()
     calls = [(t["name"], json.loads(t["args"]) if isinstance(t["args"], str) else t["args"]) for t in rec["tools"]
