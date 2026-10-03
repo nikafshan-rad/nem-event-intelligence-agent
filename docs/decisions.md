@@ -515,3 +515,46 @@ Acceptance check recorded before implementation. One bounded offline PR; demand 
   8. **Safeguards:** all tests pass, with the assertions that looked for the computed sentence in `summary` moved to
      `answer` (listed in the PR); the Replay evaluation (no case asks for a maximum) and the safety suite are
      unchanged; ruff and mypy pass.
+- **Result** (offline; branch `feat/rendered-maximum-answer`; the acceptance check above):
+  1. **The eight saved replays:** each answer is rendered from its admitted result (established, verified). Its
+     statement is today's controller sentence, character for character, with the result's limitations and source
+     rows. `summary` holds the interpretation only, and no maximum sentence appears twice.
+     - **Unchanged:** `fallback_applied` (K09 ×3), `final_passed`, status, headline and every critical code.
+     - **Moved:** a violation detail naming a summary position is now one lower (one case, slot 53's
+       `DEMAND_EXTREME_UNVERIFIED`, `summary[1]` → `summary[0]`).
+  2. **Both ways** (`main` `dba207c` against this branch):
+     - 215 records replayed; **0 changes** in the 207 without a computed maximum;
+     - in the 8 with one, changes only in `summary` (the sentence moved), the new `answer`, `display_rewrites`
+       positions, and the fallbacks' `fallback_result` (now per answer);
+     - the same 217 non-replayable files accounted for; none holds a computed maximum;
+     - the Replay evaluation and the safety suite are identical (timestamps and latencies masked).
+  3. **Not admitted** (`failed`, `unverifiable`): rendered as `not_verified` with no value, no limitations and no
+     controller claim; the binding and the model's context are the unavailable form. **Correction to item 3 above:**
+     "no legacy value appears anywhere in the shown answer" was too broad. The controller states no value, but a tool
+     value the model itself listed as an observation (with its source row) is still shown as an observation, not as a
+     maximum.
+  4. **Further checks:** incomplete coverage, ties, adversarial model text, the model's own headline still validated,
+     a missing interpretation not erasing the computed answer, and the same answer in a normal answer and its
+     fallback (25 new tests, `tests/provider/test_rendered_answer.py`).
+  5. **Existing tests changed** (assertions moved, none weakened):
+     - those that looked for the computed sentence in `summary` now read `answer` (`test_requested_maximum.py`,
+       `test_requested_result_text.py`, `test_structured_requests.py`);
+     - PR #64's summary-position provenance tests now cover the answer and its claims (`test_fallback_requested_result.py`);
+     - the narrative-place test includes `answer[i]` (`test_claim_times.py`);
+     - the I-17 stand-in dispatcher re-derives from its own synthetic series (a labelled fixture), and its blocked call
+       now reads as not verified (a run-time block cannot be re-derived);
+     - D24's admission test asserts the D25 gate.
+
+     1821 tests passed; ruff and mypy are clean.
+- **Limitations:**
+  - **Not verified is coarse:** a run-time block (a policy limit) reads as "could not be verified" rather than naming
+    the block, which the trace and the result keep.
+  - **Model context wording:** the model's context note still says the controller states the maximum "in the
+    summary". Changing it would be a prompt change, so it is left as is.
+  - **Case notes** carry neither `summary` nor `answer`, as before.
+  - **Display:** limitations and source rows are shown only in the app's new section; the API carries them in
+    `answer`.
+  - **Missing interpretation:** a report with no valid model output now shows the computed answer under an
+    "abstained" status. No saved record exercises this; it is scripted only.
+  - **Scope:** only demand maxima.
+  - **Not a quality claim:** this is not a claim of better Live answers; Live is unverified.
