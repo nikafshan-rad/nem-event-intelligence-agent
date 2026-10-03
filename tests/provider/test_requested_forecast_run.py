@@ -222,19 +222,17 @@ def test_an_ambiguous_request_binds_nothing_and_is_sent_back_for_its_half_hour()
     assert res.resolution is not None and res.resolution.forecast_run is None
 
 
-def test_outside_a_forecast_review_an_ambiguous_request_still_gets_the_note():
-    """The I-9 note is unchanged for a question routed as an event review: nothing is bound, and the answer is asked
-    to say which run it uses (not enforced; recorded under I-16)."""
+def test_outside_a_forecast_review_an_ambiguous_request_is_sent_back_too():
+    """Until I-18 a question routed as an event review got the I-9 note (nothing bound, the answer asked to say which
+    run it uses, not enforced). Since I-18 a detected request that is not bound is sent back whatever the data intent,
+    naming what is missing, so no answer can use another run unchecked."""
     rec = json.loads((V5 / "Y05.json").read_text())
     draft = rec["drafts"]["synthesis:draft"]
-    calls = [(t["name"], json.loads(t["args"]) if isinstance(t["args"], str) else t["args"]) for t in rec["tools"]
-             if not str(t["call_id"]).startswith("controller_") and t["status"] != "blocked"]
-    fake = FakeModel({**rec["route"], "intent": "market_event_review"}, [calls], lambda kw: copy.deepcopy(draft))
+    fake = FakeModel({**rec["route"], "intent": "market_event_review"}, [], lambda kw: copy.deepcopy(draft))
     res = investigate(InvestigateRequest(question=AMBIGUOUS_Q, mode="live"), live_client=fake, write_trace=False)
-    ctx = json.loads(fake.requests[1]["input"][0]["content"].split("\n", 1)[1])["requested_forecast_run"]
-    assert "run_id" not in ctx and "say which run you use" in ctx["note"]
-    assert not any(r.call_id == "controller_requested_run" for r in res.records)
-    assert "requested_forecast_run" not in res.report.validation.get("initial", {}).get("checks_run", [])
+    assert res.report.status == "needs_clarification" and HALF_HOUR_CLARIFICATION in res.report.headline
+    assert not res.records and len(fake.requests) == 1  # the routing call only
+    assert res.resolution.requests.forecast_run.missing == ["half_hour"]
 
 
 def test_an_unavailable_run_is_said_and_no_other_run_stands_in():

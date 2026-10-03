@@ -506,9 +506,12 @@ def _event_for(sel: Selection, region: str, day: date) -> EventSelection | None:
     return None
 
 
-def resolve(req: InvestigateRequest, sel: Selection, routed: Any = None) -> Resolution:
+def resolve(req: InvestigateRequest, sel: Selection, routed: Any = None,
+            given: InvestigateRequest | None = None) -> Resolution:
     """``routed``: the routing model's structured reading of the request (``structured.RoutedRequest``), or None when
-    it reported none (Replay mode, a route without the field). None is "not reported", never "no requirement"."""
+    it reported none (Replay mode, a route without the field). None is "not reported", never "no requirement".
+    ``given``: the request as the user gave it, when ``req`` also carries the routing model's values (Live); only the
+    user's own fields are request fields whose conflict with the question's wording is noted."""
     from .structured import (
         RequestResolution,
         clarifications,
@@ -588,7 +591,7 @@ def resolve(req: InvestigateRequest, sel: Selection, routed: Any = None) -> Reso
                            "by then, not which day the forecast is for.")
     if data_intent:
         requests.maximum = resolve_maximum(q, req, region, day, event, routed)
-        requests.notes = request_field_notes(q, req, region, day, requests.maximum)
+        requests.notes = request_field_notes(q, given or req, region, day, requests.maximum)
         # a run named relative to a half-hour that is not pinned down (held-out v6 Z05, I-16), a demand peak without
         # its measure, or over a window that is not given (I-17), and any other detected request that is not bound
         # (I-18): sent back, naming what is missing, rather than guessed

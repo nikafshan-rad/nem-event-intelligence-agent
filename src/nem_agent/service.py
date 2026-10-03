@@ -138,7 +138,7 @@ def resolve_routed(req: InvestigateRequest, decision: Any, selection: Selection,
             req_eff, decision, override = req, None, None
         if decision is not None and trace is not None:
             trace.add("route", "model_decision", decision=decision.model_dump(), policy_notes=notes)
-    res = resolve(req_eff, selection, decision.requested if decision is not None else None)
+    res = resolve(req_eff, selection, decision.requested if decision is not None else None, given=req)
     if decision is not None and override == "refused" and res.status != "refused":
         # Scope comes before missing details, as in resolve(): a question the model judged out of scope is refused
         # even when it also lacks a region or date (held-out v5 Y17 asked for a price prediction and bidding

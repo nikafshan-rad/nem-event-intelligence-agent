@@ -817,37 +817,47 @@ def backstop_violations(report: InvestigationReport, registry: EvidenceRegistry,
     paraphrase.
 
     - ``DEMAND_EXTREME_UNVERIFIED``: a clause stating a demand maximum or minimum gives, as that extreme, a traced
-      actual-demand value (dispatch TOTALDEMAND or actual operational demand) that no code computed as an extreme:
-      neither a bound maximum nor a ``get_actual_demand`` view's ``max`` (an equal value of the same measure and region,
-      such as a tied interval, counts). The value stated as the extreme is the first number after the peak or minimum
-      word, else the last one before it. ``already`` holds (item, value) pairs that ``REQUESTED_MAXIMUM_MISMATCH``
-      flagged, which are not flagged twice.
+      actual-demand value (dispatch TOTALDEMAND or actual operational demand) that is no extreme of that kind computed
+      by code: a bound maximum, or the maximum or minimum of a series a tool returned for the measure and region (an
+      equal value, such as a tied interval, counts). The value stated as the extreme is the first number after the peak
+      or minimum word, else the last one before it. ``already`` holds (item, value) pairs that
+      ``REQUESTED_MAXIMUM_MISMATCH`` flagged, which are not flagged twice. A series covers its call's window only, so an
+      extreme of a narrower call can stand for a wider window's: a bounded check.
     - ``RUN_SELECTION_UNVERIFIED``: when no forecast run is bound and the answer has no as-of cutoff, a clause presents
       a run as the final, last or latest one issued before something. Wording about availability is exempt (the as-of
       selection, I-10)."""
+    from .agent.demand_max import MEASURES
     from .agent.structured import clauses, demand_extreme_words, run_selection_clause
 
-    extremes = {e for b in bindings or [] for e in b.get("evidence_ids") or []}
+    # the extremes code computed, by kind, measure and region; a stated value is checked against them within its
+    # rounding
+    verified: dict[tuple[str, str, str | None], list[float]] = {}
+    for b in bindings or []:
+        for e in b.get("evidence_ids") or []:
+            if (ev := registry.get(e)) is not None and ev.value is not None:
+                verified.setdefault(("max", ev.metric, ev.region), []).append(float(ev.value))
     for r in records or []:
-        if getattr(r, "name", None) == "get_actual_demand" and r.status == "ok" and \
-                (eid := ((r.view or {}).get("max") or {}).get("evidence_id")):
-            extremes.add(eid)
-    # the extremes code computed, by measure and region; a stated value is checked against them within its rounding
-    verified: dict[tuple[str, str | None], list[float]] = {}
-    for e in extremes:
-        if (ev := registry.get(e)) is not None and ev.value is not None:
-            verified.setdefault((ev.metric, ev.region), []).append(float(ev.value))
+        if getattr(r, "status", None) != "ok":
+            continue
+        for tool, value_field, _, metric, _, _ in MEASURES.values():
+            if getattr(r, "name", None) != tool:
+                continue
+            values = [float(x[value_field]) for x in (r.data or {}).get("series", []) if x.get(value_field) is not None]
+            if values:
+                region = (r.args or {}).get("region")
+                verified.setdefault(("max", metric, region), []).append(max(values))
+                verified.setdefault(("min", metric, region), []).append(min(values))
     out: list[Violation] = []
     for where, sentence in sentences:
         for clause in clauses(sentence):
             spans = numbers(clause)
             stated = []
-            for p in demand_extreme_words(clause, sentence):
+            for p, kind in demand_extreme_words(clause, sentence):
                 after = [x for x in spans if x[1] >= p]
                 before = [x for x in spans if x[2] <= p]
                 if after or before:
-                    stated.append((after[0] if after else before[-1])[0])
-            for v in dict.fromkeys(stated):
+                    stated.append(((after[0] if after else before[-1])[0], kind))
+            for v, kind in dict.fromkeys(stated):
                 if (where, v) in already:
                     continue
                 hits = [(c, ev) for c in report.numeric_claims if abs(v - c.value) <= c.rounding + 1e-9
@@ -855,7 +865,7 @@ def backstop_violations(report: InvestigationReport, registry: EvidenceRegistry,
                         and ev.metric in ("dispatch_totaldemand", "opdemand_actual")]
                 evs = [ev for _, ev in hits]
                 if evs and not any(abs(v - x) <= c.rounding + 1e-9 for c, ev in hits
-                                   for x in verified.get((ev.metric, ev.region), [])):
+                                   for x in verified.get((kind, ev.metric, ev.region), [])):
                     out.append(Violation("DEMAND_EXTREME_UNVERIFIED", "critical",
                                          f"{where}: {v:g} is stated as a demand peak, maximum or minimum, but it is "
                                          f"{evs[0].metric} for the interval ending {evs[0].valid_at_utc} "

@@ -267,6 +267,9 @@ def test_the_runner_refuses_without_an_approved_cap_with_overrides_or_without_a_
     for k in RUN.OVERRIDES:
         monkeypatch.delenv(k, raising=False)
     both = ["v5", "regression"]
+    # prompts v12 (I-18): the frozen runner refuses the current prompts; the other checks run under the frozen ones
+    assert RUN.refusal(FREEZE, both, 6.560384, START) == "the prompt version differs"
+    monkeypatch.setattr(RUN.config, "PROMPT_VERSION", FREEZE["prompt_version"])
     assert RUN.refusal(FREEZE, both, 6.560384, START) is None
     assert RUN.refusal(FREEZE, ["v5"], 5.760384, START) is None
     assert "approved task cap" in RUN.refusal(FREEZE, both, None, START)

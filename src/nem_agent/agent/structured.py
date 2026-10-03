@@ -24,6 +24,7 @@ with a bounded vocabulary: they do not recognise every paraphrase.
 
 from __future__ import annotations
 
+import contextlib
 import re
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta, timezone, tzinfo
@@ -34,6 +35,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ..timeutil import UTC, iso_utc, local_day_window, parse_iso, region_zone
 from .request import (
+    _EVENT_WINDOW_RE,
+    _SUB_WINDOW_RE,
     AS_OF_Q_RE,
     HALF_HOUR_CLARIFICATION,
     MAXIMUM_CLARIFICATION,
@@ -148,6 +151,7 @@ class MaxRequest:
     missing: list[str] = field(default_factory=list)
     conflicts: list[str] = field(default_factory=list)
     unread: bool = False  # a measure is named, but no maximum of it could be read
+    stated: tuple[str, tuple[datetime, datetime]] | None = None  # the window the question's own words give, if one
 
     def as_dict(self) -> dict[str, Any]:
         return {"status": self.status, "measures": self.measures, "window_kind": self.window_kind,
@@ -180,13 +184,15 @@ _PLACE = {"sydney": "Australia/Sydney", "canberra": "Australia/Sydney", "new sou
           "tasmanian": "Australia/Hobart", "adelaide": "Australia/Adelaide", "south australia": "Australia/Adelaide",
           "south australian": "Australia/Adelaide"}
 _ZONE_RE = re.compile(r"\b(UTC|GMT|AEST|AEDT|ACST|ACDT|market time|NEM time)\b|(?<=\d)(Z)\b|\b("
-                      + "|".join(sorted(_PLACE, key=len, reverse=True)) + r")(?:\s+local)?\s+time\b|\b(local time)\b",
-                      re.I)
+                      + "|".join(sorted(_PLACE, key=len, reverse=True)) + r")(?:(?:\s+local)?\s+time\b|['’]s\b)|"
+                      r"\b(local)(?:\s+time)?\b", re.I)
 _ISO_RE = re.compile(r"\b(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?(?:Z|[+-]\d{2}:\d{2}))")
 _DATE_ONLY_RE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
 _CLOCK_RE = re.compile(r"(?<![\w:.])(\d{1,2})(?::([0-5]\d))?\s*(a\.?m\.?|p\.?m\.?)?(?![\d:])(?![a-z])", re.I)
-_DAY_MONTH_RE = re.compile(r"\b(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]{3,9})\b|\b([A-Za-z]{3,9})\s+(\d{1,2})(?:st|nd|rd|"
-                           r"th)?\b")
+_MONTH_NAME = (r"(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sept?(?:ember)?|"
+               r"oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)")
+_DAY_MONTH_RE = re.compile(rf"(?<![:\d./-])\b(\d{{1,2}})(?:st|nd|rd|th)?\s+({_MONTH_NAME})\b\.?|\b({_MONTH_NAME})\.?\s+"
+                           r"(\d{1,2})(?:st|nd|rd|th)?\b(?![:\d])", re.I)
 # which bound of a half-hour a clock is: an end or start word up to eight words before it, or a short end word ("to",
 # "until") right before it
 _END_REL = (r"end|ends|ended|ending|finish|finishes|finished|finishing|close|closes|closed|closing|conclude|concludes|"
@@ -196,8 +202,6 @@ _START_REL = (r"start|starts|started|starting|begin|begins|began|beginning|open|
 _REL_WORD_RE = re.compile(rf"\b(?:({_END_REL})|({_START_REL}))\b", re.I)
 _SHORT_END_RE = re.compile(r"\b(?:to|until|till|through|up to)\s+(?:at\s+)?$", re.I)
 _RANGE_JOIN = re.compile(r"^\s*(?:to|-|–|—|until|till|through|and)\s*$", re.I)
-_NARROW = re.compile(r"\b(?:morning|afternoon|evening|night|overnight|midday|noon|midnight|early hours|peak hours|"
-                     r"business hours|first|last|hours? (?:before|after|around))\b", re.I)
 
 
 def _norm(s: str) -> str:
@@ -211,7 +215,7 @@ def quoted_in(text: str | None, question: str) -> bool:
 
 def _zones(text: str, region: str | None) -> list[tuple[tzinfo, str]]:
     """Each time zone a text names: a fixed offset (AEST, ACST, UTC, market time ...), a place's zone (Sydney time,
-    Adelaide local time ...) or 'local time' (the region's zone)."""
+    Adelaide local time, Brisbane's ...) or local time (the region's zone)."""
     found: dict[str, tzinfo] = {}
     for m in _ZONE_RE.finditer(text):
         if m.group(1) or m.group(2):
@@ -242,22 +246,41 @@ def _h24(hh: int, ap: str | None) -> int:
     return hh if ap is None else hh % 12 + (12 if ap == "p" else 0)
 
 
+_NUMERIC_DATE_RE = re.compile(r"\b(\d{1,2})/(\d{1,2})/(20\d\d)\b")
+
+
+def _dates(text: str) -> list[date]:
+    """``extract_dates``, and a day/month/year written with slashes when only one reading is a date (29/07/2026)."""
+    out = set(extract_dates(text))
+    for a, b, y in _NUMERIC_DATE_RE.findall(text):
+        readings = set()
+        for d, m in ((int(a), int(b)), (int(b), int(a))):
+            with contextlib.suppress(ValueError):
+                readings.add(date(int(y), m, d))
+        if len(readings) == 1:
+            out |= readings
+    return sorted(out)
+
+
 def _day_of(text: str, question: str) -> date | None:
-    """The one date (with its year) the text states, else the question's one date, provided a day and month the
-    text writes without a year agree with it. None when not pinned down."""
-    own = extract_dates(text)
+    """The one date the text states. A day and month written without the year take the year the question gives, when
+    it gives one year only; with no date in the text, the question's one date. None when not pinned down."""
+    own = _dates(text)
+    q = _dates(question)
+    years = {d.year for d in q}
+    for g in _DAY_MONTH_RE.findall(_NUMERIC_DATE_RE.sub(" ", text)):
+        mon, d = (g[1], g[0]) if g[0] else (g[2], g[3])
+        if mon[:3].lower() in MONTHS and len(years) == 1:
+            try:
+                own.append(date(next(iter(years)), MONTHS[mon[:3].lower()], int(d)))
+            except ValueError:
+                return None
+    own = sorted(set(own))
     if len(own) == 1:
         return own[0]
     if own:
         return None
-    q = extract_dates(question)
-    if len(q) != 1:
-        return None
-    for g in _DAY_MONTH_RE.findall(text):
-        mon, d = (g[1], g[0]) if g[0] else (g[2], g[3])
-        if mon[:3].lower() in MONTHS and (MONTHS[mon[:3].lower()], int(d)) != (q[0].month, q[0].day):
-            return None
-    return q[0]
+    return q[0] if len(q) == 1 else None
 
 
 def _instants(day: date, hh: int, mm: int, zones: list[tuple[tzinfo, str]]) -> set[datetime]:
@@ -278,6 +301,15 @@ def _relation(before: str) -> str | None:
     for m in _REL_WORD_RE.finditer(" ".join(before.split()[-8:])):
         rel = "end" if m.group(1) else "start"
     return rel
+
+
+def _is_range(text: str, clocks: list[tuple[int, int, int, int, str | None]]) -> bool:
+    """Two clock times joined as one range ("5:30 to 6:00 pm", "between 5:30 and 6:00"), not a list of two ends or
+    starts ("ending 12:30 and 13:00")."""
+    join = text[clocks[0][1]:clocks[1][0]]
+    if not _RANGE_JOIN.match(join) or _relation(text[:clocks[0][0]]) == "end":
+        return False
+    return not re.match(r"^\s*and\s*$", join, re.I) or bool(re.search(r"\bbetween\s*$", text[:clocks[0][0]], re.I))
 
 
 def half_hour_from_text(text: str, question: str, region: str | None
@@ -306,7 +338,7 @@ def half_hour_from_text(text: str, question: str, region: str | None
         return None, missing, ""
     assert day is not None
     label = " = ".join(z for _, z in zones)
-    if len(clocks) == 2 and _RANGE_JOIN.match(text[clocks[0][1]:clocks[1][0]]):
+    if len(clocks) == 2 and _is_range(text, clocks):
         (_, _, h1, m1, a1), (_, _, h2, m2, a2) = clocks
         if a1 is None and a2 is not None:  # "5:30 to 6:00 pm": the first time shares the second's half of the day
             a1 = a2 if _h24(h1, a2) * 60 + m1 < _h24(h2, a2) * 60 + m2 else ("a" if a2 == "p" else "p")
@@ -335,8 +367,8 @@ def half_hour_from_text(text: str, question: str, region: str | None
     return out, [], f"'{text}' on {day} in {label}: {rel} {iso_utc(t)} -> ({iso_utc(out[0])}, {iso_utc(out[1])}]"
 
 
-_ISSUE_WORD_RE = re.compile(r"\b(?:issued|issue|issuing|produced|prepared|released|vintage|stamped|timestamped)\b",
-                            re.I)
+_ISSUE_WORD_RE = re.compile(r"\b(?:issued|issue(?:[- ]?(?:time|timestamp|stamp))?|issuing|produced|prepared|released|"
+                            r"vintage|stamped|timestamped)\b", re.I)
 
 
 def _first_instant(seg: str, question: str, region: str | None) -> tuple[datetime | None, str]:
@@ -363,6 +395,9 @@ def issue_time_from_text(text: str, question: str, region: str | None) -> tuple[
     return _first_instant(text[m.end():], question, region) if m else (None, "")
 
 
+_NEXT_DAY_RE = re.compile(r"\b(?:next|following)\s+(?:morning|day)\b|\bovernight\b", re.I)
+
+
 def window_from_text(text: str, question: str, region: str | None) -> tuple[tuple[datetime, datetime] | None, str]:
     """An explicit window a quoted phrase states: two ISO times, or two clock times joined as a range, with date and
     zone. None otherwise."""
@@ -370,7 +405,7 @@ def window_from_text(text: str, question: str, region: str | None) -> tuple[tupl
     clocks = _clocks(text)
     if len(isos) == 2 and not clocks and isos[0] < isos[1]:
         return (isos[0], isos[1]), f"'{text}' -> ({iso_utc(isos[0])}, {iso_utc(isos[1])}]"
-    if len(clocks) != 2 or isos or not _RANGE_JOIN.match(text[clocks[0][1]:clocks[1][0]]):
+    if len(clocks) != 2 or isos or not _is_range(text, clocks):
         return None, ""
     day, zones = _day_of(text, question), _zone_for(text, question, region)
     if day is None or not zones:
@@ -382,6 +417,8 @@ def window_from_text(text: str, question: str, region: str | None) -> tuple[tupl
     if len(starts) != 1 or len(ends) != 1:
         return None, ""
     start, end = next(iter(starts)), next(iter(ends))
+    if end <= start and _NEXT_DAY_RE.search(text):  # "5 pm through 1 am the next morning"
+        end += timedelta(days=1)
     if end <= start:
         return None, ""
     return (start, end), f"'{text}' on {day} in {' = '.join(z for _, z in zones)} -> ({iso_utc(start)}, {iso_utc(end)}]"
@@ -401,24 +438,24 @@ def question_as_of(question: str, region: str | None) -> tuple[datetime | None, 
 # ------------------------------------------------------------------------------------------------ cues (bounded)
 
 _FC_WORD_RE = re.compile(r"\b(?:forecasts?|poe ?(?:10|50|90)|predictions?|projections?|outlooks?|pre-?dispatch)\b", re.I)
-# one run singled out: an ordinal before a singular run word; a singular run word ordered before the half-hour, an
-# interval or a time ("issued ahead of it", "prior to the 6 pm half-hour"); or a run named by its issue time
-_TARGET = (r"(?:it|(?:the|that|this|its)\s+(?:[\w:.()-]+\s+){0,3}?(?:half[- ]hours?|intervals?|periods?|slots?|targets?|"
-           r"window)\b|\d{1,2}(?::\d\d)?\s*(?:am|pm|a\.m\.|p\.m\.)?|\d{4}-\d\d-\d\dT)")
-_RUN_SELECT_RE = re.compile(
-    r"\b(?:last|latest|final|most recent|newest|freshest|closing)\b(?:\s+[\w()'’-]+){0,5}?\s+"
-    r"(?:forecast|run|prediction|projection|outlook|vintage|issue)\b"
-    r"|\b(?:forecast|run|prediction|projection|outlook)\b(?:\s+[\w'’-]+){0,3}?\s+(?:just\s+|immediately\s+|right\s+)?"
-    rf"(?:before|ahead of|prior to|preceding)\s+{_TARGET}|\bpre[- ]?interval\b", re.I)
-_ISSUED_AT_CUE_RE = re.compile(r"\b(?:forecast|run|prediction|projection|outlook|vintage)\b(?:\s+[\w'’-]+){0,4}?\s+"
-                               r"(?:issued|produced|prepared|released)\s+(?:(?:at|on)\b|(?:(?:about|around|approximately|"
-                               r"roughly|circa)\s+)?\d)", re.I)
-_AVAILABILITY_RE = re.compile(r"\b(?:available|availability|public|publicly|published|publication|known|as[ -]of)\b",
-                              re.I)
+_ORDINAL_RE = re.compile(r"\b(?:last|latest|final|most recent|newest|freshest|closing)\b", re.I)
+_RUN_WORD_RE = re.compile(r"\b(?:forecast|run|prediction|projection|outlook|vintage|issued|issue)\b", re.I)
+_RUN_ONLY_RE = re.compile(r"\bruns?\b", re.I)
+# a run ordered before the half-hour, an interval, a slot or a time ("issued just ahead of it", "prior to the 6 pm
+# half-hour", "issued before the start of the half-hour ending 13:00")
+_BEFORE_TARGET_RE = re.compile(
+    r"\b(?:before|ahead of|prior to|preceding)\s+(?:it\b|(?:the|that|this|its)\s+(?:\S+\s+){0,3}?(?:half[- ]hours?|"
+    r"intervals?|periods?|slots?|targets?|window|start)\b|\d{1,2}(?::\d\d)?\s*(?:am|pm|a\.m\.|p\.m\.)?(?!\S*/)|"
+    r"\d{4}-\d\d-\d\dT)|\bpre[- ]?interval\b", re.I)
+_ISSUED_AT_CUE_RE = re.compile(r"\b(?:issued|produced|prepared|released)\s+(?:(?:at|on)\b|(?:(?:about|around|"
+                               r"approximately|roughly|circa)\s+)?\d)|\bissue[- ]?(?:time|timestamp|stamp)\b", re.I)
+_AVAILABILITY_RE = re.compile(r"\b(?:available|availability|public|publicly|published|publication|known|know|knew|"
+                              r"knows|as[ -]of)\b", re.I)
 _DEMAND_WORD_RE = re.compile(r"\b(?:demand|totaldemand|load)\b", re.I)
 _EXTREME_WORD_RE = re.compile(r"\b(?:peak|peaks|peaked|peaking|highest|maximum|max|maxed|top|topped|topping|greatest|"
-                              r"largest|record[- ](?:high|level|peak)|busiest|high[- ]?point|high[- ]?water|crest|"
-                              r"crested|summit|zenith|apex|ceiling)\b", re.I)
+                              r"largest|busiest|high[- ]?point|high[- ]?water|crest|crested|summit|zenith|apex|ceiling)\b"
+                              # "record" only as a level ("record high", "the record operational demand level")
+                              r"|\brecord\b(?=(?:\W+\w+){0,3}?\W+(?:high|level|peak|demand|load)\b)", re.I)
 _MIN_WORD_RE = re.compile(r"\b(?:lowest|minimum|min|trough|troughed|bottomed|bottom|least)\b", re.I)
 _EXTREME = (r"(?:peak(?:ed|s|ing)?|spik(?:e|ed|es|ing)|high(?:est)?|maximum|max|extreme|top(?:ped)?|record|lowest|"
             r"minimum|bottom(?:ed)?|trough|low)")
@@ -428,8 +465,10 @@ _NOT_DEMAND_PEAK = [
     re.compile(r"\b(?:highest|peak|maximum|max|top|record|greatest|largest|lowest|minimum|extreme)\s+(?:[\w$/'’-]+\s+)"
                r"{0,3}?(?:prices?|rrps?|spot prices?)\b", re.I),
     re.compile(rf"\b(?:prices?|rrps?)\b(?:\s+[\w$/'’-]+){{0,3}}?\s+{_EXTREME}\b", re.I),
-    re.compile(r"\b(?:at|in|during|for|around|near|nearest|within|with|of|to|against|before|after|across|over|"
-               r"containing|including|covering|spanning)\s+(?:the|that|this|its|their|each|a)\s+(?:same\s+)?"
+    # ("at its peak", "at its maximum" is the measure's own extreme, and stays)
+    re.compile(r"\b(?:at|in|during|for|around|near|nearest|within|with|of|to|into|towards?|up to|until|till|against|"
+               r"before|after|across|over|containing|including|covering|spanning)\s+(?:the|that|this|each|a)\s+"
+               r"(?:same\s+)?"
                r"(?:[\w'’-]+\s+){0,2}?(?:peak|maximum|spike|extreme|minimum|trough|high)s?\b", re.I),
     # an interval labelled as the (price) peak in brackets: "(the 5-minute peak)"
     re.compile(r"\(\s*(?:the|that|this|its)\s+(?:[\w'’-]+\s+){0,2}?(?:peak|maximum|spike|extreme|minimum)\s*\)", re.I),
@@ -448,18 +487,7 @@ def _without_contexts(text: str) -> str:
     return text
 
 
-def forecast_run_cue(question: str) -> str | None:
-    """A bounded lexical cue that one forecast run is asked for: a forecast word, and one run singled out by an
-    ordinal, by being before the half-hour or a time ("last_issued_before"), or by its issue time ("issued_at").
-    Wording about availability or publication asks for another selection (I-10) and does not count."""
-    if not _FC_WORD_RE.search(question) or _AVAILABILITY_RE.search(question):
-        return None
-    if _ISSUED_AT_CUE_RE.search(question):
-        return "issued_at"
-    return "last_issued_before" if _RUN_SELECT_RE.search(question) else None
-
-
-def _near(text: str, a: re.Pattern[str], b: re.Pattern[str], words: int = 8) -> bool:
+def _near(text: str, a: re.Pattern[str], b: re.Pattern[str], words: int) -> bool:
     """A match of ``a`` and one of ``b`` within ``words`` words of each other, in one sentence."""
     for sentence in re.split(r"(?<=[.?!;])\s+", text):
         toks = [(m.start(), m.end()) for m in re.finditer(r"\S+", sentence)]
@@ -473,10 +501,29 @@ def _near(text: str, a: re.Pattern[str], b: re.Pattern[str], words: int = 8) -> 
     return False
 
 
-def maximum_cue(question: str) -> bool:
-    """A bounded lexical cue that a demand measure's maximum is asked for: a demand word within eight words of a peak
-    or extreme word, once price extremes, values at a peak or in an interval, and largest changes are set aside."""
-    return _near(_without_contexts(question), _DEMAND_WORD_RE, _EXTREME_WORD_RE)
+def forecast_run_cue(question: str) -> str | None:
+    """A bounded lexical cue that one forecast run is asked for, in a question about forecasts (a forecast word, or a
+    run near an issue or order word): a run named by its issue time ("issued_at"), or singled out by an ordinal near a
+    run or issue word, or ordered before the half-hour or a time ("last_issued_before"). Wording about availability,
+    publication or what was known asks for another selection (I-10) and does not count."""
+    if _AVAILABILITY_RE.search(question):
+        return None
+    if not (_FC_WORD_RE.search(question) or _near(question, _RUN_ONLY_RE, _ISSUE_WORD_RE, 3)
+            or _near(question, _RUN_ONLY_RE, _ORDINAL_RE, 3)):
+        return None
+    if _ISSUED_AT_CUE_RE.search(question):
+        return "issued_at"
+    if _near(question, _ORDINAL_RE, _RUN_WORD_RE, 4) or (_BEFORE_TARGET_RE.search(question) and
+                                                         _near(question, _RUN_WORD_RE, _BEFORE_TARGET_RE, 4)):
+        return "last_issued_before"
+    return None
+
+
+def maximum_cue(question: str, measure: re.Pattern[str] | None = None) -> bool:
+    """A bounded lexical cue that a demand measure's maximum is asked for: a demand word (or the given measure's
+    words) within twelve words of a peak or extreme word, once price extremes, values at a peak or in an interval, and
+    largest changes are set aside."""
+    return _near(_without_contexts(question), measure or _DEMAND_WORD_RE, _EXTREME_WORD_RE, 12)
 
 
 _CLAUSE_SPLIT_RE = re.compile(r";|,?\s+\b(?:while|whereas|but|compared (?:with|to)|against|versus|vs\.?|than)\b", re.I)
@@ -486,14 +533,15 @@ def clauses(sentence: str) -> list[str]:
     return [c for c in _CLAUSE_SPLIT_RE.split(sentence) if c and c.strip()]
 
 
-def demand_extreme_words(clause: str, sentence: str) -> list[int]:
-    """For the answer backstop: where a clause states a demand maximum or minimum (the positions of its peak, maximum
-    or minimum words, when its sentence names demand), once price extremes, values at a peak and largest changes are
-    set aside. Positions are the clause's own."""
+def demand_extreme_words(clause: str, sentence: str) -> list[tuple[int, str]]:
+    """For the answer backstop: where a clause states a demand maximum or minimum ((position, "max" or "min") of its
+    peak, maximum or minimum words, when its sentence names demand), once price extremes, values at a peak and largest
+    changes are set aside. Positions are the clause's own."""
     if not _DEMAND_WORD_RE.search(sentence):
         return []
     c = _without_contexts(clause)
-    return sorted(m.start() for rx in (_EXTREME_WORD_RE, _MIN_WORD_RE) for m in rx.finditer(c))
+    return sorted([(m.start(), "max") for m in _EXTREME_WORD_RE.finditer(c)] +
+                  [(m.start(), "min") for m in _MIN_WORD_RE.finditer(c)])
 
 
 _RUN_CLAIM_RE = re.compile(r"\b(?:final|last|latest|most recent|newest)\b(?:\s+[\w()'’-]+){0,4}?\s+(?:forecast|run)s?\b"
@@ -534,32 +582,49 @@ def _iso_or_none(s: str | None) -> datetime | None:
         return None
 
 
+def _grounded_rule(model: RoutedForecastRun | None, q: str) -> bool:
+    """Whether the routing model's selection rule is shown by the question's own words: quoted verbatim; for the last
+    run issued before the half-hour, an order word and no availability wording, in a question about forecasts or runs;
+    for a run named by its issue time, an issue word."""
+    if model is None or model.selection not in ("last_issued_before", "issued_at"):
+        return False
+    text = str(model.selection_text or "")
+    if not quoted_in(text, q):
+        return False
+    if model.selection == "issued_at":
+        return bool(_ISSUE_WORD_RE.search(text) or _ISSUED_AT_CUE_RE.search(text))
+    return bool(_ORDER_RE.search(text)) and not _AVAILABILITY_RE.search(text) and \
+        bool(_FC_WORD_RE.search(q) or _RUN_ONLY_RE.search(text))
+
+
 def resolve_run(q: str, region: str | None, routed: RoutedRequest | None) -> RunRequest:
     """The forecast run a question asks for, from the question parser and the routing model's grounded reading."""
     out = RunRequest()
-    if AS_OF_Q_RE.search(q):  # what was public as of a cutoff: the availability selection (I-10)
-        out.status, out.detected_by = "as_of_availability", ["question"]
-        return out
-    parsed = requested_forecast(q)
     model = routed.forecast_run if routed is not None else None
+    cue_q = q
+    if AS_OF_Q_RE.search(q):
+        # what was public as of a cutoff is the availability selection (I-10), unless the question also singles out a
+        # run by issue order ("as of 14:00, which was the latest run issued before it"): that run, under the cutoff,
+        # as with a cutoff given in the request (K07)
+        cue_q = AS_OF_Q_RE.sub(lambda m: " " * len(m.group(0)), q)
+        by_issue = (forecast_run_cue(cue_q) == "last_issued_before" and bool(_BEFORE_TARGET_RE.search(cue_q))) or (
+            _grounded_rule(model, q) and model is not None and model.selection == "last_issued_before"
+            and bool(_BEFORE_TARGET_RE.search(str(model.selection_text))))
+        if not by_issue:  # "the newest run as of 22:00" is the newest public by then
+            out.status, out.detected_by = "as_of_availability", ["question"]
+            return out
+    parsed = requested_forecast(q)
     out.detected_by = [s for s, hit in (("question", parsed is not None),
                                         ("route_model", model is not None and model.selection != "none"),
-                                        ("cue", forecast_run_cue(q) is not None)) if hit]
+                                        ("cue", forecast_run_cue(cue_q) is not None)) if hit]
     if not out.detected_by:
         return out
     # -- the selection rule
     rules: dict[str, Source] = {}
     if parsed is not None:
         rules[parsed.run] = Source("question", q, "question parser")
-    if model is not None and model.selection in ("last_issued_before", "issued_at"):
-        text = str(model.selection_text or "")
-        if model.selection == "last_issued_before":
-            ok = (quoted_in(text, q) and bool(_ORDER_RE.search(text)) and not _AVAILABILITY_RE.search(text)
-                  and bool(_FC_WORD_RE.search(q) or re.search(r"\brun\b", text, re.I)))
-        else:
-            ok = quoted_in(text, q) and bool(_ISSUE_WORD_RE.search(text))
-        if ok:
-            rules.setdefault(model.selection, Source("route_model", text))
+    if model is not None and _grounded_rule(model, q):
+        rules.setdefault(model.selection, Source("route_model", str(model.selection_text)))
     elif model is not None and model.selection == "as_of_availability" and not rules:
         text = str(model.selection_text or "")
         if quoted_in(text, q) and _AVAILABILITY_RE.search(text):
@@ -569,7 +634,7 @@ def resolve_run(q: str, region: str | None, routed: RoutedRequest | None) -> Run
         out.status, out.conflicts = "conflict", [f"which run: {' or '.join(sorted(rules))}"]
         return out
     if not rules:  # the cue names no rule by itself; for a run named by an issue time, the issue time is what is missing
-        cue = forecast_run_cue(q)
+        cue = forecast_run_cue(cue_q)
         out.status, out.missing = "unresolved", ["issue_time" if cue == "issued_at" else "run_rule"]
         return out
     out.selection, out.provenance["selection"] = next(iter(rules.items()))
@@ -610,8 +675,10 @@ def resolve_run(q: str, region: str | None, routed: RoutedRequest | None) -> Run
                 out.conflicts = [f"target half-hour: the words '{text}' read as {_span(hh)}, the route model gave an "
                                  f"end of {iso_utc(claimed_end)}"]
                 return out
-            if hh is not None:
+            if hh is not None and claimed_end is not None:  # read from its words, and what the model read too
                 found["route_model"] = (hh, Source("route_model", text, conv))
+            elif hh is not None:
+                model_missing = ["half_hour"]
     if len(found) == 2 and not _same(found["question"][0], found["route_model"][0]):
         out.status = "conflict"
         out.conflicts = [f"target half-hour: {_span(found['question'][0])} (question parser) or "
@@ -624,6 +691,26 @@ def resolve_run(q: str, region: str | None, routed: RoutedRequest | None) -> Run
         return out
     out.status = "bound"
     return out
+
+
+_WHOLE_DAY_RE = re.compile(r"\b(?:whole|entire|full)\s+(?:of\s+)?(?:the\s+)?day\b|\bthe\s+whole\s+of\b|\ball\s+(?:of\s+)?"
+                           r"(?:the\s+)?day\b|\bdaily\b|\bthroughout\s+the\s+day\b|\b(?:the|that)\s+day['’]s\b|"
+                           r"\b(?:over|across)\s+the\s+day\b|\bmidnight\s+to\s+midnight\b", re.I)
+_MIDNIGHT_TO_MIDNIGHT_RE = re.compile(r"\bmidnight\s+to\s+midnight\b", re.I)
+_PART_OF_DAY_RE = re.compile(r"\b(?:morning|afternoon|evening|night|overnight|midday|noon|midnight|early hours|"
+                             r"peak hours|business hours)\b", re.I)
+_RELATIVE_NARROW_RE = re.compile(r"\b(?:first|last|opening|closing)\s+(?:\w+\s+)?(?:hours?|minutes?|intervals?|"
+                                 r"half[- ]hours?)\b|\bhours?\s+(?:before|after|around)\b", re.I)
+
+
+def _day_grounded(text: str, q: str) -> bool:
+    """A whole local day is shown by the quoted words: day wording or a date, with no clock time, event or part of
+    the day in them, and nothing in the question that narrows the window ("between ... and", "in the evening", "around
+    the peak"). "Midnight to midnight" is whole-day wording."""
+    t, qq = _MIDNIGHT_TO_MIDNIGHT_RE.sub(" ", text), _MIDNIGHT_TO_MIDNIGHT_RE.sub(" ", q)
+    dated = bool(_WHOLE_DAY_RE.search(text) or _DAY_WORD_RE.search(t) or _dates(t) or _DAY_MONTH_RE.search(t))
+    return dated and not _clocks(t) and not _EVENT_WORD_RE.search(t) and not _PART_OF_DAY_RE.search(t) and \
+        not _RELATIVE_NARROW_RE.search(t) and not _SUB_WINDOW_RE.search(qq)
 
 
 def resolve_maximum(q: str, req: InvestigateRequest, region: str | None, day: date | None, event: Any,
@@ -645,10 +732,14 @@ def resolve_maximum(q: str, req: InvestigateRequest, region: str | None, day: da
         text = str(model.measure_text or "")
         if quoted_in(text, q) and _MEASURE_WORDS[m].search(text) and _EXTREME_WORD_RE.search(_without_contexts(text)):
             measures.setdefault(m, Source("route_model", text))
-    if not measures:
+    # a measure with a peak word attached ("the top 5-minute TOTALDEMAND") whose maximum was not read: not dropped
+    unread = [m for m, rx in _MEASURE_WORDS.items() if m not in measures and
+              _near(_without_contexts(q), rx, _EXTREME_WORD_RE, 4)]
+    if not measures or unread:
         out.status, out.missing = "unresolved", ["measure"]
         # a measure is named, but no maximum of it was read: the wording was not read, rather than the measure missing
-        out.unread = parsed != ["demand"] and bool(TOTAL_DEMAND_Q_RE.search(q) or OPERATIONAL_DEMAND_Q_RE.search(q))
+        out.unread = bool(unread) or (parsed != ["demand"] and bool(TOTAL_DEMAND_Q_RE.search(q) or
+                                                                    OPERATIONAL_DEMAND_Q_RE.search(q)))
         return out
     out.measures = list(measures)
     out.provenance["measure"] = next(iter(measures.values()))
@@ -661,15 +752,26 @@ def resolve_maximum(q: str, req: InvestigateRequest, region: str | None, day: da
                         Source("question", q, f"whole local day {day} in {region}"))
     elif parsed_kind == "event":
         kinds["event"] = (ev_window, Source("question", q, "the window of the event the resolution holds"))
+    if "day" not in kinds and _WHOLE_DAY_RE.search(q) and not _EVENT_WINDOW_RE.search(q) and \
+            not _SUB_WINDOW_RE.search(_MIDNIGHT_TO_MIDNIGHT_RE.sub(" ", q)):  # "over the whole of 20 August 2026"
+        kinds["day"] = (local_day_window(day, region) if day is not None and region else None,
+                        Source("question", q, f"whole-day wording: whole local day {day} in {region}"))
+    if _WHOLE_DAY_RE.search(q) and _EVENT_WINDOW_RE.search(q):  # both named: two windows, unless they are one
+        kinds.setdefault("day", (local_day_window(day, region) if day is not None and region else None,
+                                 Source("question", q, f"whole local day {day} in {region}")))
+        kinds.setdefault("event", (ev_window, Source("question", q, "the window of the event the resolution holds")))
+        if not _same(kinds["day"][0], kinds["event"][0]):
+            out.status, out.conflicts = "conflict", ["window: the whole local day or the event window"]
+            return out
     if model is not None and model.kind == "maximum" and model.window in ("whole_local_day", "event", "explicit"):
         text = str(model.window_text or "")
-        if quoted_in(text, q) and not _NARROW.search(text):
-            if model.window == "whole_local_day" and _DAY_WORD_RE.search(text):
+        if quoted_in(text, q):
+            if model.window == "whole_local_day" and _day_grounded(text, q):
                 d = _day_of(text, q)
                 if d is not None and region and (day is None or d == day):
                     kinds.setdefault("day", (local_day_window(d, region),
                                              Source("route_model", text, f"whole local day {d} in {region}")))
-            elif model.window == "event" and _EVENT_WORD_RE.search(text):
+            elif model.window == "event" and _EVENT_WORD_RE.search(text) and not _RELATIVE_NARROW_RE.search(text):
                 kinds.setdefault("event", (ev_window, Source("route_model", text, "the window of the event held")))
             elif model.window == "explicit":
                 w, conv = window_from_text(text, q, region)
@@ -681,12 +783,15 @@ def resolve_maximum(q: str, req: InvestigateRequest, region: str | None, day: da
                     return out
                 if w is not None and c0 is not None:
                     kinds.setdefault("explicit", (w, Source("route_model", text, conv)))
+    windows = {k: (w, src) for k, (w, src) in kinds.items() if w is not None}
+    if len(windows) == 1:
+        kind, (w, _) = next(iter(windows.items()))
+        out.stated = (kind, w)
     if req.window_start_utc and req.window_end_utc:  # the request's window is authoritative
         out.window_kind, out.status = "explicit", "bound"
         out.window = (parse_iso(req.window_start_utc), parse_iso(req.window_end_utc))
         out.provenance["window"] = Source("request", "window_start_utc, window_end_utc")
         return out
-    windows = {k: (w, src) for k, (w, src) in kinds.items() if w is not None}
     if len({w for w, _ in windows.values()}) > 1:
         out.status = "conflict"
         out.conflicts = ["window: " + " or ".join(f"{k} {_span(w)}" for k, (w, _) in sorted(windows.items()))]
@@ -714,14 +819,13 @@ def request_field_notes(q: str, req: InvestigateRequest, region: str | None, day
         elif stated is None and words and _clocks(words):
             notes.append(f"The as-of cutoff given with the request, {iso_utc(given)}, is applied. The question's own "
                          f"wording ('{words}') also names an as-of time, which could not be compared with it.")
-    if req.window_start_utc and req.window_end_utc and maximum.status == "bound":
+    if req.window_start_utc and req.window_end_utc and maximum.status == "bound" and maximum.stated is not None:
         given_w = (parse_iso(req.window_start_utc), parse_iso(req.window_end_utc))
-        kind = maximum_window_kind(q, InvestigateRequest(question=q))
-        other = local_day_window(day, region) if kind == "day" and day is not None and region else None
-        if kind in ("day", "event") and not _same(other, given_w):
+        kind, stated_w = maximum.stated
+        if not _same(stated_w, given_w):
+            what = {"day": "the whole local day", "event": "the event window"}.get(kind, "another window")
             notes.append(f"The maximum is taken over the window given with the request, {_span(given_w)}. The "
-                         f"question's own wording names {'the whole day' if kind == 'day' else 'the event window'}"
-                         + (f" {_span(other)}" if other else "") + ", which differs.")
+                         f"question's own wording names {what}, {_span(stated_w)}, which differs.")
     return notes
 
 

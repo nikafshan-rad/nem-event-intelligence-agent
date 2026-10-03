@@ -143,7 +143,8 @@ def mutations(route: dict[str, Any], question: str) -> dict[str, dict[str, Any]]
     return out
 
 
-def main() -> int:
+def run() -> dict[str, Any]:
+    """Every case three ways: the rows and the summary per mode."""
     matrix = json.loads((HERE / "matrix.json").read_text())
     fields = {c["id"]: c["route"] for c in json.loads((HERE / "fields.json").read_text())["cases"]}
     sel = load_selection()
@@ -175,9 +176,14 @@ def main() -> int:
     for mode in ("a", "b"):
         rs = [r for r in rows if r["mode"].startswith(mode)]
         summary[mode]["supplied_of_expected_bound"] = f"{sum(r['verdict'] == 'SUPPLIED' for r in rs)}/{expected_bound}"
-    out = {"matrix_sha256": hashlib.sha256((HERE / "matrix.json").read_bytes()).hexdigest(),
-           "fields_sha256": hashlib.sha256((HERE / "fields.json").read_bytes()).hexdigest(),
-           "summary": summary, "rows": rows}
+    return {"matrix_sha256": hashlib.sha256((HERE / "matrix.json").read_bytes()).hexdigest(),
+            "fields_sha256": hashlib.sha256((HERE / "fields.json").read_bytes()).hexdigest(),
+            "summary": summary, "rows": rows}
+
+
+def main() -> int:
+    out = run()
+    summary = out["summary"]
     Path(sys.argv[1]).write_text(json.dumps(out, indent=1, default=str) + "\n")
     for mode, s in summary.items():
         print(mode, "passes" if s["passes"] else "FAILS", s["counts"], s.get("supplied_of_expected_bound", ""))
