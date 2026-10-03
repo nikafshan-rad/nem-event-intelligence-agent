@@ -32,7 +32,10 @@ from nem_agent.agent.request import (
 )
 from nem_agent.evidence import EvidenceRegistry
 from nem_agent.report import NumericClaim, Observation
+from nem_agent.results import ResultRegistry
+from nem_agent.selection import load_selection
 from nem_agent.service import investigate
+from nem_agent.store import Store
 from nem_agent.validation import validate
 from tests.provider.fake_model import FakeModel
 
@@ -211,10 +214,14 @@ def _resolution(as_of: str | None = None) -> Resolution:
 
 
 def _dispatcher(series: list[dict] | None, status: str = "ok", reason: str | None = None):
+    """A stand-in dispatcher returning SYNTHETIC series. Since D24 the computation also submits its typed result to the
+    investigation's result registry, which re-derives it from the pinned store: a synthetic series is not the pinned
+    data, so its result is reported as failed and not admitted, while the binding read here is unchanged."""
     def call(name, args, *, call_id=None, origin="controller"):
         return SimpleNamespace(status=status, call_id=call_id, blocked_reason=reason,
                                data={"series": series or []}, view={"excluded_not_yet_available_at_as_of": 0})
-    return SimpleNamespace(call=call)
+    return SimpleNamespace(call=call, store=Store(), selection=load_selection(), registry=EvidenceRegistry(),
+                           results=ResultRegistry(), trace=None)
 
 
 def _report(summary: list[str], claims: list[tuple[str, float]], reg: EvidenceRegistry):

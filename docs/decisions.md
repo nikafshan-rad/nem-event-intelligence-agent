@@ -355,3 +355,106 @@ Each entry: the decision, why, the evidence, and what it costs. Departures from
   request input, instruction or key is recorded: only the response's own visible output, bounded.
 - **Cost.** Trace events grow by a few hundred characters per model call, and by at most about 1 kB per cut-off
   response.
+
+## D24. Typed analytical results: the foundation, for demand maxima (2026-10-03)
+
+Acceptance check recorded before implementation. A foundation change: it claims no improvement in Live answer quality.
+
+- **Problem.** A result the code computes (the I-17 demand maximum) exists only as an untyped dict on the in-memory
+  resolution and as a sentence in the summary. Its provenance is a private runtime field (I-21) that a JSON round trip
+  loses, and nothing can tell a later reader whether a result in a saved or exported report is still what the pinned
+  data gives.
+- **Decision** (`results.py`; `agent/demand_max.py` produces it; one bounded PR):
+  - **A versioned contract,** `AnalyticalResult` (`analytical_result/1`), kind `demand_maximum` only: status
+    (`established`, `not_established`, `unavailable`), measure, metric, unit, region, window, cutoff, coverage
+    (interval length, intervals in the window, held, complete, excluded by the cutoff), the maximum and its interval
+    ends (ties kept), durable source-row IDs, deterministic limitations, and a digest of its content. An incomplete
+    window gives no maximum: the highest value held is carried apart, as not a maximum. An unavailable result carries
+    no value, only its reason.
+  - **Identity:** `result_id` hashes the request (question and explicit fields, not the mode), kind, measure, region,
+    window, cutoff, calculation version and the pinned data version; `computation_id` hashes the same without the
+    request. Evidence IDs and the tool-call ID are in-run references, kept apart and outside the identity.
+  - **Admission:** only the runtime verifier admits a result to the investigation's verified-result registry. In the
+    run, it re-derives the result from the pinned store with the same tool code and checks the in-run evidence
+    references. The outcome is `verified`, `failed` (the content does not match), or `unverifiable` (the store, its
+    pinned data version or the calculation version is not available); only `verified` is admitted. A type, or a field
+    saying "verified", establishes nothing.
+  - **Serialisation:** the report gains an additive `results` field: each result with the producing server's
+    verification statement. Loading JSON never admits anything: `verify_loaded` re-derives the result against the
+    pinned store, and a result whose store or data version is unavailable is `unverifiable`, never verified.
+  - **API and exported records:** verification happens server-side, inside `investigate`, where the pinned store is.
+    Clients need no store: they receive the result and the server's statement at response time. Saved and exported
+    records are data; their statements are not trusted when read back.
+  - **The model:** its output schema and repair patches cannot carry, create or target results; only the controller
+    sets them.
+  - **Compatibility:** a compatibility adapter turns each result back into exactly today's binding dict, so the
+    validator, the controller's sentence, the fallback and every displayed answer are unchanged.
+- **Not in this change:** the renderer, UI sections, the model's interpretation schema, prompts, fallback behaviour,
+  routing, scoring, and other result kinds.
+- **Acceptance check** (offline):
+  1. **Contract:** every computed maximum, in Live and Replay, yields a result; established, incomplete (no maximum,
+     highest held apart) and unavailable (no value) are explicit; ties keep every interval.
+  2. **Identity:** the same inputs give the same `result_id` across runs; changing any identity field changes it; the
+     transient references do not.
+  3. **Admission:** an in-run result is admitted only when re-derivation from the pinned store agrees; a tampered
+     in-run result is `failed` and not admitted.
+  4. **Loaded JSON:** a round trip loses nothing; re-verification against the pinned store gives `verified`. Each
+     field tampered alone (value, ties, interval ends, coverage, status, region, measure, window, cutoff, source rows,
+     limitations, identifiers, digest) gives `failed`; with the digest recomputed, re-derivation still gives `failed`.
+     No store, another data version, or an unknown calculation version gives `unverifiable`. Neither is admitted.
+  5. **As-of:** a result under a cutoff re-verifies only under the same cutoff; intervals excluded by it are counted.
+  6. **Unavailable data:** an unpinned window or a failed or empty call gives an `unavailable` result with its reason
+     and no value, which re-verifies as unavailable.
+  7. **The model:** a model draft or repair patch carrying or targeting results is rejected or ignored.
+  8. **Compatibility:** the adapter's binding equals today's for every saved replay holding a maximum and for scripted
+     ties, incomplete, unavailable and as-of cases. A both-ways replay of every saved Live record shows no change in
+     displayed answers, validation outcomes or fallback classification (only the additive `results` field and its
+     trace event); every record that cannot be replayed is accounted for; the Replay evaluation and the safety suite
+     are unchanged; all tests, ruff and mypy pass.
+- **Result** (offline; branch `feat/analytical-result-foundation`; the acceptance check above, unchanged):
+  1. **Contract and computation:** `results.py`; `demand_max.compute_result` and `result_from_output` produce the
+     result, and `compute` returns today's binding through `binding_from_result`. Ties keep every interval; an
+     incomplete window carries no maximum, only the highest value held, apart; unavailable data carries no value.
+  2. **Admission:** the investigation's `ResultRegistry` (on the dispatcher) admits only what the verifier calls
+     `verified`. A `VerifiedResult` cannot be created anywhere else (a `PermissionError`). In the run, the result is
+     re-derived from the pinned store with the same tool code and its in-run evidence checked. An error while
+     re-deriving is `unverifiable`, never verified and never a mismatch.
+  3. **Serialisation:** `results` on the report holds each result with the server's statement; a JSON round trip is
+     lossless; `verify_loaded` ignores the statement and re-derives. No store, another data version, an unknown
+     calculation version or a run-time policy block gives `unverifiable`.
+  4. **Tests:** 63 new (`tests/provider/test_analytical_results.py`). They cover:
+     - the contract, identity (the same across runs; each identity field changes it; transient references do not),
+       and the JSON round trip;
+     - the server's statement ignored, 15 single-field tamperings and 8 with the digest and identifiers recomputed;
+     - `unverifiable` cases never admitted, a forged in-run result and another run's evidence refused, and only the
+       registry creating a verified result;
+     - an as-of cutoff inside the window, ties, an incomplete window, unavailable, refused and empty calls, an
+       unpinned window, and a run-time block;
+     - model drafts, repair patches and a forged draft field unable to set results; the API schema; frozen results;
+     - verification deciding admission only; an error while re-deriving.
+  5. **Compatibility:**
+     - **Saved replays:** the adapter's binding equals the pre-D24 calculation (kept as a reference copy in the
+       tests) for every saved replay holding a maximum (Z04 ×2, K11 ×3, K09 ×3), for Replay Z04 under an as-of
+       cutoff, and for synthetic ties, incomplete, unavailable and unpinned cases.
+     - **Both ways** (`main` `77d2095` against this branch): 215 records replayed. The 8 holding a maximum carry one
+       result each (established, verified in the run), the other 207 an empty `results` field, and there are
+       **0 other changes**: displayed answers, validation outcomes and fallback classifications are identical.
+     - **Not replayed:** the same 217 files as in I-21, each accounted for; none holds a computed maximum.
+     - **Other suites:** the Replay evaluation and the safety suite are identical (timestamps and latencies masked).
+       1796 tests passed; ruff and mypy are clean.
+  6. **One existing test support changed:** the I-17 tests' stand-in dispatcher (`test_requested_maximum.py`) now
+     has the store, selection, evidence registry, result registry and trace every real dispatcher has. No assertion
+     changed. Its synthetic series' results are reported as failed and not admitted, while the bindings it checks are
+     unchanged.
+- **Limitations:**
+  - **Nothing reads the registry yet.** Verification decides admission only: the binding, the controller's sentence,
+    the validator and the fallback are unchanged and not gated by it. Gating is the renderer migration's work.
+  - **The digest detects edits, not forgery.** Trust comes only from re-derivation, which needs the pinned store at
+    the same data version; anywhere else a result is `unverifiable`.
+  - **The request in the identity** is its question text and explicit fields: a reworded question gives another
+    `result_id`, but the same `computation_id`.
+  - **Cost:** one extra store query per computed maximum per investigation.
+  - **Records saved before this change** have no `results`.
+  - **Limitations are not displayed:** their deterministic texts are not shown anywhere yet.
+  - **Scope:** only demand maxima.
+  - **No quality claim:** this is not a claim of better Live answers; Live is unverified.

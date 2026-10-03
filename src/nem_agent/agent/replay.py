@@ -296,7 +296,7 @@ class ReplayController:
             as_of=iso_utc(res.as_of) if res.as_of else None, event_window=ew, headline=headline, summary=summary,
             observations=comp.observations, citations=comp.citations, numeric_claims=comp.claims,
             missing_evidence=list(dict.fromkeys(missing)), source_manifest=manifest, trace_id=self.d.trace.trace_id,
-            versions=self.versions, generator=CONTROLLER_VERSION, **kw)
+            versions=self.versions, generator=CONTROLLER_VERSION, results=self.d.results.reported(), **kw)
         # provenance (I-21): every note in a Replay answer is written by the code; a maximum line counts only where it
         # was put in this report's summary
         out._provenance = {
