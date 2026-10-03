@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import contextlib
 import functools
+import json
 import re
 import unicodedata
 from collections.abc import Iterable, Sequence
@@ -1131,6 +1132,190 @@ def requested_interval_violations(report: InvestigationReport, registry: Evidenc
     return out
 
 
+# -- what an aggregate over intervals covers (I-20) -----------------------------------------------------------------
+# Live check of the v12 routing extraction (2026-10-03), K05: "the run's MAE for the 24-hour target window as 10.0 MW";
+# the MAE was the mean over one paired half-hour of a 12-hour window of 24. An aggregate now carries its coverage
+# (``evidence.aggregate_coverage``: the requested window, the intervals included, expected and included counts, interval
+# length, runs and gaps), and statements of its duration, interval count and completeness are read against it.
+_DASHES = "\\-\u2010\u2011\u2012\u2013\u2014\u2015"  # for character classes, the hyphen escaped
+_NUMBER_WORDS = {"a single": 1, "single": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
+                 "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12, "twenty-four": 24, "forty-eight": 48}
+_NUM = (r"\d+(?:\.\d+)?|a single|single|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|"
+        rf"twenty[{_DASHES} ]four|forty[{_DASHES} ]eight")
+_UNITS = rf"half[{_DASHES} ]?hours?|intervals?|targets?|pairs?|periods?|values?|prices?|readings?"
+# "20 half-hours", "1 of 24 half-hours", "one of the twenty-four half-hours", "288 5-minute prices"
+_COUNT_RE = re.compile(rf"(?<![\w.:{_DASHES}])(?P<n>{_NUM})\s+(?:of\s+(?:the\s+)?(?:window's\s+)?(?P<of>{_NUM})\s+)?"
+                       rf"(?:(?!(?:hours?|hrs?|minutes?|mins?|of)\b)[\w'’{_DASHES}]+\s+){{0,2}}?(?P<noun>{_UNITS})\b",
+                       re.I)  # the words between are adjectives ("paired"), never a unit ("6 hours of pairs")
+# "24-hour", "over 12 hours", "a 30-minute window"; "the (whole) day"; "the half-hour"
+_DURATION_RE = re.compile(rf"(?<![\w.:{_DASHES}])(?P<n>{_NUM})[{_DASHES} ]?(?P<unit>hours?|hrs?|minutes?|mins?)\b"
+                          rf"|\b(?P<day>(?:the|a|one|whole|full|entire|complete|that|this)\s+(?:(?:whole|full|entire|"
+                          rf"complete|local|trading|calendar)\s+)?day)\b(?![{_DASHES} ]?ahead|'s\s+ahead)"
+                          rf"|\b(?P<half>(?:the|a|one|single|that|this)\s+(?:single\s+)?half[{_DASHES} ]?hour)\b(?!ly)",
+                          re.I)
+_COVER_LEAD_RE = re.compile(r"\b(?:over|across|for|during|covering|covers|covered|spanning|spans|within|throughout|in|"
+                            r"from)\s+(?:(?:the|a|an|its|this|that|all|only|whole|full|entire)\s+){0,2}$", re.I)
+_WINDOW_NOUN_RE = re.compile(rf"^[{_DASHES} ]?(?:\s*(?:target|comparison|analysis|forecast|time|rolling)\s+)?"
+                             r"(?:window|period|span|stretch|horizon|range|day)\b", re.I)
+_AGG_NOUN_RE = re.compile(rf"^[{_DASHES} ]?\s*(?:MAE|mean|average|error|bias)\b", re.I)
+_LEAD_RE = re.compile(rf"^[{_DASHES} ]?\s*(?:ahead|before|earlier|later|lead|in advance|after|prior|old|beforehand)\b",
+                      re.I)
+_COMPLETE_RE = re.compile(rf"\b(?:over|across|for|from|covering|covers|covered|spanning|in|throughout|using|of)\s+"
+                          rf"(?:the\s+)?(?:all|every|each|whole|entire|full|complete)\s+(?:of\s+the\s+)?(?:(?:{_NUM})\s+)?"
+                          rf"(?:[\w'’{_DASHES}]+\s+){{0,2}}?(?:{_UNITS}|window|day|period|range|horizon|series)\b"
+                          r"|\b(?:full|complete)\s+coverage\b|\bfully\s+cover\w*", re.I)
+_CONTINUOUS_RE = re.compile(r"\b(?:continuous(?:ly)?|contiguous|consecutive|unbroken|uninterrupted|back-to-back)\b", re.I)
+_NEGATED_RE = re.compile(r"\b(?:not|no|never|without|only|just|partial(?:ly)?|incomplete|except|missing|lacking|fewer|"
+                         r"less than|rather than|instead of)\b|n't\b", re.I)
+# a description of the included set itself: "the paired half-hours", "with published actuals", "public by the cutoff"
+_INCLUDED_SET_RE = re.compile(rf"\b(?:paired|aligned|compared|matched|available|eligible|published|public)\s+"
+                              rf"(?:target\s+)?(?:{_UNITS})|\bwith\s+(?:a\s+|both\s+(?:a\s+)?)?(?:pairs?|forecasts?\s+and|"
+                              r"published\s+actuals?|actuals?)\b|\bthat\s+had\s+(?:a\s+)?pairs?|\b(?:public|available|"
+                              r"published)\s+by\s+(?:the\s+)?(?:cutoff|as[-\s]of)", re.I)
+_AGG_WORDS = {"mae_mw": re.compile(r"\bMAE\b|\bmean absolute (?:forecast )?error\b", re.I),
+              "mean_error_mw": re.compile(r"\bmean (?:signed )?error\b|\bbias\b|\baverage error\b", re.I),
+              "mean_dispatch_rrp": re.compile(r"\b(?:mean|average)\s+(?:(?:5-minute|five-minute|dispatch)\s+)*"
+                                              r"(?:price|RRP)\b", re.I)}
+_AGG_NAMES = {"mae_mw": "the MAE", "mean_error_mw": "the mean error", "n_aligned_half_hours": "the paired half-hours",
+              "mean_dispatch_rrp": "the mean dispatch price"}
+
+
+def _count(word: str) -> float:
+    w = re.sub(rf"[{_DASHES} ]", "-", word.lower())
+    return float(_NUMBER_WORDS.get(w, _NUMBER_WORDS.get(w.replace("-", " "), 0)) or word)
+
+
+def _coverage_text(cov: dict[str, Any]) -> str:
+    """The coverage, in words: the included and expected counts in the window, and where the included ones are."""
+    inc, exp, mins = cov["intervals_included"], cov["intervals_expected"], cov["interval_minutes"]
+    w0, w1 = cov["window_utc"]
+    where = ("" if cov["complete"] else
+             f" (ending {', '.join(cov['included_ends_utc'])})" if inc <= 3 else
+             f" ({len(cov['runs_utc'])} separate run(s), {len(cov['gaps_utc'])} gap(s))")
+    cut = cov.get("excluded_by_as_of")
+    return (f"{inc} of the {exp} {mins}-minute intervals of {w0} to {w1}{where}" +
+            (f"; {cut} more were left out by the as-of cutoff" if cut else ""))
+
+
+def _coverage_problem(scope: str, offset: int, cov: dict[str, Any], stated: list[_Stated]) -> str | None:
+    """The first statement in ``scope`` (an aggregate's clauses) that its coverage does not support, quoted, or None."""
+    inc, exp, mins = cov["intervals_included"], cov["intervals_expected"], cov["interval_minutes"]
+    w0, w1 = (parse_iso(t) for t in cov["window_utc"])
+    window = round((w1 - w0) / timedelta(minutes=1))
+    runs = [(parse_iso(a), parse_iso(b)) for a, b in cov["runs_utc"]]
+    counts = [(m, _count(m.group("n")), _count(m.group("of")) if m.group("of") else None)
+              for m in _COUNT_RE.finditer(scope)]
+    qualified = bool(_INCLUDED_SET_RE.search(scope)) or any(n == inc and of in (None, exp) for _, n, of in counts)
+    for m, n, of in counts:
+        if (of is not None and (n != inc or of != exp)) or \
+                (of is None and n != inc and not (n == exp and (cov["complete"] or qualified))):
+            return m.group(0)
+    if _NEGATED_RE.search(scope):  # "not the whole window", "only 1 of …": no claim of more
+        return None
+    for m in _DURATION_RE.finditer(scope):
+        before, after = scope[:m.start()], scope[m.end():]
+        if _LEAD_RE.match(after):
+            continue
+        if m.group("day"):
+            minutes = 1440
+        elif m.group("half"):
+            minutes = 30
+        else:
+            minutes = round(_count(m.group("n")) * (60 if m.group("unit").lower().startswith("h") else 1))
+        lead, noun = bool(_COVER_LEAD_RE.search(before)), bool(_WINDOW_NOUN_RE.match(after))
+        if not (lead or noun or (_AGG_NOUN_RE.match(after) and minutes != mins)):
+            continue  # an interval length ("30-minute pairs", "five-minute prices"), not coverage
+        if (minutes == window and (cov["complete"] or qualified)) or \
+                ((cov["contiguous"] or qualified) and minutes == inc * mins):
+            continue
+        return m.group(0)
+    for st in stated:
+        if st.last is None or not offset <= st.start < offset + len(scope):
+            continue
+        lo, hi = sorted((st.first.near(w1), st.last.near(w1)))
+        if ((lo, hi) == (w0, w1) and (cov["complete"] or qualified)) or (lo, hi) in runs or \
+                (qualified and w0 <= lo and hi <= w1):
+            continue
+        return st.label
+    if (whole := _COMPLETE_RE.search(scope)) and not cov["complete"] and not _INCLUDED_SET_RE.search(whole.group(0)):
+        return whole.group(0)
+    if (unbroken := _CONTINUOUS_RE.search(scope)) and not cov["contiguous"]:
+        return unbroken.group(0)
+    return None
+
+
+def aggregate_coverage_violations(report: InvestigationReport, registry: EvidenceRegistry,
+                                  sentences: list[tuple[str, str]], numbers: Any) -> list[Violation]:
+    """``AGGREGATE_COVERAGE_MISMATCH`` (I-20): a statement of an aggregate's duration, interval count or completeness
+    that its coverage does not support. The model's own text is read as written: every narrative item and caveat, the
+    headline I-3c replaced, and each numeric claim's own text.
+
+    - **The aggregate** is the one a number in the sentence traces to (its ``[evNNNN]`` marker or claim), or the one a
+      clause names ("the MAE") when the answer uses only one of that kind; for a claim's own text, its evidence.
+    - **Its clauses:** the number's clause and the clauses around it that hold no other traced number.
+    - **The rules** (``_coverage_problem``):
+      - **a count** ("over 24 half-hours", "1 of 24 half-hours") is the intervals included, and an "of N" those
+        expected; the expected count stands alone only for a complete coverage, or beside the included count;
+      - **a duration or a time range** ("24-hour", "over 12 hours", "the day", "20:00Z to 08:00Z") is one contiguous
+        run of included intervals, or the window when every interval of it is included. Partial or gapped coverage may
+        be described by its window when the clauses also give the included count or name the included set ("the
+        paired half-hours");
+      - **completeness** ("all", "every", "the whole", "full") needs every expected interval; **continuity**
+        ("continuous", "consecutive") needs no gap.
+    - **Not coverage claims:** lead times ("a day ahead"), an interval length ("30-minute pairs"), negated or limited
+      statements ("not the whole window", "only …"), and durations outside the aggregate's clauses."""
+    used = {o.evidence_id for o in report.observations} | {c.evidence_id for c in report.numeric_claims}
+    fc = report.forecast_comparison
+    used |= {e for e in ((fc.mae_evidence_id, fc.mean_error_evidence_id) if fc else ()) if e}
+    aggs = {e: ev for e in used if (ev := registry.get(e)) is not None and ev.coverage}
+    if not aggs:
+        return []
+    out: list[Violation] = []
+    seen: set[tuple[str, str]] = set()
+
+    def flag(where: str, sentence: str, ev: Any, phrase: str) -> None:
+        if (where, ev.evidence_id) in seen:
+            return
+        seen.add((where, ev.evidence_id))
+        out.append(Violation("AGGREGATE_COVERAGE_MISMATCH", "critical",
+                             f"{_item(report, where, sentence)}: states “{phrase}” for "
+                             f"{_AGG_NAMES.get(ev.metric, ev.metric)} ({ev.evidence_id}), but it was computed from "
+                             f"{_coverage_text(ev.coverage)}. Describe it by what it was computed from, for example "
+                             "'over the paired half-hour(s)'"))
+
+    for c in report.numeric_claims:
+        ev = aggs.get(c.evidence_id)
+        if ev is not None and ev.coverage and (phrase := _coverage_problem(c.text, 0, ev.coverage,
+                                                                           _stated_times(c.text))):
+            flag(c.claim_id, c.text, ev, phrase)
+    for where, sentence in sentences:
+        stated = _stated_times(sentence)
+        cuts = _clause_cuts(sentence, stated)
+        bounds = [0, *cuts, len(sentence)]
+
+        def clause(pos: int, cuts: list[int] = cuts) -> int:
+            return sum(1 for x in cuts if x < pos)
+        traced = [(a, evs) for _, a, _, evs in _traced(sentence, numbers(sentence), report, registry) if evs]
+        with_numbers = {clause(a) for a, _ in traced}
+        found: list[tuple[Any, int]] = [(ev, clause(a)) for a, evs in traced for ev in evs[:1] if ev.coverage]
+        for metric, rx in _AGG_WORDS.items():  # an aggregate named, not given as a number in that clause
+            kinds = {json.dumps(ev.coverage, sort_keys=True): ev for ev in aggs.values() if ev.metric == metric}
+            if len(kinds) == 1:
+                ev = next(iter(kinds.values()))
+                found += [(ev, clause(m.start())) for m in rx.finditer(sentence)
+                          if clause(m.start()) not in with_numbers]
+        for ev, k in found:
+            lo, hi = k, k
+            while lo > 0 and lo - 1 not in with_numbers:
+                lo -= 1
+            while hi + 1 < len(bounds) - 1 and hi + 1 not in with_numbers:
+                hi += 1
+            scope = sentence[bounds[lo]:bounds[hi + 1]]
+            if phrase := _coverage_problem(scope, bounds[lo], ev.coverage, stated):
+                flag(where, sentence, ev, phrase)
+    return out
+
+
 def backstop_violations(report: InvestigationReport, registry: EvidenceRegistry, records: list[Any] | None,
                         bindings: list[dict[str, Any]] | None, forecast_run: dict[str, Any] | None,
                         sentences: list[tuple[str, str]], numbers: Any,
@@ -2216,6 +2401,10 @@ def validate(report: InvestigationReport, registry: EvidenceRegistry, *, as_of: 
         res.checks_run.append("requested_interval")
         V.extend(requested_interval_violations(report, registry, forecast_run, result_texts,
                                                lambda s: number_spans(s, chunk_ids, titles(s))))
+    # -- what an aggregate over intervals covers: its duration, interval count and completeness as stated (I-20)
+    res.checks_run.append("aggregate_coverage")
+    V.extend(aggregate_coverage_violations(report, registry, result_texts,
+                                           lambda s: number_spans(s, chunk_ids, titles(s))))
     # -- bounded answer-side backstops for requests whose wording was not recognised (I-18)
     if report.intent in ("market_event_review", "forecast_review") and \
             report.status not in ("needs_clarification", "refused"):
