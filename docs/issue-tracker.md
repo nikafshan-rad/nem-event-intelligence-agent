@@ -30,7 +30,7 @@ One list of known defects, so that each fix is weighed against the whole. Eviden
 | I-15 | **A number shown with another interval's time** | Z03 (held-out v6, Live, 2026-10-02): "… (half-hour ending 2026-08-06T03:00:00Z / 2026-08-06 13:00 AEST) was 1204.0 MW …". 1204.0 MW is the half-hour ending 13:00Z (`ev0917`, the evidence the claim cites); the source value at 03:00Z is 1147.0 MW (`ev0897`, returned in the same series). The answer passed validation and was shown | P1 | **verified offline; Live unverified** (PR `#51`, merged as `8752b3d`; below). Each traced number's stated time is now bound to the evidence supporting it; Z03's saved answer is rejected and falls back. Pairing a time with its number is lexical (limits below). v6's FAIL verdict and Z03's scores are unchanged. **Targeted Live check 2026-10-02 (code `cf9558e`, PR `#54`; overall FAIL):** in its 4 value-and-time answers (Z03, K01, K03, K04) the stated times were right and the check never had to fire; K02 was sent back after a routing cut-off; K01 and K03 state other numbers wrongly (a flow direction, a "Price extreme" label). Too small a sample to verify I-15 generally; not exercised as a blocker in Live |
 | I-16 | **The forecast run asked for, not bound because its half-hour was not read** | Z05 (held-out v6, Live, 2026-10-02): "the half-hour finishing at 07:30 on 31 July in market time (UTC 2026-07-30T21:30:00Z) … the last forecast run issued ahead of that half-hour". The answer gave the run issued 18:27:01Z (POE50 10,954 MW, −224 MW), the latest available by the half-hour's end, as that run; the run asked for, issued 20:56:59Z, gave 11,082 MW against 11,178 | P1 | **verified offline; Live unverified** (PR `#52`, merged as `45e5203`; below). Z05's half-hour is now read and the run asked for bound: its saved answer is rejected and falls back. A run named relative to a half-hour that is not pinned down is sent back for it. v6's FAIL verdict and Z05's scores are unchanged. **Targeted Live check 2026-10-02 (code `cf9558e`, PR `#54`; overall FAIL): not held.** Wording outside its fixed set was not read ("issued ahead of it", "issued before it", am/pm half-hours), so no run was bound: K06 and K07 show another run as the one asked for, and K05 was sent back. Z05 was contained (the run asked for only) but fell back |
 | I-17 | **A measure's requested maximum replaced by its value at the price peak and another measure's maximum** | Z04 (held-out v6, Live, 2026-10-02): "… when did TAS1 total demand peak and at what level?" for 29 July 2026 (Hobart time). The answer gave dispatch TOTALDEMAND at the price peak (1,321.81 MW, 20:05) and the maximum of operational demand (1,452 MW, half-hour ending 08:00). TOTALDEMAND's maximum, 1,367.32 MW in the interval ending 07:55, was retrieved but never given | P1 | **verified offline; Live unverified** (PR `#53`, merged as `cf9558e`; below). A requested maximum is now computed by code over the requested window, stated by the controller and required of the answer; Z04's answer gives 1,367.32 MW at 07:55, and substitutes stated as the peak are rejected. v6's FAIL verdict and Z04's scores are unchanged. **Targeted Live check 2026-10-02 (code `cf9558e`, PR `#54`; overall FAIL): not held.** "total demand highest" and "hit its highest point" were not read as maximum requests, so nothing was computed: K09 and K10 show wrong maxima. Where the wording was read, the maximum was supplied (Z04, K11) |
-| I-18 | **Forecast-run and demand-maximum requests that silently skip their binding** | Targeted Live check 2026-10-02 (`docs/live-gates.md`): wording outside the fixed patterns ("issued ahead of it", "issued before it", am/pm half-hours, "total demand highest", "hit its highest point") left K05–K07, K09 and K10 unbound; K06, K07, K09 and K10 then showed another run or a wrong maximum, and nothing checked them | P1 | **scope approved; acceptance recorded before implementation** (below). The check's FAIL verdict and all historical scores are unchanged |
+| I-18 | **Forecast-run and demand-maximum requests that silently skip their binding** | Targeted Live check 2026-10-02 (`docs/live-gates.md`): wording outside the fixed patterns ("issued ahead of it", "issued before it", am/pm half-hours, "total demand highest", "hit its highest point") left K05–K07, K09 and K10 unbound; K06, K07, K09 and K10 then showed another run or a wrong maximum, and nothing checked them | P1 | **verified offline; Live unverified** (PR open, not merged; below). Requests are resolved from the request, the question parsers and the routing model's grounded reading (prompts v12), with provenance; a detected request that is not bound is sent back; two bounded answer backstops. With saved routes K06, K07, K09 and K10 are sent back; with scripted correct fields K05, K06, K09 and K10 are supplied and K07 is answered unavailable. The check's FAIL verdict and all historical scores are unchanged |
 | I-5 | **Known safety-language limitations** | See the list below. Each is recorded with its risk. None is being worked on, to avoid an open-ended wording cycle | P3 | recorded; revisit only with a new concrete failure |
 
 ### I-1a: F04, the causal question not answered directly
@@ -2898,6 +2898,97 @@ checks are met. The three outcomes are reported separately:
    - lint and mypy.
 6. **No case-specific code. The real ledger is unchanged** (tests use a scratch ledger).
 7. **Unchanged:** historical scores, FAIL verdicts, frozen evaluation material and v1.0. **Live is unverified.**
+
+**Result (verified offline; Live unverified):**
+1. **The paraphrase matrix** (`eval/structured_requests/`, with its README).
+   - **Provenance:**
+     - 60 cases by an independent writer, committed before any implementation;
+     - verified independently: two notes revised, then 60 of 60 PASS;
+     - the routing decisions for run (b) were written by a third independent agent from prompts v12 and the schema
+       only.
+   - **First recorded run** (`RUN1.json`, code `d5c7f81`, before any adjustment): all three modes failed.
+     - **(a):** 13 unbound and 2 wrong.
+     - **(b):** 22 of 33 supplied and 2 wrong.
+     - **(c):** 9 wrong bindings.
+   - **Adjustments:** the implementation was adjusted using these failures. These are general rules on wording, listed
+     in the README; none is specific to a case.
+   - **Final run** (`RUN2.json`):
+     - **(a):** containment holds except P20; 6 of 33 supplied, the rest sent back;
+     - **(b):** 33 of 33 supplied;
+     - **(c):** no wrong binding. A request invented for a question that makes none is still a detection, so it is
+       sent back (24 over-clarifications), never bound.
+   - **The matrix is now seen material**, not a held-out result.
+2. **The check's records, with their saved routes** (no `requested` field: "not reported").
+   - **Containment:** K06, K07, K09 and K10 are sent back before any tool runs. Each clarification names the run rule
+     or the unread maximum, so no other run or maximum is shown.
+   - **Still sent back, as before:**
+     - K05: its am/pm half-hour is read only from the routing model;
+     - K08 and K12: they now also name what is missing.
+   - **Unchanged:** Z03, Z04, Z05, K11 and the other cases.
+   - **With scripted correct fields** (supply, through the existing calculations):
+     - **K05 and K06:** the gold run is bound and compared, and a faithful answer passes;
+     - **K07:** reported unavailable under its request cutoff; the earlier public run is not shown;
+     - **K09 and K10:** the gold maxima are computed over the gold windows, and faithful answers pass. K09's saved
+       answer is rejected.
+       - **K10's saved draft** says only that total demand "reached" 7,711.58 MW. No lexical check ties that to the
+         maximum (a bounded safeguard), but the computed maximum is in the answer.
+3. **Adversarial controls** (`tests/provider/test_structured_requests.py`).
+   - **Readings that bind nothing:**
+     - quoted words not in the question;
+     - a keyword with no order relation;
+     - an end time the words do not give, or the start given as the end;
+     - no end claimed;
+     - an issue time not stated.
+   - **Disagreements and equivalents:**
+     - parser–model disagreement is a conflict, sent back naming the field;
+     - equivalent zones and formats agree ("Adelaide time, ACST"; "Z" and "+00:00");
+     - zones that disagree are not chosen between.
+   - **Request fields are applied,** and a conflicting cutoff or window in the question is noted with the answer. A
+     cutoff the routing model read from the question itself is not a request field (L3 FC08).
+   - **Contextual controls hold** for value-at-peak and price-superlative wording.
+   - **Backstops:**
+     - an unverified demand extreme is rejected;
+     - an unbound "final run issued before" is rejected, except in availability wording or under an as-of cutoff;
+     - clarifications are not checked.
+4. **Provenance:** every bound field records its source (request, question parser or route model), its supporting
+   words or field, and any conversion. These are in the resolution and in the trace's route event.
+5. **Regression controls.**
+   - **The gate on all 153 repository questions:**
+     - **run requests:** the parser reads 10, the cue 13 (it covers all 10); cue-only: K06, K07 and K08;
+     - **maxima:** the parser reads 2, the cue 5; cue-only: K09, K10 and K12;
+     - no other repository question is newly detected.
+   - **Saved Live records, replayed both ways** (262 records): 30 record-modes change.
+     - **K06, K07, K09 and K10:** sent back.
+     - **K08 and K12:** sent back as before, with added clarifications.
+     - **Z02:** gains `DEMAND_EXTREME_UNVERIFIED` on an answer that already failed. Its "TOTALDEMAND minimum in the
+       window: 1440.4 MW" is TOTALDEMAND at the price minimum; the window's minimum is 982.72 MW.
+     - **The other 18:** volatile fields only (prompt version, timing, trace ID, list of checks run), checked by full
+       report diffs.
+   - **Replay evaluation:** PASS, identical to `main`'s.
+     - The committed `artifacts/eval/offline.json` differs from both only in a baseline comparator's `as_of_leaks`
+       counts. That is earlier drift, not this change, and the file is left as is.
+   - **Safety suite:** PASS, and its summary file is unchanged.
+   - **Lint and mypy:** clean.
+6. **Behaviour that changes by design.**
+   - **An event review naming a run relative to a half-hour it does not pin down** is now sent back. Previously it
+     got the I-9 note asking the answer to name its run, which was not enforced. Its test is updated.
+   - **An as-of question that also asks for "the run issued before" the half-hour** gets that run under the cutoff,
+     as K07's frozen gold has it for a request cutoff. Otherwise as-of questions keep the availability selection.
+   - **Prompts v12:** the frozen v5, v6, dev2 and targeted-check runners refuse prompts v12, as intended. Their
+     refusal tests now assert that refusal, then pin the frozen version to test the other checks.
+7. **Departures from the acceptance check.**
+   - **P20 in (a):** "the forecast for a half-hour" names no run, and keeps the documented default selection (README).
+   - **P56 and P59** are over-clarified by the routing decision itself, not by the resolver.
+   - **K05 is supplied only with the routing model's reading.**
+8. **Limitations.**
+   - **Bounded safeguards:** the cue detector and the backstops are lexical, with a bounded vocabulary. They do not
+     catch every unrecognised paraphrase.
+   - **The routing model's reading helps only when it is right:** it must quote the question verbatim and convert
+     times correctly. That is untested Live.
+   - **The routing output is larger,** with the same 2,000-token cap (K02 truncated in routing).
+   - **An extreme is verified against the series a tool returned for its call's window,** which can be narrower than
+     the window a sentence names.
+9. **No paid call was made. The real ledger is unchanged** (USD 7.424670, 2,598 lines). v1.0 is unchanged.
 
 ### I-3a: F03, a notice time shown without its zone
 
