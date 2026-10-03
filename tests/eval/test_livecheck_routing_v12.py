@@ -602,6 +602,8 @@ def test_the_runner_refuses_without_an_approved_cap_with_overrides_or_without_a_
     monkeypatch.setattr(RUN, "changed", lambda freeze: None)  # the frozen-material check is tested below
     monkeypatch.setattr(RUN, "read_log", lambda label, live=None: [])
     monkeypatch.setattr(RUN, "LIVE", tmp_path)
+    # the stray-record check is tested above; here it would read the committed run records against the emptied logs
+    monkeypatch.setattr(RUN, "stray", lambda label, events, live=None: [])
     monkeypatch.setenv("OPENAI_API_KEY", "placeholder-not-a-key")  # presence only; never read or sent
     monkeypatch.setattr(RUN, "OVERRIDES", RUN.OVERRIDES[1:])  # the tests' scratch ledger stays set throughout
     for k in RUN.OVERRIDES:

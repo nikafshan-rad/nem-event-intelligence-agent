@@ -1,0 +1,126 @@
+{
+  "trace_id": "tr-e48dd1bfe843",
+  "started_at": "2026-10-03T04:02:31.247363Z",
+  "events": [
+    {
+      "seq": 1,
+      "t_ms": 14126.2,
+      "kind": "model",
+      "name": "route",
+      "model": "gpt-5-mini",
+      "response_id": "resp_012d0675e24b5d37016ac07e57d65887d08af4c861919fb896",
+      "function_calls": [],
+      "usage": {
+        "input_tokens": 1528,
+        "input_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 1408
+        },
+        "output_tokens": 1938,
+        "output_tokens_details": {
+          "reasoning_tokens": 1600
+        },
+        "total_tokens": 3466
+      },
+      "cost_usd": 0.003941,
+      "max_output_tokens": 2000,
+      "status": "completed",
+      "incomplete": null,
+      "duration_ms": 14110.2
+    },
+    {
+      "seq": 2,
+      "t_ms": 14127.6,
+      "kind": "route",
+      "name": "model_decision",
+      "decision": {
+        "intent": "market_event_review",
+        "region": "QLD1",
+        "event_date": null,
+        "as_of_utc": null,
+        "needs_clarification": true,
+        "clarification_reason": "several_dates",
+        "clarification": "Do you mean the entire interval as written \u2014 'Between 10 pm on Wednesday 19 August and 8 am on Thursday 20 August 2026, Brisbane time' (i.e. 2026-08-19T12:00:00Z to 2026-08-19T22:00:00Z) \u2014 or do you want the peak reported for a single local date (2026-08-19 or 2026-08-20)?",
+        "out_of_scope": false,
+        "requested": {
+          "forecast_run": {
+            "selection": "none",
+            "selection_text": null,
+            "half_hour_text": null,
+            "target_half_hour_end_utc": null,
+            "issued_at_utc": null
+          },
+          "maximum": {
+            "kind": "maximum",
+            "measure": "dispatch_total_demand",
+            "measure_text": "QLD1 dispatch total demand reach its greatest value",
+            "window": "explicit",
+            "window_text": "Between 10 pm on Wednesday 19 August and 8 am on Thursday 20 August 2026, Brisbane time",
+            "window_start_utc": "2026-08-19T12:00:00Z",
+            "window_end_utc": "2026-08-19T22:00:00Z"
+          }
+        }
+      },
+      "policy_notes": []
+    },
+    {
+      "seq": 3,
+      "t_ms": 14129.3,
+      "kind": "route",
+      "name": "market_event_review",
+      "status": "needs_clarification",
+      "routing": {
+        "router": "explicit",
+        "regions_found": [
+          "QLD1"
+        ],
+        "dates_found": [
+          "2026-08-20"
+        ],
+        "region_tz": "Australia/Brisbane",
+        "requests": {
+          "routed": "reported",
+          "forecast_run": {
+            "status": "absent",
+            "selection": null,
+            "half_hour_utc": null,
+            "issued_at_utc": null,
+            "provenance": {},
+            "detected_by": [],
+            "missing": [],
+            "conflicts": []
+          },
+          "maximum": {
+            "status": "unresolved",
+            "measures": [
+              "total demand"
+            ],
+            "window_kind": null,
+            "window_utc": null,
+            "provenance": {
+              "measure": {
+                "source": "route_model",
+                "text": "QLD1 dispatch total demand reach its greatest value",
+                "conversion": ""
+              }
+            },
+            "detected_by": [
+              "route_model",
+              "cue"
+            ],
+            "missing": [
+              "window"
+            ],
+            "conflicts": []
+          },
+          "notes": []
+        }
+      },
+      "reasons": [
+        "Over which window is the demand peak asked: the whole local day of the date given, the price event's window, or an explicit start and end with their time zone? The question does not pin it down, so no maximum is given in place of the one asked for."
+      ],
+      "region": "QLD1",
+      "as_of": null
+    }
+  ]
+}

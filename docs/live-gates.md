@@ -3274,3 +3274,178 @@ routing-extraction Live check under the frozen protocol in eval/livecheck_routin
 b367b911, prompts v12, gpt-5-mini), with per-call caps of USD 0.01 for routing and USD 0.15 per end-to-end case, run
 caps of USD 0.10 (R-dev), USD 0.15 (R-fresh) and USD 0.50 (E-dev), and a task cap of USD 8.174670 from the ledger
 balance of USD 7.424670, for these runs only."
+
+## Results: Live check of the v12 routing extraction (run once on `main`, 2026-10-03, under the frozen protocol of PR #57)
+
+**Verdict: FAIL** (`eval/livecheck_routing_v12/PASS_RULE.md`, applied unchanged). It fails on three counts:
+- 4 of 42 routing calls were cut off at the output cap, against an allowed 1;
+- K09 shows an incorrect maximum (X);
+- K05 has an H4 finding.
+
+**This is a bounded, targeted check on familiar, pinned data. It is not v7, not an L3 evaluation, and not
+unseen-event evidence.** One run per case on a non-deterministic model cannot establish rates or reliability. The
+containment seen here is not proven in general. Historical verdicts are unchanged, and Live stays experimental.
+
+Records are in:
+- `artifacts/live/LC-route-v12-dev/` (R-dev), `artifacts/live/LC-route-v12-fresh/` (R-fresh) and
+  `artifacts/live/LC-route-v12-e2e/` (E-dev), each with its run log, records, standard output and traces;
+- `artifacts/live/LC-route-v12-review/`: the sheet, both reviews, the exact questions given to the reviewer, and the
+  decision (see its `README.md`).
+
+**Checks before the paid calls:**
+- **Merge:** PR #57 merged as `baf94fa`, whose tree equals the reviewed freeze head `b01fa72`. CI on `main` passed.
+- **Freeze and code:** all 18 frozen hashes matched. The code under test is `f2455ca` (`src/` tree `b367b911…`, prompts
+  v12 `7a1fe6a5…`), with `gpt-5-mini`.
+- **Ledger:** USD 7.424670, 2,598 lines.
+- **Runner state:** no run directory, lock file or runner process existed, and no override was set.
+- **Approval:** the owner approved one execution, with a task cap of USD 8.174670 for these runs only.
+
+**Runs:** `eval/livecheck_routing_v12/run_eval.py --approved-task-cap 8.174670`, detached.
+
+| Run | Ended (UTC) | Attempts | Cases | Outcome | Cost (cap) |
+| --- | --- | --- | --- | --- | --- |
+| R-dev (`LC-route-v12-dev`) | 04:00:20 | 1 | 18/18 saved | complete | USD 0.045154 (0.10) |
+| R-fresh (`LC-route-v12-fresh`) | 04:04:42 | 1 | 24/24 saved | complete | USD 0.058028 (0.15) |
+| E-dev (`LC-route-v12-e2e`) | 04:10:06 | 1 | 5/5 saved | complete | USD 0.135396 (0.50) |
+
+- **No interruption, API error, budget stop or safety stop.** No case was repeated.
+- **Ledger:** USD 7.424670 → **7.663248**, so USD **0.238578** was spent.
+  - **New lines:** 124: 62 reservations, all settled, with none left open.
+  - **Model calls:** 62 (42 routing, 20 end-to-end), with 274,739 input and 93,789 output tokens.
+- **Ledger integrity (a correction):** `artifacts/live_budget/ledger.jsonl` is ignored by git, so `git status` or
+  `git diff` cannot establish its integrity. Earlier reports' "ledger identical to `main`" was not a valid check.
+  Integrity is established by the ledger's hash, line count and total. Before this run: SHA-256 prefix
+  `3a3121402ee9f9b4`, 2,598 lines, USD 7.424670. After: `af50fc2b531be324`, 2,722 lines, **USD 7.663248**.
+
+### The frozen decision
+
+| Criterion | Result | Bar | Met |
+| --- | --- | --- | --- |
+| WRONG routing bindings (42 cases) | 0 | 0 | yes |
+| Routing calls cut off or invalid (42) | **4** (K04, Z04, Q01, Q05) | at most 1 | **no: FAIL** |
+| E-dev H1–H5 | **H4 = 1** (K05); H1, H2, H3, H5 = 0 | 0 | **no: FAIL** |
+| E-dev incorrect answer shown (X) | **1** (K09) | 0 | **no: FAIL** |
+| R-fresh forecast runs CORRECT | 6 of 8 | 6 | yes |
+| R-fresh demand maxima CORRECT | **4 of 8** | 6 | **no** |
+| R-fresh must-clarify sent back | 4 of 4 | 4 | yes |
+| R-fresh controls over-clarified | **2 of 4** (Q22, Q23) | at most 1 | **no** |
+| R-dev K05, K06, K07, K09, K10 CORRECT | 5 of 5 | 5 | yes |
+| R-dev Z04, Z05, K11 CORRECT | **2 of 3** (Z04 cut off) | 3 | **no** |
+| R-dev K08, K12 sent back | 2 of 2 | 2 | yes |
+| R-dev no-request cases over-clarified | 1 of 7 (K04, cut off) | at most 1 | yes |
+| E-dev K05, K06, K09, K10 supplied | **2 of 4** (K09 X, K10 C) | 4 | **no** |
+| E-dev K07 unavailable | 1 of 1 | 1 | yes |
+
+### The findings, separately
+
+1. **No wrong routing binding was observed in this sample.**
+   - **Correct bindings:** 18 of the 42 routing cases bound correctly (8 in R-dev, 10 in R-fresh). The routing model's
+     reading contributed to 14 of them; the question parser alone made 4 (Z05, K11, Q09, Q10).
+   - **Run identity:** every bound forecast run is the gold run itself, by the stored-run check.
+   - **Containment:** the 6 must-clarify questions were sent back (K08, K12, Q17–Q20).
+   - **What this is and isn't:** one sample of 42 questions, run once. It is evidence about this sample, not proof that
+     wrong bindings cannot occur.
+2. **Routing truncation and over-clarification.**
+   - **Truncation:** 4 of 42 routing calls ran to the 2,000-token output cap and were cut off: K04, Z04, Q01 and Q05,
+     with 832–1,920 reasoning tokens each.
+     - The code discarded them and sent the questions back, so nothing was bound from them.
+     - Under prompts v12 the median routing output was 1,078 tokens, against 374 under v11.
+     - Every completed routing output included the `requested` field.
+   - **Over-clarification** (supply misses, all contained):
+     - **Q11, Q12, Q15:** the resolution refused a correct model reading. Its vocabulary does not cover "daily high" or
+       "midday", and an event named by its ID was quoted as "its window".
+     - **Q14:** the routing model asked for clarification itself, for a window crossing two dates, which the
+       resolution also cannot read.
+     - **Q22 (a control):** the model wrongly reported a maximum. Nothing was bound, but it counted as a detection.
+     - **Q23 (a control):** the existing several-dates rule sent back a correct availability reading.
+     - **K10 (E-dev):** sent back, because this time the model quoted no peak word. The same question bound correctly
+       in R-dev.
+3. **K09: the correct controller maximum, contradicted by the headline.**
+   - **The controller's line is right:** NSW1 dispatch total demand peaked at 10954.2 MW in the interval ending 19:05
+     AEST, the maximum of all 288 intervals, and its row matches the gold.
+   - **The model's text says otherwise:**
+     - its headline leads with 10,890.3 MW at 19:35 AEST, a value from around the price peak;
+     - `possible_explanations[0]` and `uncertainties[0]` treat that interval as the maximum.
+   - **Both reviews read it as X:** another interval presented as the requested maximum. Every number is traced.
+4. **K05: the MAE window misdescribed.**
+   - **The answer itself is right:** the gold run and the gold values (POE50 7598.0 MW, actual 7608.0 MW).
+   - **The misdescription:** it gives "the run's MAE for the 24-hour target window as 10.0 MW". That MAE covers the one
+     half-hour that had a pair, in a 12-hour tool window.
+   - **The readings:** the independent reviewer read it as an H4 finding (a traced number with a misstated interval);
+     the developer had read 0. The stricter reading applies.
+5. **K07: an interval-end wording error, despite the correct "unavailable" outcome.**
+   - **The outcome is right:** it correctly says the run asked for (issued 06:56:59Z, available 09:48:05Z) was not
+     public by the 09:00Z cutoff, and gives no other run's values (U).
+   - **The wording is wrong:** its text calls the half-hour "ending 17:00 AEST (07:00Z)". The requested half-hour ends
+     at 17:30 AEST (07:30Z).
+   - **No count changes:** no number is attached, so neither the outcome nor any count changes.
+
+### Per case: routing (R-dev, R-fresh)
+
+| Case | Run | Gold | Label | Bound from | Output tokens (cap 2,000) | Cost |
+| --- | --- | --- | --- | --- | --- | --- |
+| Z03 | R-dev | no_request | NO_REQUEST_OK | — | 908 | 0.002200 |
+| Z05 | R-dev | bound | CORRECT | question parser | 833 | 0.001738 |
+| Z04 | R-dev | bound | **SENT_BACK** | — (sent back) | 2000 (cut off) | 0.004065 |
+| K01 | R-dev | no_request | NO_REQUEST_OK | — | 1447 | 0.002961 |
+| K02 | R-dev | no_request | NO_REQUEST_OK | — | 1436 | 0.002940 |
+| K03 | R-dev | no_request | NO_REQUEST_OK | — | 1246 | 0.002554 |
+| K04 | R-dev | no_request | **SENT_BACK** | — (sent back) | 2000 (cut off) | 0.004074 |
+| K05 | R-dev | bound | CORRECT | question parser, route model | 1198 | 0.002465 |
+| K06 | R-dev | bound | CORRECT | route model | 1062 | 0.002194 |
+| K07 | R-dev | bound | CORRECT | route model | 1069 | 0.002205 |
+| K08 | R-dev | clarify | SENT_BACK | — (sent back) | 949 | 0.001961 |
+| K09 | R-dev | bound | CORRECT | question parser, route model | 936 | 0.001934 |
+| K10 | R-dev | bound | CORRECT | route model | 1298 | 0.002661 |
+| K11 | R-dev | bound | CORRECT | question parser | 1095 | 0.002251 |
+| K12 | R-dev | clarify | SENT_BACK | — (sent back) | 1159 | 0.002378 |
+| K13 | R-dev | no_request | NO_REQUEST_OK | — | 1280 | 0.002623 |
+| K14 | R-dev | bound | CORRECT | question parser, route model | 1443 | 0.002959 |
+| K15 | R-dev | no_request | NO_REQUEST_OK | — | 464 | 0.000991 |
+| Q01 | R-fresh | bound | **SENT_BACK** | — (sent back) | 2000 (cut off) | 0.004070 |
+| Q02 | R-fresh | bound | CORRECT | route model | 949 | 0.001964 |
+| Q03 | R-fresh | bound | CORRECT | route model | 1234 | 0.002534 |
+| Q04 | R-fresh | bound | CORRECT | question parser, route model | 951 | 0.001970 |
+| Q05 | R-fresh | bound | **SENT_BACK** | — (sent back) | 2000 (cut off) | 0.004067 |
+| Q06 | R-fresh | bound | CORRECT | question parser, route model | 987 | 0.002043 |
+| Q07 | R-fresh | bound | CORRECT | route model | 800 | 0.001665 |
+| Q08 | R-fresh | bound | CORRECT | route model | 1010 | 0.002085 |
+| Q09 | R-fresh | bound | CORRECT | question parser | 851 | 0.001763 |
+| Q10 | R-fresh | bound | CORRECT | question parser | 572 | 0.001207 |
+| Q11 | R-fresh | bound | **SENT_BACK** | — (sent back) | 977 | 0.002016 |
+| Q12 | R-fresh | bound | **SENT_BACK** | — (sent back) | 950 | 0.001965 |
+| Q13 | R-fresh | bound | CORRECT | route model | 781 | 0.001630 |
+| Q14 | R-fresh | bound | **SENT_BACK** | — (sent back) | 1938 | 0.003941 |
+| Q15 | R-fresh | bound | **SENT_BACK** | — (sent back) | 1570 | 0.003203 |
+| Q16 | R-fresh | bound | CORRECT | route model | 1531 | 0.003127 |
+| Q17 | R-fresh | clarify | SENT_BACK | — (sent back) | 966 | 0.001998 |
+| Q18 | R-fresh | clarify | SENT_BACK | — (sent back) | 952 | 0.001970 |
+| Q19 | R-fresh | clarify | SENT_BACK | — (sent back) | 1542 | 0.003148 |
+| Q20 | R-fresh | clarify | SENT_BACK | — (sent back) | 1087 | 0.002235 |
+| Q21 | R-fresh | no_request | NO_REQUEST_OK | — | 930 | 0.001922 |
+| Q22 | R-fresh | no_request | **SENT_BACK** | — (sent back) | 1525 | 0.003115 |
+| Q23 | R-fresh | as_of_availability | **SENT_BACK** | — (sent back) | 1211 | 0.002489 |
+| Q24 | R-fresh | no_request | NO_REQUEST_OK | — | 919 | 0.001901 |
+
+### Per case: end to end (E-dev)
+
+| Case | Expected | Outcome | Repair | Fallback | H4 | Calls | Cost |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| K05 | S | S | yes (`CLAIM_UNIT_MISMATCH`) | no | **1** | 5 | 0.029809 |
+| K06 | S | S | yes (`TIME_NOT_IN_EVIDENCE`) | no | 0 | 5 | 0.034826 |
+| K07 | U | U | no | no | 0 | 4 | 0.034086 |
+| K09 | S | **X** | yes (`TIME_OF_DAY_UNVERIFIED`) | no | 0 | 5 | 0.034550 |
+| K10 | S | **C** | no | no | 0 | 1 | 0.002125 |
+
+No targeted code (`FORECAST_RUN_SUBSTITUTED`, `REQUESTED_MAXIMUM_*`, `CLAIM_TIME_*`) fired before repair, and there
+were no fallbacks.
+
+### Reviews
+
+- **Order:** the developer's review was written before the independent review was seen.
+- **The independent reviewer** worked only inside a kit holding the brief, both pass rules, the exact 47 questions
+  (each equal to its run record's question), the gold, the records and traces, and store copies.
+- **Agreement:** both confirmed all 42 routing labels, with no disagreement.
+- **The one difference:** K05's H4. The decision takes the stricter reading.
+- **A disclosure by the independent reviewer:** the tool layer saved one oversized shell output outside its kit. The
+  reviewer did not open that copy.
