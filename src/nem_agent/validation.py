@@ -37,7 +37,7 @@ from typing import Any
 from .evidence import EvidenceRegistry
 from .report import InvestigationReport
 from .retrieval.corpus import INJECTION_RE, NOTICE_NUMBER_RE, cancelled_notices
-from .timeutil import NEM_TZ, REGION_TZ, iso_utc, parse_iso, region_zone
+from .timeutil import NEM_TZ, REGION_TZ, iso_utc, local_day_window, parse_iso, region_zone
 
 CAUSAL_RE = re.compile(r"\b(caused|causes|causing|cause of|due to|because of|led to|leads to|resulted in|result of|"
                        r"drove|driven by|triggered|responsible for|was the reason|explains why)\b", re.I)
@@ -811,42 +811,84 @@ def requested_max_violations(report: InvestigationReport, registry: EvidenceRegi
 def backstop_violations(report: InvestigationReport, registry: EvidenceRegistry, records: list[Any] | None,
                         bindings: list[dict[str, Any]] | None, forecast_run: dict[str, Any] | None,
                         sentences: list[tuple[str, str]], numbers: Any,
-                        already: set[tuple[str, float]]) -> list[Violation]:
+                        already: set[tuple[str, float]],
+                        window: tuple[datetime, datetime] | None = None) -> list[Violation]:
     """Two answer-side backstops for requests whose wording was not recognised (I-18). Both are lexical
-    (``structured.demand_extreme_clause``, ``structured.run_selection_clause``) and bounded: they do not catch every
+    (``structured.demand_extreme_words``, ``structured.run_selection_clause``) and bounded: they do not catch every
     paraphrase.
 
-    - ``DEMAND_EXTREME_UNVERIFIED``: a clause stating a demand maximum or minimum gives, as that extreme, a traced
-      actual-demand value (dispatch TOTALDEMAND or actual operational demand) that is no extreme of that kind computed
-      by code: a bound maximum, or the maximum or minimum of a series a tool returned for the measure and region (an
-      equal value, such as a tied interval, counts). The value stated as the extreme is the first number after the peak
-      or minimum word, else the last one before it. ``already`` holds (item, value) pairs that
-      ``REQUESTED_MAXIMUM_MISMATCH`` flagged, which are not flagged twice. A series covers its call's window only, so an
-      extreme of a narrower call can stand for a wider window's: a bounded check.
+    - ``DEMAND_EXTREME_UNVERIFIED``: a clause states a demand maximum or minimum (dispatch TOTALDEMAND or actual
+      operational demand) whose value code did not compute as that extreme over the window the statement names
+      (``structured.claimed_windows``): the requested maximum's window, the investigation's ``window``, or the local
+      day of the value's interval. The extreme is computed from the series the tools returned for that measure and
+      region, and only when they hold every interval of that window (under an as-of cutoff, those not yet public are
+      missing), so a subset's extreme, another window's or a partial one is never certified as the window's. An
+      extreme qualified as one of what is held ("the highest value held") is checked against the held intervals of
+      the window. A window narrowed in words that cannot be read is not established, so nothing is certified for it.
+      The value stated as the extreme is the first number after the peak or minimum word, else the last one before
+      it; an equal value of the same measure and region (a tied interval) counts. ``already`` holds (item, value)
+      pairs that ``REQUESTED_MAXIMUM_MISMATCH`` flagged, which are not flagged twice.
     - ``RUN_SELECTION_UNVERIFIED``: when no forecast run is bound and the answer has no as-of cutoff, a clause presents
       a run as the final, last or latest one issued before something. Wording about availability is exempt (the as-of
       selection, I-10)."""
     from .agent.demand_max import MEASURES
-    from .agent.structured import clauses, demand_extreme_words, run_selection_clause
+    from .agent.structured import claimed_windows, clauses, demand_extreme_words, run_selection_clause
 
-    # the extremes code computed, by kind, measure and region; a stated value is checked against them within its
-    # rounding
-    verified: dict[tuple[str, str, str | None], list[float]] = {}
-    for b in bindings or []:
-        for e in b.get("evidence_ids") or []:
-            if (ev := registry.get(e)) is not None and ev.value is not None:
-                verified.setdefault(("max", ev.metric, ev.region), []).append(float(ev.value))
-    for r in records or []:
-        if getattr(r, "status", None) != "ok":
-            continue
-        for tool, value_field, _, metric, _, _ in MEASURES.values():
-            if getattr(r, "name", None) != tool:
-                continue
-            values = [float(x[value_field]) for x in (r.data or {}).get("series", []) if x.get(value_field) is not None]
-            if values:
-                region = (r.args or {}).get("region")
-                verified.setdefault(("max", metric, region), []).append(max(values))
-                verified.setdefault(("min", metric, region), []).append(min(values))
+    by_metric = {m[3]: (m[0], m[1], m[4]) for m in MEASURES.values()}  # metric -> (tool, value field, minutes)
+    points_cache: dict[tuple[str, str | None], dict[datetime, set[float]]] = {}
+
+    def points(metric: str, region: str | None) -> dict[datetime, set[float]]:
+        """Interval end -> the values the tools returned for the measure and region (several: revisions differ)."""
+        if (metric, region) not in points_cache:
+            tool, value_field, _ = by_metric[metric]
+            pts: dict[datetime, set[float]] = {}
+            for r in records or []:
+                if getattr(r, "name", None) == tool and getattr(r, "status", None) == "ok" and \
+                        (r.args or {}).get("region") == region:
+                    for x in (r.data or {}).get("series", []):
+                        if x.get(value_field) is not None and x.get("interval_end_utc"):
+                            pts.setdefault(parse_iso(x["interval_end_utc"]), set()).add(float(x[value_field]))
+            points_cache[(metric, region)] = pts
+        return points_cache[(metric, region)]
+
+    if window is None and report.event_window is not None:  # the investigation's window, as the answer states it
+        window = (parse_iso(report.event_window.start_utc), parse_iso(report.event_window.end_utc))
+
+    def extreme(kind: str, metric: str, region: str | None, w: tuple[datetime, datetime], held: bool) -> float | None:
+        """The measure's maximum or minimum over the window: a complete requested maximum the controller computed for
+        exactly this window, or computed here from the tools' series. None unless every interval of the window is held
+        (or, for ``held``, at least one), each with one value."""
+        for b in bindings or []:
+            if kind == "max" and b.get("complete") and b.get("value") is not None and \
+                    MEASURES[str(b["measure"])][3] == metric and b.get("window_utc") and \
+                    (parse_iso(b["window_utc"][0]), parse_iso(b["window_utc"][1])) == w and \
+                    (ev := registry.get((b.get("evidence_ids") or [""])[0])) is not None and ev.region == region:
+                return float(b["value"])
+        pts = {t: v for t, v in points(metric, region).items() if w[0] < t <= w[1]}
+        if not pts or any(len(v) > 1 for v in pts.values()):
+            return None
+        if not held and len(pts) < round((w[1] - w[0]) / timedelta(minutes=by_metric[metric][2])):
+            return None
+        values = [next(iter(v)) for v in pts.values()]
+        return max(values) if kind == "max" else min(values)
+
+    def windows(names: set[str], ev: Any) -> list[tuple[datetime, datetime]]:
+        """The windows the statement names, for the measure of ``ev``."""
+        bound = [(parse_iso(b["window_utc"][0]), parse_iso(b["window_utc"][1]), str(b.get("window_kind")))
+                 for b in bindings or [] if b.get("window_utc") and MEASURES[str(b["measure"])][3] == ev.metric]
+        out: list[tuple[datetime, datetime]] = []
+        if "narrowed" in names:  # only a request's own explicit window can stand for wording that narrows one
+            return [(a, z) for a, z, k in bound if k == "explicit"]
+        if names & {"requested", "default"}:
+            out += [(a, z) for a, z, _ in bound]
+        if "event" in names or ("default" in names and not bound):
+            out += [window] if window else []
+            out += [(a, z) for a, z, k in bound if k == "event"]
+        if "day" in names and ev.valid_at_utc and ev.region in REGION_TZ:
+            t = parse_iso(ev.valid_at_utc) - timedelta(seconds=1)  # an interval ending at midnight is the day before
+            out.append(local_day_window(t.astimezone(region_zone(ev.region)).date(), ev.region))
+        return out
+
     out: list[Violation] = []
     for where, sentence in sentences:
         for clause in clauses(sentence):
@@ -857,19 +899,25 @@ def backstop_violations(report: InvestigationReport, registry: EvidenceRegistry,
                 before = [x for x in spans if x[2] <= p]
                 if after or before:
                     stated.append(((after[0] if after else before[-1])[0], kind))
+            names, held = claimed_windows(clause, sentence)
             for v, kind in dict.fromkeys(stated):
                 if (where, v) in already:
                     continue
                 hits = [(c, ev) for c in report.numeric_claims if abs(v - c.value) <= c.rounding + 1e-9
                         and (ev := registry.get(c.evidence_id)) is not None
-                        and ev.metric in ("dispatch_totaldemand", "opdemand_actual")]
-                evs = [ev for _, ev in hits]
-                if evs and not any(abs(v - x) <= c.rounding + 1e-9 for c, ev in hits
-                                   for x in verified.get((kind, ev.metric, ev.region), [])):
+                        and ev.metric in by_metric]
+                if not hits:
+                    continue
+                certified = any(x is not None and abs(v - x) <= c.rounding + 1e-9 for c, ev in hits
+                                for w in windows(names, ev)
+                                for x in [extreme(kind, ev.metric, ev.region, w, held)])
+                if not certified:
+                    ev = hits[0][1]
                     out.append(Violation("DEMAND_EXTREME_UNVERIFIED", "critical",
-                                         f"{where}: {v:g} is stated as a demand peak, maximum or minimum, but it is "
-                                         f"{evs[0].metric} for the interval ending {evs[0].valid_at_utc} "
-                                         f"({evs[0].evidence_id}), which no tool or controller computed as an extreme"))
+                                         f"{where}: {v:g} is stated as a demand {'maximum' if kind == 'max' else 'minimum'}"
+                                         f" ({ev.metric}, interval ending {ev.valid_at_utc}, {ev.evidence_id}), but no "
+                                         f"code computed it as that extreme over the window the sentence names "
+                                         f"({', '.join(sorted(names))}) with every interval of it held"))
             if not forecast_run and not report.as_of and run_selection_clause(clause):
                 out.append(Violation("RUN_SELECTION_UNVERIFIED", "critical",
                                      f"{where}: presents a forecast run as the final, last or latest one issued "
@@ -1839,7 +1887,7 @@ def validate(report: InvestigationReport, registry: EvidenceRegistry, *, as_of: 
             report.status not in ("needs_clarification", "refused"):
         res.checks_run.append("request_backstops")
         V.extend(backstop_violations(report, registry, records, demand_max, forecast_run, texts,
-                                     lambda s: number_spans(s, chunk_ids, titles(s)), mismatched))
+                                     lambda s: number_spans(s, chunk_ids, titles(s)), mismatched, window))
 
     # -- published findings: event-specific, same region/window, verbatim quote
     res.checks_run.append("published_findings")

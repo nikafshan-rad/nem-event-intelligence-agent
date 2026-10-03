@@ -445,6 +445,24 @@ def test_an_unbound_final_run_is_rejected_unless_it_is_worded_by_availability():
                            [("ev0001", 1300.0)], as_of="2026-07-29T08:00:00Z") == []
 
 
+def _window_controls() -> list[dict]:
+    spec = importlib.util.spec_from_file_location(
+        "backstop_window_controls", ROOT / "eval" / "structured_requests" / "backstop_window_controls.py")
+    assert spec and spec.loader
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.controls()
+
+
+def test_an_extreme_is_certified_only_for_the_window_it_names_with_every_interval_held():
+    """Review before merging PR #56: a subset's maximum or minimum, another window's, or a partial one under an as-of
+    cutoff is not certified as the whole day's or the event window's extreme; correctly scoped extremes, and the
+    highest value held said as such, pass (SYNTHETIC; eval/structured_requests/backstop_window_controls.py)."""
+    rows = _window_controls()
+    assert len(rows) == 9 and [r["control"] for r in rows if not r["agrees"]] == []
+    assert sum(r["expected"] == "rejected" for r in rows) == 5
+
+
 def test_clarifications_are_not_checked_by_the_backstops():
     res, _ = _replay("K05")  # its clarification text names "the last forecast run issued before a half-hour"
     assert res.report.status == "needs_clarification" and not _codes(res)

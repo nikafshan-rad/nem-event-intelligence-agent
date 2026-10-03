@@ -544,6 +544,37 @@ def demand_extreme_words(clause: str, sentence: str) -> list[tuple[int, str]]:
                   [(m.start(), "min") for m in _MIN_WORD_RE.finditer(c)])
 
 
+_CLAIM_REQUESTED_RE = re.compile(r"\brequested window\b", re.I)
+_CLAIM_WINDOW_RE = re.compile(r"\b(?:event|spike|episode|excursion|window)\b", re.I)
+_CLAIM_DAY_RE = re.compile(r"\b(?:day|daily|day['’]s)\b|\bmidnight to midnight\b|\ball of \d{4}-\d{2}-\d{2}\b", re.I)
+_CLAIM_HELD_RE = re.compile(r"\b(?:held|available|retrieved|returned|public|published)\b", re.I)
+_CLAIM_NARROW_RE = re.compile(r"\bleading (?:into|up to)\b|\brun-up\b", re.I)
+
+
+def claimed_windows(clause: str, sentence: str) -> tuple[set[str], bool]:
+    """For the answer backstop: the windows a demand-extreme statement names, from its clause, else its sentence:
+    "requested" (the requested maximum's window), "event" (the investigation's window: "the event window", "the
+    window"), "day" (the local day of the value's interval: "the day's", "daily", "all of <date>") or "default" (no
+    window named: the requested window, else the investigation's). Wording that narrows the window ("between ... and",
+    "in the evening", "leading into the spike") names one that cannot be established: "narrowed". Also whether the
+    extreme is qualified as one of what is held ("the highest value held"), which needs no full coverage."""
+    t = _MIDNIGHT_TO_MIDNIGHT_RE.sub("whole-day", clause)
+    if _SUB_WINDOW_RE.search(t) or _PART_OF_DAY_RE.search(t) or _RELATIVE_NARROW_RE.search(t) or \
+            _CLAIM_NARROW_RE.search(t):
+        return {"narrowed"}, bool(_CLAIM_HELD_RE.search(clause))
+    names: set[str] = set()
+    for text in (clause, sentence):
+        if _CLAIM_REQUESTED_RE.search(text):
+            names.add("requested")
+        elif _CLAIM_WINDOW_RE.search(text):
+            names.add("event")
+        if _CLAIM_DAY_RE.search(text):
+            names.add("day")
+        if names:
+            break
+    return names or {"default"}, bool(_CLAIM_HELD_RE.search(clause))
+
+
 _RUN_CLAIM_RE = re.compile(r"\b(?:final|last|latest|most recent|newest)\b(?:\s+[\w()'’-]+){0,4}?\s+(?:forecast|run)s?\b"
                            r"|\bpre[- ]?interval (?:forecast|run)\b", re.I)
 _BEFORE_RE = re.compile(r"\b(?:before|ahead of|prior to|preceding)\b|\bpre[- ]?interval\b", re.I)
