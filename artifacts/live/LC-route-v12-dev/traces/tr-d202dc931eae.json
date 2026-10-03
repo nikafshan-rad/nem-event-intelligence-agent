@@ -1,0 +1,124 @@
+{
+  "trace_id": "tr-d202dc931eae",
+  "started_at": "2026-10-03T03:59:39.856957Z",
+  "events": [
+    {
+      "seq": 1,
+      "t_ms": 10188.7,
+      "kind": "model",
+      "name": "route",
+      "model": "gpt-5-mini",
+      "response_id": "resp_0e4037ecb5ee1bed016ac07dacd40087d0a2a1e771075fe13c",
+      "function_calls": [],
+      "usage": {
+        "input_tokens": 1509,
+        "input_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 1408
+        },
+        "output_tokens": 1159,
+        "output_tokens_details": {
+          "reasoning_tokens": 960
+        },
+        "total_tokens": 2668
+      },
+      "cost_usd": 0.002378,
+      "max_output_tokens": 2000,
+      "status": "completed",
+      "incomplete": null,
+      "duration_ms": 10163.2
+    },
+    {
+      "seq": 2,
+      "t_ms": 10190.0,
+      "kind": "route",
+      "name": "model_decision",
+      "decision": {
+        "intent": "market_event_review",
+        "region": "SA1",
+        "event_date": null,
+        "as_of_utc": null,
+        "needs_clarification": true,
+        "clarification_reason": "missing_region_or_date",
+        "clarification": "Which specific South Australian high-price event or date do you mean? Please provide the calendar date (YYYY-MM-DD) or the event time window.",
+        "out_of_scope": false,
+        "requested": {
+          "forecast_run": {
+            "selection": "none",
+            "selection_text": null,
+            "half_hour_text": null,
+            "target_half_hour_end_utc": null,
+            "issued_at_utc": null
+          },
+          "maximum": {
+            "kind": "maximum",
+            "measure": "dispatch_total_demand",
+            "measure_text": "dispatch total demand top out",
+            "window": "event",
+            "window_text": "During the South Australian high-price event",
+            "window_start_utc": null,
+            "window_end_utc": null
+          }
+        }
+      },
+      "policy_notes": []
+    },
+    {
+      "seq": 3,
+      "t_ms": 10191.0,
+      "kind": "route",
+      "name": "market_event_review",
+      "status": "needs_clarification",
+      "routing": {
+        "router": "explicit",
+        "regions_found": [
+          "SA1"
+        ],
+        "dates_found": [],
+        "region_tz": "Australia/Adelaide",
+        "requests": {
+          "routed": "reported",
+          "forecast_run": {
+            "status": "absent",
+            "selection": null,
+            "half_hour_utc": null,
+            "issued_at_utc": null,
+            "provenance": {},
+            "detected_by": [],
+            "missing": [],
+            "conflicts": []
+          },
+          "maximum": {
+            "status": "unresolved",
+            "measures": [
+              "total demand"
+            ],
+            "window_kind": null,
+            "window_utc": null,
+            "provenance": {
+              "measure": {
+                "source": "route_model",
+                "text": "dispatch total demand top out",
+                "conversion": ""
+              }
+            },
+            "detected_by": [
+              "route_model",
+              "cue"
+            ],
+            "missing": [
+              "event"
+            ],
+            "conflicts": []
+          },
+          "notes": []
+        }
+      },
+      "reasons": [
+        "The question asks for the demand peak during an event, but no event is held for that region and date, so its window cannot be established. Give the window's start and end with their time zone, or ask for the whole day."
+      ],
+      "region": "SA1",
+      "as_of": null
+    }
+  ]
+}
