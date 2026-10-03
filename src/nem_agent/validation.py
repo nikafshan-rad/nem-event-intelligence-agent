@@ -37,7 +37,7 @@ from typing import Any
 from .evidence import EvidenceRegistry
 from .report import InvestigationReport
 from .retrieval.corpus import INJECTION_RE, NOTICE_NUMBER_RE, cancelled_notices
-from .timeutil import NEM_TZ, REGION_TZ, iso_utc, local_day_window, parse_iso, region_zone
+from .timeutil import NEM_TZ, REGION_TZ, iso_utc, local_day_window, local_str, parse_iso, region_zone
 
 CAUSAL_RE = re.compile(r"\b(caused|causes|causing|cause of|due to|because of|led to|leads to|resulted in|result of|"
                        r"drove|driven by|triggered|responsible for|was the reason|explains why)\b", re.I)
@@ -765,13 +765,23 @@ def claim_time_violations(where: str, sentence: str, report: InvestigationReport
 def requested_max_violations(report: InvestigationReport, registry: EvidenceRegistry, bindings: list[dict[str, Any]],
                              sentences: list[tuple[str, str]],
                              numbers: Any) -> list[Violation]:
-    """``REQUESTED_MAXIMUM_MISSING`` and ``REQUESTED_MAXIMUM_MISMATCH`` for the maxima the controller bound (I-17).
+    """``REQUESTED_MAXIMUM_MISSING`` and ``REQUESTED_MAXIMUM_MISMATCH`` for the maxima the controller bound (I-17), and
+    ``REQUESTED_MAXIMUM_DENIED`` (I-19).
 
     - **Given:** some claim or observation in the answer is a bound maximum, matched by its evidence (metric, region,
       interval end, value and source rows), never by the number alone: another measure's equal value does not count.
     - **Not misstated:** a sentence stating the measure's maximum (``demand_max.max_claim_re``) gives no traced demand
       value that is not a bound maximum: another interval of the measure (the value at the price peak) or another
-      demand measure. When no maximum can be established, it gives no demand value at all."""
+      demand measure. When no maximum can be established, it gives no demand value at all.
+
+    I-19 (Live check of the v12 routing extraction, K09): ``sentences`` hold the caveats too, and the model's own text is
+    read three more ways, the headline I-3c replaced included:
+    - **A time stated as the maximum:** a clause stating the measure's maximum gives only a time that names a bound
+      maximum's interval (``_max_claim_times``).
+    - **The headline's direct answer** (``_headline_answers``): a headline that does not give the bound maximum may not
+      give another demand value as its answer, unlabelled. One that gives it may give other values before or after it.
+    - **Not denied:** when every interval of the window is held, no sentence says the maximum is not established
+      (``_denials``)."""
     from .agent.demand_max import MEASURES, max_claim_re
 
     def key(ev: Any) -> tuple[Any, ...]:
@@ -784,12 +794,15 @@ def requested_max_violations(report: InvestigationReport, registry: EvidenceRegi
     out: list[Violation] = []
     for b in bindings:
         measure = str(b["measure"])
-        bound = {key(ev) for e in b.get("evidence_ids") or [] if (ev := registry.get(e)) is not None}
+        bound_evs = [ev for e in b.get("evidence_ids") or [] if (ev := registry.get(e)) is not None]
+        bound = {key(ev) for ev in bound_evs}
         what = f"the maximum of {measure} ({MEASURES[measure][3]}) over {' to '.join(b.get('window_utc') or [])}"
         if bound and not bound & given:
             out.append(Violation("REQUESTED_MAXIMUM_MISSING", "critical",
                                  f"the question asks for {what}; the answer does not give it ({b.get('value')} in the "
                                  f"interval ending {', '.join(b.get('interval_ends_utc') or [])})"))
+        actual = (f"the maximum is {b.get('value')} in the interval ending {', '.join(b.get('interval_ends_utc') or [])}"
+                  if bound else f"no maximum can be established ({b.get('unavailable') or 'incomplete'})")
         rx = max_claim_re(measure)
         for where, sentence in sentences:
             if not rx.search(sentence):
@@ -801,10 +814,320 @@ def requested_max_violations(report: InvestigationReport, registry: EvidenceRegi
                     ev = evs[0]
                     out.append(Violation("REQUESTED_MAXIMUM_MISMATCH", "critical",
                                          f"{where}: {v:g} is stated as {what}, but it is {ev.metric} for the interval "
-                                         f"ending {ev.valid_at_utc} ({ev.evidence_id}); " +
-                                         (f"the maximum is {b.get('value')} in the interval ending "
-                                          f"{', '.join(b.get('interval_ends_utc') or [])}" if bound else
-                                          f"no maximum can be established ({b.get('unavailable') or 'incomplete'})")))
+                                         f"ending {ev.valid_at_utc} ({ev.evidence_id}); {actual}"))
+            for st in _max_claim_times(sentence, rx, numbers):
+                if not any(st.fits(ev) for ev in bound_evs):
+                    out.append(Violation("REQUESTED_MAXIMUM_MISMATCH", "critical",
+                                         f"{_item(report, where, sentence)}: the time it states for {what}, {st.label}, "
+                                         f"names another interval; {actual}"))
+        if b.get("complete") and bound_evs and b.get("window_utc"):
+            for where, sentence, snippet in _denials(report, measure, b["window_utc"], sentences):
+                out.append(Violation("REQUESTED_MAXIMUM_DENIED", "critical",
+                                     f"{_item(report, where, sentence)}: says {what} is not established (“{snippet}”), "
+                                     f"but every interval of that window is held and {actual}. A caveat may still "
+                                     "concern data quality, revisions, or evidence outside that window"))
+    out += _headline_answers(report, registry, bindings, numbers, key, demand)
+    return out
+
+
+# -- the requested result in the model's own words (I-19) ----------------------------------------------------------
+# Live check of the v12 routing extraction (2026-10-03). K09: the controller's line gave the maximum it computed, and
+# the model had been given it, but the model's headline gave another interval's value as the answer, an explanation
+# called that interval the maximum (a time, no number), and two caveats said the maximum could not be confirmed. K07:
+# the model named the requested half-hour (07:00Z to 07:30Z) "ending 07:00Z" in four items, none with a number. These
+# rules read the model's text as written; nothing is replaced before they run.
+def _item(report: InvestigationReport, where: str, sentence: str) -> str:
+    """The item a violation names; the model's own headline, when I-3c shows another, is named as such."""
+    hidden = report._model_headline
+    if where == "headline" and hidden and hidden != report.headline and sentence in hidden:
+        return "headline (the model's own, not shown)"
+    return where
+
+
+def _clause_cuts(sentence: str, stated: list[_Stated]) -> list[int]:
+    """Where the sentence's clauses are cut, as ``claim_time_violations`` cuts them (not inside a stated time or a list
+    of times)."""
+    joins = [(a.end, b.start) for a, b in zip(stated, stated[1:], strict=False)
+             if _TIME_LIST_JOIN_RE.fullmatch(sentence[a.end:b.start])]
+    return [x for x in _separators(sentence) if not any(st.start < x < st.end for st in stated)
+            and not any(lo <= x < hi for lo, hi in joins)]
+
+
+def _max_claim_times(sentence: str, rx: re.Pattern[str], numbers: Any) -> list[_Stated]:
+    """The time each statement of the measure's maximum gives with no number in its clause ("TOTALDEMAND maximum at
+    T", "at T, total demand peaked"): the first value time after the maximum wording in its clause, else the last one
+    before it. With a number, the value is checked above and its time by I-15 (``claim_time_violations``)."""
+    stated = _stated_times(sentence)
+    cuts = _clause_cuts(sentence, stated)
+
+    def clause(pos: int) -> int:
+        return sum(1 for x in cuts if x < pos)
+    with_numbers = {clause(a) for _, a, _ in numbers(sentence)}
+    out = []
+    for m in rx.finditer(sentence):
+        if clause(m.start()) in with_numbers:
+            continue
+        same = [st for st in stated if clause(st.start) == clause(m.start())]
+        after = [st for st in same if st.start >= m.end()]
+        before = [st for st in same if st.end <= m.start()]
+        if after or before:
+            out.append(after[0] if after else before[-1])
+    return out
+
+
+# a value labelled as something other than the requested maximum: a price reference point (not one side of a
+# relation, "before the price peak"), or "below / not the maximum"
+_PRICE_POINT_RE = re.compile(r"\b(?:price|RRP)s?(?:\W+[\w'’-]+){0,2}?\W+(?:peak\w*|spik\w*|max\w*|min\w*|high\w*|"
+                             r"low\w*|extreme)\b|\b(?:peak|spike|highest|maximum|max|lowest|minimum|min|extreme)"
+                             r"(?:\W+[\w'’-]+){0,2}?\W+(?:price|RRP)\b", re.I)
+_RELATION_LEAD_RE = re.compile(r"\b(?:before|after|until|since|than|prior to|following|preceding)\W+(?:[\w'’-]+\W+){0,3}$",
+                               re.I)
+# "at the same interval end", "at that time": a reference back to a point the headline has named
+_BACKREF_RE = re.compile(r"\b(?:at|in|for|during)\s+(?:the\s+same|that|this)\s+(?:[\w'’-]+\s+){0,2}?(?:interval|time|"
+                         r"moment|half-hour|period|instant)s?(?:\s+end)?\b", re.I)
+_NOT_MAX_RE = re.compile(r"\b(?:not|below|under|lower than|less than|short of)\s+(?:the|its|that|this)\s+"
+                         r"(?:[\w'’-]+\s+){0,3}?(?:maximum|peak|high(?:est)?)\b", re.I)
+
+
+def _headline_answers(report: InvestigationReport, registry: EvidenceRegistry, bindings: list[dict[str, Any]],
+                      numbers: Any, key: Any, demand: Any) -> list[Violation]:
+    """``REQUESTED_MAXIMUM_MISMATCH`` for a headline that presents another demand value as its direct answer (I-19, K09:
+    "… a five-minute dispatch TOTALDEMAND of 10,890.3 MW at 2026-07-29 19:35 AEST …", while the maximum asked for was
+    10954.2 MW at 19:05). The question is whether the headline presents a value as its answer, not whether its first
+    number is the maximum:
+    - **A headline that gives a bound maximum** (a number traced to its evidence) may give other values before or after
+      it: comparisons are allowed.
+    - **Otherwise,** each traced demand value of the report's region that is not a bound maximum is presented as the
+      answer, unless it is labelled as something else:
+      - a price reference point in its clause or in an introductory clause before it with no number ("at the price
+        peak", "when the price spiked", "the highest price"), not one side of a relation ("before the price peak");
+      - a reference back ("at the same interval end") to a price reference point the headline states earlier, at a
+        time the value's evidence fits (held-out v6 Z04: "… highest five-minute dispatch price … at 2026-07-29 20:05
+        AEST …; TAS1 dispatch TOTALDEMAND 1321.81 MW at the same interval end");
+      - "below / not the maximum", or another measure named for a value of that measure.
+    Times stated as the maximum are checked with the other sentences (``_max_claim_times``)."""
+    from .agent.demand_max import _MEASURE_WORDS, MEASURES
+
+    bound = {key(ev) for b in bindings for e in b.get("evidence_ids") or [] if (ev := registry.get(e)) is not None}
+    if not bound:
+        return []
+    asked = {MEASURES[str(b["measure"])][3] for b in bindings}
+    first = next(b for b in bindings if b.get("evidence_ids"))  # a binding with a maximum: ``bound`` is not empty
+    answer = (f"the maximum asked for is {first.get('value')} in the interval ending "
+              f"{', '.join(first.get('interval_ends_utc') or [])}")
+    out: list[Violation] = []
+    for where, text in _headlines(report):
+        plain = QUOTED_RE.sub(" ", text)
+        sentences, at = [], 0
+        for s in SENTENCE_RE.split(plain):
+            at = plain.find(s, at)
+            sentences.append((s, at))
+        traced = [(s, off, v, a, evs) for s, off in sentences
+                  for v, a, _, evs in _traced(s, numbers(s), report, registry)]
+        if any(key(ev) in bound for *_, evs in traced for ev in evs):
+            continue
+        for s, off, v, a, evs in traced:
+            evs = [ev for ev in evs if demand(ev) and (not report.region or ev.region == report.region)]
+            if not evs or any(key(ev) in bound for ev in evs):
+                continue
+            cuts = _clause_cuts(s, _stated_times(s))
+            bounds = [0, *cuts, len(s)]
+
+            def clause(pos: int, cuts: list[int] = cuts) -> int:
+                return sum(1 for x in cuts if x < pos)
+            with_numbers = {clause(p) for _, p, _ in numbers(s)}
+            k = clause(a)
+            lead = k
+            while lead > 0 and lead - 1 not in with_numbers:  # introductory clauses with no number of their own
+                lead -= 1
+            scope = s[bounds[lead]:bounds[k + 1]]
+            labelled = bool(_NOT_MAX_RE.search(s)) or any(
+                not _RELATION_LEAD_RE.search(s[:bounds[lead] + m.start()]) for m in _PRICE_POINT_RE.finditer(scope))
+            if not labelled and _BACKREF_RE.search(scope):  # "… price … at T; TOTALDEMAND X at the same interval end"
+                before = plain[:off + bounds[lead]]
+                labelled = any(not _RELATION_LEAD_RE.search(before[:m.start()]) for m in _PRICE_POINT_RE.finditer(before)) \
+                    and any(st.fits(ev) for st in _stated_times(before) for ev in evs)
+            other = [ev for ev in evs if ev.metric not in asked]
+            if not labelled and other and len(other) == len(evs):
+                words = _MEASURE_WORDS["operational demand" if other[0].metric.startswith("opdemand") else "total demand"]
+                labelled = bool(re.search(rf"\b{words}|\bforecast", s, re.I))
+            if not labelled:
+                ev = evs[0]
+                out.append(Violation("REQUESTED_MAXIMUM_MISMATCH", "critical",
+                                     f"{_item(report, where, text)}: gives {v:g} ({ev.metric}, interval ending "
+                                     f"{ev.valid_at_utc}) as its answer, but {answer}. Give that maximum in the "
+                                     f"headline, or say what {v:g} is (for example, the value at the price peak)"))
+                break
+    return out
+
+
+def _traced(sentence: str, nums: list[tuple[float, int, int]], report: InvestigationReport,
+            registry: EvidenceRegistry) -> list[tuple[float, int, int, list[Any]]]:
+    """Each number with its supporting evidence: an ``[evNNNN]`` marker written after it whose value it is, else the
+    evidence of every claim with that value (as ``claim_time_violations`` binds them)."""
+    out = []
+    for i, (v, a, b) in enumerate(nums):
+        upto = nums[i + 1][1] if i + 1 < len(nums) else len(sentence)
+        marked = [ev for m in EV_MARK_RE.finditer(sentence, b, upto) if (ev := registry.get(m.group(1))) is not None
+                  and ev.value is not None and abs(float(ev.value) - v) <= 1e-9]
+        evs = marked[:1] or [ev for c in report.numeric_claims if abs(v - c.value) <= c.rounding + 1e-9
+                             and (ev := registry.get(c.evidence_id)) is not None]
+        out.append((v, a, b, evs))
+    return out
+
+
+# A complete maximum establishes the maximum in the held dataset over the window asked for. Saying it cannot be
+# confirmed, asking for evidence to confirm it, or doubting whether another interval exceeded a value denies it.
+_DENY_RES = (
+    re.compile(r"\b(?:cannot|can ?not|can't|could not|couldn't|unable to|not able to|impossible to|not possible to|"
+               r"(?:is|are|was|were|be|been) (?:needed|required|necessary) to|needed to|required to|would need to)\s+"
+               r"(?:[\w'’-]+\s+){0,3}?(?:confirm|establish|determin|verif|identif|know|tell|say|be (?:certain|sure))"
+               r"\w*(?:\W+[\w'’-]+){0,8}?\W+(?:maxim(?:um|a)|max|highest|peaks?|top)\b", re.I),
+    re.compile(r"\b(?:maxim(?:um|a)|max|highest|peaks?)\b(?:\W+[\w'’-]+){0,6}?\W+(?:(?:is|was|are|were|remains?)\s+"
+               r"(?:not\s+(?:yet\s+)?(?:known|established|confirmed|certain|determined|verified)|unknown|unclear|"
+               r"uncertain|unconfirmed|unverified|undetermined)|(?:has|have)\s+not\s+(?:yet\s+)?been\s+"
+               r"(?:established|confirmed|determined|verified)|(?:could|can)\s*not\s+be\s+(?:established|confirmed|"
+               r"determined|verified|known)|can't\s+be\s+(?:established|confirmed|determined|verified|known))\b", re.I),
+    re.compile(r"\b(?:no|any|another|other|a higher|higher)\b(?:\W+[\w'’-]+){0,8}?\W+(?:exceed\w*|surpass\w*|"
+               r"(?:was|were|is|are|be|been)\s+higher)\b|\bhigher\s+(?:[\w'’-]+\s+){0,2}?(?:values?|intervals?|"
+               r"readings?|levels?)\s+(?:may|might|could)\b", re.I),
+)
+_EXCEED_FORM = 2  # the exceedance form needs doubt in the sentence: "no other interval exceeded X" alone is a fact
+_DOUBT_RE = re.compile(r"\b(?:cannot|can ?not|can't|could not|couldn't|not (?:be )?(?:certain|sure)|uncertain|unclear|"
+                       r"unknown|whether|may|might|possibl\w*|without)\b", re.I)
+# missing evidence asked for "to confirm the maximum"
+_TO_CONFIRM_RE = re.compile(r"\bto\s+(?:[\w'’-]+\s+){0,2}?(?:confirm|establish|determin|verif|identif)\w*"
+                            r"(?:\W+[\w'’-]+){0,8}?\W+(?:maxim(?:um|a)|max|highest|peaks?|top)\b", re.I)
+# not a denial: data quality or revisions, evidence outside the held dataset and window, causes
+_QUALITY_RE = re.compile(r"\b(?:revis\w*|re-?issu\w*|data[- ]quality|quality|meter\w*|measurement\w*|estimat\w*|"
+                         r"settlement|final(?:ised|ized)?\s+(?:data|values|figures)|correct(?:ed|ions?)|later\s+"
+                         r"(?:data|values|versions?|releases?)|updated?\s+(?:data|values|versions?)|errors?\s+in\s+"
+                         r"(?:the\s+)?(?:data|source|records?)|reliab\w*|accura\w*|inaccura\w*|SCADA)\b", re.I)
+_SCOPE_RE = re.compile(r"\b(?:weeks?|months?|years?|seasons?|seasonal|annual|historical|all[- ]time|external|"
+                       r"independent\w*|(?:other|another|previous|preceding|next|following|earlier|later)\s+(?:days?|"
+                       r"dates?|windows?|periods?|regions?|sources?|datasets?|data|weeks?)|(?:outside|beyond)\s+"
+                       r"(?:the|this|that)\s+(?:window|day|period|dataset))\b", re.I)
+_CAUSE_WORDS_RE = re.compile(r"\b(?:why|caus\w*|reasons?|explain\w*|driv(?:e|en|er|ers|ing)|drove|attribut\w*|because|"
+                            r"due to|contribut\w*)\b", re.I)
+_OTHER_QUANTITY_RE = re.compile(r"\b(?:prices?|RRP|interchange|interconnector\w*|generation|generators?|units?|wind|"
+                                r"solar|reserves?|LOR\d?|forecasts?)\b", re.I)
+_REGION_NAMES = {"NSW1": "New South Wales|NSW", "QLD1": "Queensland|QLD", "VIC1": "Victoria|VIC",
+                 "SA1": "South Australia", "TAS1": "Tasmania|TAS"}
+
+
+def _denials(report: InvestigationReport, measure: str, window: list[str],
+             sentences: list[tuple[str, str]]) -> list[tuple[str, str, str]]:
+    """(item, sentence, the words) for each sentence denying a complete maximum of ``measure`` over ``window``. The
+    sentence, or an earlier one of the same item, names the measure ("… TOTALDEMAND values …; therefore I cannot be
+    certain no other interval exceeded …"). Not a denial:
+    - a sentence about data quality or revisions, about causes, or about evidence outside the held dataset and window
+      (another window, date, region or source: by its words, a dated time outside the window, or another region named);
+    - words about another quantity or measure just before or in the denial ("the price maximum cannot be confirmed")."""
+    from .agent.demand_max import _MEASURE_WORDS
+
+    m_rx = re.compile(rf"\b{_MEASURE_WORDS[measure]}", re.I)
+    others = [w for k, w in _MEASURE_WORDS.items() if k != measure]
+    w0, w1 = parse_iso(window[0]), parse_iso(window[1])
+    regions = [n for code, n in _REGION_NAMES.items() if code != report.region]
+    out: list[tuple[str, str, str]] = []
+    named: set[str] = set()  # items that have named the measure so far
+    prev = None
+    for where, sentence in sentences:
+        if where != prev:
+            prev = where
+            named.discard(where)
+        if m_rx.search(sentence):
+            named.add(where)
+        if where not in named:
+            continue
+        if _QUALITY_RE.search(sentence) or _SCOPE_RE.search(sentence) or _CAUSE_WORDS_RE.search(sentence):
+            continue
+        if any(re.search(rf"\b(?:{n})\b", sentence) for n in regions) or \
+                re.search(r"\b(?:NSW|QLD|VIC|SA|TAS)1\b", sentence.replace(report.region or "\0", "")):
+            continue
+        if any(mn.instant is not None and not w0 <= mn.instant <= w1 for mn in _mentions(sentence)):
+            continue
+        hits = [m for i, rx in enumerate(_DENY_RES) for m in rx.finditer(sentence)
+                if i != _EXCEED_FORM or _DOUBT_RE.search(sentence)]
+        if where.startswith("missing_evidence"):
+            hits += list(_TO_CONFIRM_RE.finditer(sentence))
+        for m in hits:
+            near = sentence[max(0, m.start() - 40):m.end()]
+            if _OTHER_QUANTITY_RE.search(near) or any(re.search(rf"\b{w}", near, re.I) for w in others):
+                continue
+            out.append((where, sentence, m.group(0)))
+            break
+    return out
+
+
+# The half-hour a forecast-run request names, (S, E]: "ending S" gives its start as its end, "starting E" its end as its
+# start. A neighbouring half-hour named as such ("the previous half-hour, ending S"), or given with its own value for
+# that half-hour, is another half-hour, and an issue time ("issued before S") names no half-hour.
+_HH_NAME_RE = re.compile(r"(?P<pre>\b(?:5|five)[- ]min\w*\s+(?:dispatch\s+)?)?\b(?P<noun>half[- ]?hours?|30[- ]min(?:ute)?s?"
+                         r"(?:\s+(?:interval|period))?|(?:trading\s+)?intervals?|periods?)\s*[,(]?\s*(?:(?:that|which)\s+)?"
+                         r"(?P<q>ending|ended|ends|finishing|finished|finishes|starting|started|starts|beginning|begins|"
+                         r"commencing)(?:\s+(?:at|on))?\s*$", re.I)
+_PLURAL_RE = re.compile(r"half[- ]?hours|.*intervals|periods|30[- ]min(?:ute)?s\s+(?:intervals|periods)", re.I)
+_NEIGHBOUR_RE = re.compile(r"\b(?:previous|preceding|prior|earlier|next|following|subsequent|later|adjacent|"
+                           r"neighbou?ring|other|another|surrounding)(?:\s+(?:5-minute|five-minute|30-minute|"
+                           r"thirty-minute|trading|dispatch))?\s+$", re.I)
+
+
+def requested_interval_violations(report: InvestigationReport, registry: EvidenceRegistry, forecast_run: dict[str, Any],
+                                  sentences: list[tuple[str, str]], numbers: Any) -> list[Violation]:
+    """``REQUESTED_INTERVAL_MISNAMED`` (I-19, K07: "the half-hour ending 2026-08-06 17:00 AEST (07:00Z)" for the
+    half-hour from 07:00Z to 07:30Z, in four items, none with a number). A phrase naming a half-hour (or an unqualified
+    interval or period) as ending at the requested half-hour's start, or starting at its end, also inside an issue
+    relation ("issued before the half-hour ending S"), unless:
+    - a neighbouring half-hour is named as such ("the previous half-hour, ending S", "the next half-hour, starting E"),
+      or with the one asked about ("the half-hours ending S and E": held-out v5 Y06 compared the two);
+    - its clause gives a traced value for the half-hour it names (I-15 binds that number's time).
+    The half-hour named correctly (ending E, starting S, a range), issue and as-of times, 5-minute intervals and other
+    half-hours are not this rule's concern."""
+    lo_s, hi_s = forecast_run["half_hour_utc"]
+    s0, e0 = parse_iso(lo_s), parse_iso(hi_s)
+    span = e0 - s0
+    region = report.region or ""
+    def loc(t: datetime) -> str:
+        return re.sub(r" [(]UTC[^)]*[)]", "", local_str(t, region))
+    local = f" ({loc(s0)} to {loc(e0)})" if region in REGION_TZ else ""
+    out: list[Violation] = []
+    seen: set[tuple[str, str, datetime]] = set()
+    for where, sentence in sentences:
+        text = PAREN_OFFSET_RE.sub(lambda m: " " * len(m.group(0)), sentence)
+        seps = _separators(text)
+        mentions = _mentions(text)
+        for mn in mentions:
+            lead = text[max(0, mn.start - 80):mn.start]
+            q = _HH_NAME_RE.search(lead)
+            if q is None or q.group("pre"):
+                continue
+            kind = "end" if q.group("q").lower().startswith(("end", "finish")) else "start"
+            t = mn.near(e0)
+            if not ((kind == "end" and t == s0) or (kind == "start" and t == e0)):
+                continue
+            if _NEIGHBOUR_RE.search(lead[:q.start("noun")]) or _PLURAL_RE.fullmatch(q.group("noun")):
+                continue
+            nxt = next((x for x in mentions if x.start >= mn.end), None)  # "ending S and E": S is the one before
+            right = e0 if kind == "end" else s0
+            if nxt is not None and nxt.near(e0) == right and (_TIME_LIST_JOIN_RE.fullmatch(text[mn.end:nxt.start])
+                                                            or _RANGE_JOIN_RE.match(text[mn.end:nxt.start])):
+                continue
+            named = (t - span, t) if kind == "end" else (t, t + span)
+            clause = sum(1 for x in seps if x < mn.start)
+            own = [evs for v, a, _, evs in _traced(text, numbers(text), report, registry)
+                   if sum(1 for x in seps if x < a) == clause]
+            if any(ev.valid_at_utc and named[0] < parse_iso(ev.valid_at_utc) <= named[1] for evs in own for ev in evs):
+                continue
+            if (where, kind, t) in seen:
+                continue
+            seen.add((where, kind, t))
+            out.append(Violation("REQUESTED_INTERVAL_MISNAMED", "critical",
+                                 f"{_item(report, where, sentence)}: names the half-hour the question asks about as the "
+                                 f"half-hour {'ending' if kind == 'end' else 'starting'} {mn.label}, but it is the "
+                                 f"half-hour from {lo_s} to {hi_s}{local}, ending {hi_s}. Name it by its end or its "
+                                 "start, or call a neighbouring half-hour 'the previous half-hour' or 'the next "
+                                 "half-hour'"))
     return out
 
 
@@ -1874,14 +2197,25 @@ def validate(report: InvestigationReport, registry: EvidenceRegistry, *, as_of: 
     #    answered "when did total demand peak" with TOTALDEMAND at the price peak and operational demand's maximum)
     texts = [(where, s) for where, text in _narratives(report) + _hypothesis_tests(report)
              for s in SENTENCE_RE.split(QUOTED_RE.sub(" ", text))]
+    # the requested result is checked in the caveats too (I-19), read with their quotation marks removed, as the caveat
+    # checks read them
+    result_texts = texts + [(where, s) for where, text in
+                            [(f"uncertainties[{i}]", u) for i, u in enumerate(report.uncertainties)]
+                            + [(f"missing_evidence[{i}]", u) for i, u in enumerate(report.missing_evidence)]
+                            for s in SENTENCE_RE.split(_QUOTE_MARKS_RE.sub(" ", text))]
     mismatched: set[tuple[str, float]] = set()
     if demand_max:
         res.checks_run.append("requested_maximum")
-        found = requested_max_violations(report, registry, demand_max, texts,
+        found = requested_max_violations(report, registry, demand_max, result_texts,
                                          lambda s: number_spans(s, chunk_ids, titles(s)))
         V.extend(found)
         mismatched = {(hit.group(1), float(hit.group(2))) for v in found if v.code == "REQUESTED_MAXIMUM_MISMATCH"
                       and (hit := re.match(r"([^:]+): (-?[\d.]+) is stated", v.detail))}
+    # -- the half-hour a forecast-run request names, named by its own end or start (I-19)
+    if forecast_run and forecast_run.get("half_hour_utc"):
+        res.checks_run.append("requested_interval")
+        V.extend(requested_interval_violations(report, registry, forecast_run, result_texts,
+                                               lambda s: number_spans(s, chunk_ids, titles(s))))
     # -- bounded answer-side backstops for requests whose wording was not recognised (I-18)
     if report.intent in ("market_event_review", "forecast_review") and \
             report.status not in ("needs_clarification", "refused"):

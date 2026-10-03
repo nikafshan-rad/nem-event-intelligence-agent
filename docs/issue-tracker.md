@@ -31,6 +31,7 @@ One list of known defects, so that each fix is weighed against the whole. Eviden
 | I-16 | **The forecast run asked for, not bound because its half-hour was not read** | Z05 (held-out v6, Live, 2026-10-02): "the half-hour finishing at 07:30 on 31 July in market time (UTC 2026-07-30T21:30:00Z) … the last forecast run issued ahead of that half-hour". The answer gave the run issued 18:27:01Z (POE50 10,954 MW, −224 MW), the latest available by the half-hour's end, as that run; the run asked for, issued 20:56:59Z, gave 11,082 MW against 11,178 | P1 | **verified offline; Live unverified** (PR `#52`, merged as `45e5203`; below). Z05's half-hour is now read and the run asked for bound: its saved answer is rejected and falls back. A run named relative to a half-hour that is not pinned down is sent back for it. v6's FAIL verdict and Z05's scores are unchanged. **Targeted Live check 2026-10-02 (code `cf9558e`, PR `#54`; overall FAIL): not held.** Wording outside its fixed set was not read ("issued ahead of it", "issued before it", am/pm half-hours), so no run was bound: K06 and K07 show another run as the one asked for, and K05 was sent back. Z05 was contained (the run asked for only) but fell back |
 | I-17 | **A measure's requested maximum replaced by its value at the price peak and another measure's maximum** | Z04 (held-out v6, Live, 2026-10-02): "… when did TAS1 total demand peak and at what level?" for 29 July 2026 (Hobart time). The answer gave dispatch TOTALDEMAND at the price peak (1,321.81 MW, 20:05) and the maximum of operational demand (1,452 MW, half-hour ending 08:00). TOTALDEMAND's maximum, 1,367.32 MW in the interval ending 07:55, was retrieved but never given | P1 | **verified offline; Live unverified** (PR `#53`, merged as `cf9558e`; below). A requested maximum is now computed by code over the requested window, stated by the controller and required of the answer; Z04's answer gives 1,367.32 MW at 07:55, and substitutes stated as the peak are rejected. v6's FAIL verdict and Z04's scores are unchanged. **Targeted Live check 2026-10-02 (code `cf9558e`, PR `#54`; overall FAIL): not held.** "total demand highest" and "hit its highest point" were not read as maximum requests, so nothing was computed: K09 and K10 show wrong maxima. Where the wording was read, the maximum was supplied (Z04, K11) |
 | I-18 | **Forecast-run and demand-maximum requests that silently skip their binding** | Targeted Live check 2026-10-02 (`docs/live-gates.md`): wording outside the fixed patterns ("issued ahead of it", "issued before it", am/pm half-hours, "total demand highest", "hit its highest point") left K05–K07, K09 and K10 unbound; K06, K07, K09 and K10 then showed another run or a wrong maximum, and nothing checked them | P1 | **merged as `f2455ca`; verified offline; Live unverified** (PR `#56`; below). Requests are resolved from the request, the question parsers and the routing model's grounded reading (prompts v12), with provenance; a detected request that is not bound is sent back; two bounded answer backstops (the demand-extreme backstop window- and coverage-checked before merging). With saved routes K06, K07, K09 and K10 are sent back; with *scripted* correct routing fields K05, K06, K09 and K10 are supplied and K07 is answered unavailable; extraction by the real routing model is unverified. **Live check of the routing extraction, 2026-10-03 (PR #57's frozen protocol): FAIL.** No wrong routing binding was observed in this sample of 42 (18 correct, 14 of them using the model's reading; containment 6 of 6), but 4 of 42 routing calls were cut off at the 2,000-token cap; K09 shows an incorrect maximum (X: its headline contradicts the controller's correct maximum); K05 has an H4 finding (its MAE window is misdescribed); and requests were over-clarified (Q11, Q12, Q14, Q15, Q22, Q23, and K10 end to end). The earlier check's FAIL verdict and all historical scores are unchanged |
+| I-19 | **Answer text that contradicts the requested result the controller holds** | Live check of the v12 routing extraction (E-dev, 2026-10-03): K09's controller line gives the correct maximum (10954.2 MW, ending 19:05 AEST), but its headline gives 10,890.3 MW at 19:35 AEST as the answer, an explanation calls 19:35 the maximum, and two caveats deny the maximum is established. K07's correct "unavailable" answer names the requested half-hour (17:00–17:30 AEST) as "ending 17:00" in four items. Nothing checked either | P1 | **verified offline; Live unverified** (branch `fix/requested-result-text`, validator only; below). K09's and K07's saved drafts are rejected at exactly the contradicting items and fall back, with the rejected caveats not shown; faithful text, comparisons, neighbouring half-hours and data-quality caveats pass; only K09 and K07 change among the 267 saved replays. The checks are lexical (limits below). K05's aggregation coverage, routing truncation and over-clarification are queued separately |
 | I-5 | **Known safety-language limitations** | See the list below. Each is recorded with its risk. None is being worked on, to avoid an open-ended wording cycle | P3 | recorded; revisit only with a new concrete failure |
 
 ### I-1a: F04, the causal question not answered directly
@@ -3052,6 +3053,227 @@ checks are met. The three outcomes are reported separately:
       - **Now:** SHA-256 prefix `af50fc2b531be324`, 2,722 lines, **USD 7.663248**.
       - **Before the run:** `3a3121402ee9f9b4`, 2,598 lines, USD 7.424670.
     - **Unchanged:** v1.0, the earlier checks' FAIL verdicts and every historical score. No fix has been started.
+
+### I-19: K09 and K07, answer text that contradicts the requested result the controller holds
+
+**What happened** (Live check of the v12 routing extraction, E-dev, 2026-10-03, code `f2455ca`, prompts v12;
+records `artifacts/live/LC-route-v12-e2e/`; both reviews in `artifacts/live/LC-route-v12-review/`):
+- **K09** (trace `tr-6cf2c8b20a64`): "On 29 July 2026, Sydney time, at which five-minute interval was NSW dispatch total
+  demand highest across the whole day, and what was the level?"
+  - **The requested result, held and correct:** the controller computed the maximum over all 288 intervals of the day,
+    10954.2 MW in the interval ending 2026-07-29T09:05:00Z (19:05 AEST), complete. Its sentence leads the summary.
+  - **The model's own text says otherwise:**
+    - **headline:** "… reports a five-minute dispatch TOTALDEMAND of 10,890.3 MW at 2026-07-29 19:35 AEST …", a value
+      from the price timeline's list around the price peak, given as the answer;
+    - **possible_explanations[0]:** "… may have produced a five-minute dispatch TOTALDEMAND maximum at
+      2026-07-29T09:35:00Z …";
+    - **uncertainties[0]:** "… I cannot be certain no other five-minute interval elsewhere in the window exceeded
+      10890.3 MW without the full five-minute series";
+    - **missing_evidence[0]:** the full series "… to confirm the absolute maximum across the whole day".
+  - **The repair** was scoped to an unrelated item (`TIME_OF_DAY_UNVERIFIED` in possible_explanations[2]) and left these.
+  - **Outcome:** X in both reviews.
+- **K07** (trace `tr-010012c92b8b`): "NSW, half-hour 5:00-5:30 pm AEST, 6 Aug 2026. What POE50 figure did the latest
+  operational demand forecast run issued before it give, …?" (request as-of 2026-08-06T09:00:00Z).
+  - **The requested half-hour, bound:** 2026-08-06T07:00Z to 07:30Z, ending 17:30 AEST. The run asked for was not
+    public by the cutoff, and the answer says so (outcome U, correct).
+  - **The model's text names it wrongly,** as "the half-hour (or interval) ending 2026-08-06 17:00 AEST (07:00Z)":
+    summary[1], uncertainties[1], missing_evidence[0] (inside "the last run issued before the half-hour ending …") and
+    missing_evidence[1]. No number is attached. Its headline, "issued before 2026-08-06 17:00 AEST", is right.
+  - **There was no repair.**
+- **Not in this item (queued separately):** K05's MAE described as covering a 24-hour window (aggregation coverage),
+  routing truncation and over-clarification.
+
+**Where it enters: the model's text, unchecked against a result the model was given.**
+- **The model had the result.** K09's maximum (value, interval, `complete: true`, and a note that a value at the price
+  peak is not it) was computed before synthesis and sent with it (`live.py`, "Requested demand maximum, computed by the
+  controller"). K07's context held `requested_forecast_run` with `half_hour_utc` and `half_hour_local`
+  (17:00 to 17:30 AEST). So this is not missing information, and no prompt change is needed.
+- **Root causes, all in validation:**
+  1. **`REQUESTED_MAXIMUM_MISMATCH` reads numbers only,** in sentences matching `demand_max.max_claim_re`. A time
+     stated as the maximum with no number (K09 possible_explanations[0]) is not checked. A headline that gives another
+     interval's value as its answer without maximum wording (K09's) is never treated as a statement of the requested
+     result.
+  2. **Uncertainties and missing evidence are outside the requested-result checks.** They get only the causality,
+     instruction-text and action checks, so K09's and K07's caveats were never read against the bindings.
+  3. **Nothing flags text that denies a complete maximum** (K09 uncertainties[0] and missing_evidence[0]).
+  4. **Interval times are bound only to numbers** (I-15), and the forecast-run check (I-9) reads values. A half-hour
+     named without a number is not checked against `forecast_run`. The existing stated-time parser reads three of K07's
+     four statements as "ending 07:00Z", and skips missing_evidence[0] on purpose, because there the time sits inside an
+     issue relation ("issued before the half-hour ending …").
+- **Not a cause:** the headline being the model's own. The I-3c replacement is not extended here: it would fix only
+  K09's headline, not the other three items, and it would hide the model's headline instead of rejecting it.
+
+**Proposed fix (validator only; no change to the tools, their views, the prompts, the aggregation evidence or the
+controller's lines).**
+1. **Text in scope.** The requested-maximum and requested-half-hour checks read every text the model writes: the
+   headline (the shown one, and the model's own when I-3c replaced it), summary, possible explanations and their tests,
+   published findings, **uncertainties and missing evidence**. Caveats are read with their quotation marks removed, as
+   the existing caveat checks do. The I-18 backstops keep their current texts.
+2. **A time stated as the maximum** (`REQUESTED_MAXIMUM_MISMATCH`, extended). A clause stating the requested measure's
+   maximum may give only a time that names a bound maximum's interval (any tied one). The time is the first value time
+   after the maximum wording in its clause, else the last before it.
+3. **The headline's direct answer** (`REQUESTED_MAXIMUM_MISMATCH`). The check is whether the headline presents a value
+   or time as the requested maximum or as its direct answer, not whether its first number is the maximum:
+   - **A headline that gives the bound maximum** (its value, or the requested measure at a bound interval's time) may
+     give other values before or after it. Comparisons stay allowed.
+   - **A headline that does not give it** presents a value as its answer when it gives a demand value that is not a
+     bound maximum, outside a clause that labels that value as something else: a price reference point ("at the price
+     peak", "when the price spiked", "the highest price"), another measure named for a value of that measure, or
+     "below / not the maximum". The same holds for a time stated for the requested measure with no number.
+4. **A complete maximum denied** (`REQUESTED_MAXIMUM_DENIED`, new). Only when every interval of the requested window is
+   held (`complete`). A complete maximum establishes the maximum in the held dataset over the specified window, so a
+   sentence naming the requested measure may not say that its maximum cannot be confirmed, established or known, ask
+   for evidence to confirm it, or doubt whether another interval exceeded a value. **Not rejected:**
+   - caveats about data quality or revisions ("dispatch values may be revised", "metered data may differ");
+   - caveats about evidence outside that scope: another window, date, region, measure or source;
+   - caveats about causes ("cannot say why total demand peaked");
+   - any such statement when the maximum is incomplete or unavailable.
+5. **The requested half-hour misnamed** (`REQUESTED_INTERVAL_MISNAMED`, new). When a forecast-run request binds a
+   half-hour (S, E], with a run or as unavailable:
+   - **Rejected:** a phrase naming a half-hour (or an unqualified interval or period) as **ending S** or **starting E**:
+     the requested half-hour's start given as its end, or its end as its start. This includes such a phrase inside an
+     issue relation ("issued before the half-hour ending S").
+   - **Allowed:**
+     - the half-hour named correctly: ending E, starting S, or the range S to E;
+     - forecast issue and as-of times ("issued before S");
+     - a neighbouring half-hour explicitly identified ("the previous half-hour, ending S", "the half-hour before it",
+       "the next half-hour, starting E");
+     - a neighbouring half-hour given with its own traced value for that half-hour (I-15 binds that number);
+     - 5-minute intervals, and other half-hours.
+6. **Each violation names its exact item:** `headline`, `summary[i]`, `possible_explanations[i]` (or its
+   `.what_would_test_it`), `published_findings[i]`, `uncertainties[i]` or `missing_evidence[i]`. The model's own
+   headline, when not shown, is named as such.
+   - **Repair:** narrative items get the scoped repair, as now. A caveat item gets a full repair, as for the existing
+     caveat checks. The repaired draft is validated again.
+   - **Fallback:** the facts-only fallback drops every caveat a violation names, so a rejected caveat is never shown.
+
+**Acceptance check** (offline, written before the code change). Reported separately: (1) the wrong text is rejected,
+(2) faithful text passes, (3) rejected text is never shown.
+1. **K09, from its saved draft and its actual saved repair:**
+   - **(1)** the first draft is rejected at the headline, possible_explanations[0], uncertainties[0] and
+     missing_evidence[0] (besides the earlier `TIME_OF_DAY_UNVERIFIED`);
+   - **(1)** the saved repair leaves all four, so the repaired answer is rejected again and falls back. Its patch was
+     scoped; under a full repair it is replayed as the draft it produced;
+   - **(3)** the flagged caveats are not shown, and the controller's maximum is still shown as an observation;
+   - **On `main`:** both drafts pass and are shown (the before evidence).
+2. **K07, from its saved draft** (there was no repair):
+   - **(1)** rejected at exactly summary[1], uncertainties[1], missing_evidence[0] and missing_evidence[1]; not at the
+     headline, summary[0] or uncertainties[0];
+   - **(3)** with no repair available it falls back; the three flagged caveats are not shown, and uncertainties[0] still
+     is;
+   - **On `main`:** it passes and is shown.
+3. **Faithful controls (2), each passes:**
+   - **K09:** the maximum as the headline; a comparison headline that starts with another value (at the price peak, or
+     at a named interval) and gives the maximum; a headline giving only a value labelled as at the price peak; a
+     faithful full repair (shown);
+   - **caveats with a complete maximum:** data quality, revisions, another window or date, another region, another
+     measure, another source, causes;
+   - **incomplete or unavailable maximum:** "the maximum cannot be established" passes;
+   - **the controller's sentences:** complete, incomplete and tied;
+   - **K07:** ending 17:30 AEST (07:30Z), starting 17:00 AEST, the range 17:00 to 17:30; "issued before 17:00 AEST";
+     the previous half-hour explicitly identified, and the next one; a neighbouring half-hour with its own traced
+     value; another half-hour; a 5-minute interval; a faithful repair (shown).
+4. **Adversarial controls (1), each rejected:**
+   - a time-only maximum at another interval, in the headline and in a caveat;
+   - another interval's value, unlabelled, as the headline's answer; another measure's value, unlabelled;
+   - the model's own headline doing so when I-3c shows another (the hidden headline is still checked);
+   - a caveat stating another value as the peak; a caveat doubting whether another interval exceeded a value;
+     missing evidence asking for the series "to confirm the maximum";
+   - K07's end named as a start ("starting 17:30"), and the start named as the end inside an issue relation.
+5. **No case-specific code:** no case ID or expected value.
+6. **Unchanged:**
+   - every saved Live record's replay, except where these rules fire (each changed outcome explained);
+   - the Replay evaluation and the safety suite;
+   - the full suite, ruff and mypy; I-15 to I-18's tests;
+   - frozen evaluation material, verdicts and scores; v1.0; the real ledger (USD 7.663248; replays use a scratch
+     ledger).
+   - **Live is unverified;** no paid call.
+
+**Result: verified offline; Live unverified** (branch `fix/requested-result-text`; evidence in
+`artifacts/logs/requested_result_text.log`; tests `tests/provider/test_requested_result_text.py`, 43). Validator only
+(`validation.py`): `requested_max_violations` gains the time and headline rules and `REQUESTED_MAXIMUM_DENIED`, and
+`requested_interval_violations` is new. The three outcomes are reported separately:
+1. **Is the wrong text rejected? Yes, at exactly the items in the criteria.**
+   - **K09:** on `main` its saved draft, with its actual saved repair, passes and is shown. On the branch the draft is
+     rejected at the headline and possible_explanations[0] (`REQUESTED_MAXIMUM_MISMATCH`) and at uncertainties[0] and
+     missing_evidence[0] (`REQUESTED_MAXIMUM_DENIED`). The saved repair leaves all four, so the answer falls back.
+   - **K07:** on `main` it passes and is shown. On the branch it is rejected at summary[1], uncertainties[1],
+     missing_evidence[0] and missing_evidence[1] (`REQUESTED_INTERVAL_MISNAMED`), and at nothing else.
+   - **Adversarial controls rejected (each at its own item):**
+     - another value, or another measure's, given unlabelled as the headline's answer, also after "before the price
+       peak" or ahead of a comparison that never gives the maximum;
+     - a reference back to the price peak that the value's own time does not fit;
+     - a time-only maximum at another interval, in the headline and in a caveat;
+     - the model's own headline, when I-3c shows another;
+     - a caveat stating another value as the peak, or doubting whether another interval exceeded a value;
+     - missing evidence asking for the series "to confirm the maximum";
+     - K07's end named as a start, and its start named as the end inside an issue relation.
+2. **Does faithful text pass? Yes.**
+   - **Headlines:** the maximum; a comparison that starts with another value and gives the maximum; a value labelled as
+     at the price peak; a reference back to the price extreme at its time (as held-out v6 Z04 does); another measure
+     named as such.
+   - **Caveats with a complete maximum:** metered data, revisions, the following day, a dated time outside the window,
+     another region, another measure, other sources, causes, and "no other interval exceeded the maximum" (a fact).
+   - **An incomplete or unavailable maximum** may be called not established. The controller's sentences pass.
+   - **K07:** ending 17:30, starting 17:00, the range; "issued before 17:00 AEST"; the previous and next half-hours named
+     as such; a neighbouring half-hour with its own traced value; the half-hours ending 17:00 and 17:30 compared; another
+     half-hour; a 5-minute interval.
+   - **Faithful repairs** of K09 and K07 are shown.
+3. **Is rejected text ever shown? No.**
+   - Every violation names its item. The model's own headline, when not shown, is named "headline (the model's own,
+     not shown)".
+   - A caveat violation gets a full repair, as for the existing caveat checks, and the repaired draft is validated again.
+   - The facts-only fallback drops each caveat a violation names. In K09's and K07's fallbacks the rejected caveats are
+     absent, and the caveats no violation names are kept.
+
+**Unchanged:**
+- **Saved replays** (267 records, both ways): only K07 and K09 change, both as above. No other record's status,
+  headline, summary, caveats, codes, fallback or report changes, and no Replay-mode answer changes. The fake
+  transport's response and call IDs are masked: they come from one process-wide counter, so an extra repair call in one
+  record shifts every later record's IDs.
+- **The Replay evaluation** (identical to `main`, volatile fields stripped) **and the safety suite** (identical).
+- **I-15 to I-18's tests** pass unchanged, Z04 and K11 among them.
+- **No case-specific code:** case IDs and values appear only in comments and docstrings.
+- **Unchanged files:** the tools and their views, the prompts, the aggregation evidence (Step B), the controller's
+  lines, I-3c, the backstops, and the repair and fallback code.
+
+**Found by the sweep during development, and fixed before the final run:**
+1. **A name collision:** a new module-level regex took the name of the caveat check's own (`_CAUSE_TALK_RE`) and
+   replaced it. Replay EV01 then failed `UNSUPPORTED_CAUSALITY` and the safety suite failed. It was renamed, and no other
+   new name collides.
+2. **Held-out v6 Z04 rejected:** "…highest five-minute dispatch price … at 2026-07-29 20:05 AEST …; TAS1 dispatch
+   TOTALDEMAND 1321.81 MW at the same interval end". That value is labelled, by reference back to the price peak, and is
+   now read as such, so I-17's outcome is kept.
+3. **Held-out v5 Y06 flagged:** "the half-hours ending 07:30Z and 08:00Z" compares the previous half-hour with the one
+   asked about, and is now allowed.
+4. **Double flags:** a maximum statement with a wrong value was also flagged for its time. The time rule now reads only
+   statements with no number; a number's time is I-15's.
+
+**One test change, disclosed:** `tests/eval/test_livecheck_routing_v12.py`,
+`test_the_runner_refuses_a_changed_frozen_file_or_src_tree`.
+- **Why:** it asserted that the frozen runner accepts the checkout, which holds only while `src/` is the frozen tree.
+- **Now:** it asserts that the frozen runner refuses this checkout. With the frozen `src` tree stubbed in, every frozen
+  file still matches `FREEZE.json`.
+- **Unchanged:** the frozen runner, as the I-18 fix did for the earlier check.
+
+**Still open for I-19:**
+- **Lexical reading:**
+  - **The headline rule** reads labels from fixed wording: price reference points, back-references, "below / not the
+    maximum", and measure names. A headline that presents another value as its answer with such a label is not
+    caught.
+  - **Times:** a bare time with no number and no maximum wording is not read as an answer.
+  - **The denial rule** reads fixed phrasings: cannot confirm or establish the maximum, the maximum not established,
+    another interval exceeding, and "to confirm the maximum" in missing evidence. Its exemptions are fixed sets too:
+    data quality and revisions, other windows, dates, regions, measures and sources, and causes. A denial worded
+    otherwise, or one that also mentions a revision, passes.
+  - **The half-hour rule** catches only the start/end mix-up of the requested half-hour. Another wrong half-hour named
+    with no number is not checked.
+- **Supply:** stricter checks can turn a contradicting answer into a repair or a facts-only fallback (F) instead of X.
+  K07's saved draft, with no repair available, now falls back, where Live would first attempt a full repair.
+- **Not in this item (queued separately):** K05's aggregation coverage (Step B), routing truncation and
+  over-clarification.
+- **Live is unverified;** no paid run was made. The earlier checks' FAIL verdicts and all historical scores are
+  unchanged.
 
 ### I-3a: F03, a notice time shown without its zone
 
