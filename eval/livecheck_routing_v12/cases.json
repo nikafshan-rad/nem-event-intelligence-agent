@@ -1,0 +1,461 @@
+{
+ "version": "livecheck-routing-v12-fresh-1",
+ "authored_by": "independent writer (agent)",
+ "generated_at": "2026-10-03T03:08:02Z",
+ "cases": [
+  {
+   "case_id": "Q01",
+   "kind": "forecast_run",
+   "question": "For NSW1, I need operational demand as forecast for Thursday 20 August 2026, 7:30 to 8:00 pm Sydney time, taken from the last forecast run AEMO issued before that half-hour began. Which run is it, and what was its POE50 figure?",
+   "request": {},
+   "expected": {
+    "outcome": "bound",
+    "region": "NSW1",
+    "forecast_run": {
+     "selection": "last_issued_before",
+     "target_half_hour_end_utc": "2026-08-20T10:00:00Z",
+     "issued_at_utc": null
+    },
+    "as_of_utc": null,
+    "grounding": "region: 'NSW1'; half-hour: '7:30 to 8:00 pm' (a start-end range, so it ends 20:00); time zone: 'Sydney time' = AEST UTC+10; date: 'Thursday 20 August 2026'; rule: 'the last forecast run AEMO issued before that half-hour began'. 19:30–20:00 AEST = 09:30–10:00Z.",
+    "data_check": "Run PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202608202000_20260820193208 issued 2026-08-20T09:27:03Z (published 2026-08-20T09:32:08Z, available 2026-08-20T12:18:08Z); it is the last run issued before the target half-hour starts, and the next run is issued after the start; it forecasts the half-hour ending 2026-08-20T10:00:00Z (POE50 9496 MW).",
+    "note": "am/pm range in a city's local time; the rule refers back to the half-hour already named."
+   }
+  },
+  {
+   "case_id": "Q02",
+   "kind": "forecast_run",
+   "question": "Queensland, Friday 31 July 2026, the 06:00–06:30 half-hour on Brisbane time: pull the operational demand forecast from the most recent run issued prior to 06:00 that morning.",
+   "request": {},
+   "expected": {
+    "outcome": "bound",
+    "region": "QLD1",
+    "forecast_run": {
+     "selection": "last_issued_before",
+     "target_half_hour_end_utc": "2026-07-30T20:30:00Z",
+     "issued_at_utc": null
+    },
+    "as_of_utc": null,
+    "grounding": "region: 'Queensland'; date: 'Friday 31 July 2026'; half-hour: 'the 06:00–06:30 half-hour' (ends 06:30); time zone: 'on Brisbane time' = AEST; rule: 'the most recent run issued prior to 06:00 that morning' (06:00 is the half-hour's start). 06:00–06:30 AEST on 31 July = 20:00–20:30Z on 30 July.",
+    "data_check": "Run PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607310630_20260731060128 issued 2026-07-30T19:57:01Z (published 2026-07-30T20:01:28Z, available 2026-07-30T22:47:28Z); it is the last run issued before the target half-hour starts, and the next run is issued after the start; it forecasts the half-hour ending 2026-07-30T20:30:00Z (POE50 6805 MW).",
+    "note": "24-hour range; the UTC date is the day before the local date."
+   }
+  },
+  {
+   "case_id": "Q03",
+   "kind": "forecast_run",
+   "question": "Looking at South Australia, take the half-hour beginning at 19:00 ACST on 6 August 2026. What operational demand was predicted for it by the latest run AEMO had issued by the time it started?",
+   "request": {},
+   "expected": {
+    "outcome": "bound",
+    "region": "SA1",
+    "forecast_run": {
+     "selection": "last_issued_before",
+     "target_half_hour_end_utc": "2026-08-06T10:00:00Z",
+     "issued_at_utc": null
+    },
+    "as_of_utc": null,
+    "grounding": "region: 'South Australia'; half-hour: 'the half-hour beginning at 19:00' (start 19:00, so it ends 19:30); time zone: 'ACST' = UTC+9:30; date: '6 August 2026'; rule: 'the latest run AEMO had issued by the time it started'. 19:00–19:30 ACST = 09:30–10:00Z.",
+    "data_check": "Run PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202608062000_20260806193207 issued 2026-08-06T09:26:59Z (published 2026-08-06T09:32:07Z, available 2026-08-06T12:18:07Z); it is the last run issued before the target half-hour starts, and the next run is issued after the start; it forecasts the half-hour ending 2026-08-06T10:00:00Z (POE50 2032 MW).",
+    "note": "Names the half-hour by its start, in ACST."
+   }
+  },
+  {
+   "case_id": "Q04",
+   "kind": "forecast_run",
+   "question": "Pick the VIC1 half-hourly interval whose end is 2026-07-31T15:30:00+10:00. Which operational demand forecast run had the latest issue time prior to the interval's start, and what did that run show for it?",
+   "request": {},
+   "expected": {
+    "outcome": "bound",
+    "region": "VIC1",
+    "forecast_run": {
+     "selection": "last_issued_before",
+     "target_half_hour_end_utc": "2026-07-31T05:30:00Z",
+     "issued_at_utc": null
+    },
+    "as_of_utc": null,
+    "grounding": "region: 'VIC1'; half-hour: 'the VIC1 half-hourly interval whose end is 2026-07-31T15:30:00+10:00' (ISO time with offset, an end time; date and zone inside the ISO string) = 05:30Z, so it starts 05:00Z; rule: 'had the latest issue time prior to the interval's start'.",
+    "data_check": "Run PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607311530_20260731150201 issued 2026-07-31T04:57:02Z (published 2026-07-31T05:02:01Z, available 2026-07-31T07:48:01Z); it is the last run issued before the target half-hour starts, and the next run is issued after the start; it forecasts the half-hour ending 2026-07-31T05:30:00Z (POE50 6342 MW).",
+    "note": "ISO 8601 time with a +10:00 offset."
+   }
+  },
+  {
+   "case_id": "Q05",
+   "kind": "forecast_run",
+   "question": "Tasmania: for the 22:30–23:00 half-hour in NEM market time on 19 August 2026, give me the operational demand forecast out of the most recent run whose issue time falls before that interval's start.",
+   "request": {
+    "as_of_utc": "2026-08-19T20:00:00Z"
+   },
+   "expected": {
+    "outcome": "bound",
+    "region": "TAS1",
+    "forecast_run": {
+     "selection": "last_issued_before",
+     "target_half_hour_end_utc": "2026-08-19T13:00:00Z",
+     "issued_at_utc": null
+    },
+    "as_of_utc": "2026-08-19T20:00:00Z",
+    "grounding": "region: 'Tasmania'; half-hour: 'the 22:30–23:00 half-hour' (ends 23:00); time zone: 'NEM market time' = UTC+10; date: '19 August 2026'; rule: 'the most recent run whose issue time falls before that interval's start'. 22:30–23:00 market time = 12:30–13:00Z. Cutoff from the request field as_of_utc.",
+    "data_check": "Run PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202608192300_20260819223204 issued 2026-08-19T12:26:58Z (published 2026-08-19T12:32:04Z, available 2026-08-19T15:18:04Z); it is the last run issued before the target half-hour starts, and the next run is issued after the start; it forecasts the half-hour ending 2026-08-19T13:00:00Z (POE50 1104 MW). The request's as_of_utc 2026-08-19T20:00:00Z is after the run's published_at and available_at, so the cutoff does not exclude it.",
+    "note": "The only case with a request-field as_of_utc; it is set after the run became public, so selection remains by issue time."
+   }
+  },
+  {
+   "case_id": "Q06",
+   "kind": "forecast_run",
+   "question": "Consider SA1's half-hour from 5:30 pm to 6:00 pm Adelaide time on Tuesday 28 July 2026. Of the operational demand forecast runs issued before that half-hour got under way, which was the last, and what did it project for that same slot?",
+   "request": {},
+   "expected": {
+    "outcome": "bound",
+    "region": "SA1",
+    "forecast_run": {
+     "selection": "last_issued_before",
+     "target_half_hour_end_utc": "2026-07-28T08:30:00Z",
+     "issued_at_utc": null
+    },
+    "as_of_utc": null,
+    "grounding": "region: 'SA1'; half-hour: 'half-hour from 5:30 pm to 6:00 pm' (ends 18:00); time zone: 'Adelaide time' = ACST UTC+9:30; date: 'Tuesday 28 July 2026'; rule: 'Of the ... runs issued before that half-hour got under way, which was the last'; 'that half-hour' and 'that same slot' refer back to it. 17:30–18:00 ACST = 08:00–08:30Z.",
+    "data_check": "Run PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607281830_20260728180158 issued 2026-07-28T07:57:01Z (published 2026-07-28T08:01:58Z, available 2026-07-28T10:47:58Z); it is the last run issued before the target half-hour starts, and the next run is issued after the start; it forecasts the half-hour ending 2026-07-28T08:30:00Z (POE50 2127 MW).",
+    "note": "Refers back to the named half-hour twice instead of repeating it."
+   }
+  },
+  {
+   "case_id": "Q07",
+   "kind": "forecast_run",
+   "question": "What operational demand did the QLD1 forecast run issued at 1:57 pm AEST on 30 July 2026 predict for the half-hour ending 6:30 pm AEST that day?",
+   "request": {},
+   "expected": {
+    "outcome": "bound",
+    "region": "QLD1",
+    "forecast_run": {
+     "selection": "issued_at",
+     "target_half_hour_end_utc": "2026-07-30T08:30:00Z",
+     "issued_at_utc": "2026-07-30T03:57:03Z"
+    },
+    "as_of_utc": null,
+    "grounding": "region: 'QLD1'; rule: 'the ... forecast run issued at 1:57 pm AEST on 30 July 2026' (= 03:57Z); half-hour: 'the half-hour ending 6:30 pm AEST that day' (end 18:30 AEST on 30 July = 08:30Z).",
+    "data_check": "Exactly one run issued within 10 minutes of 03:57Z: Run PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607301430_20260730140207 issued 2026-07-30T03:57:03Z (published 2026-07-30T04:02:07Z, available 2026-07-30T06:48:07Z); no other run within 10 minutes; it forecasts the half-hour ending 2026-07-30T08:30:00Z (POE50 7872 MW).",
+    "note": "issued_at_utc is the run's exact issue time (seconds included); the question gives it to the minute."
+   }
+  },
+  {
+   "case_id": "Q08",
+   "kind": "forecast_run",
+   "question": "Using the operational demand forecast run that was issued at 03:27 UTC on 31 July 2026, give the NSW1 forecast for the half-hour that ends at 16:00 AEST that same date.",
+   "request": {},
+   "expected": {
+    "outcome": "bound",
+    "region": "NSW1",
+    "forecast_run": {
+     "selection": "issued_at",
+     "target_half_hour_end_utc": "2026-07-31T06:00:00Z",
+     "issued_at_utc": "2026-07-31T03:27:00Z"
+    },
+    "as_of_utc": null,
+    "grounding": "region: 'NSW1'; rule: 'the ... forecast run that was issued at 03:27 UTC on 31 July 2026'; half-hour: 'the half-hour that ends at 16:00 AEST that same date' (31 July; 16:00 AEST = 06:00Z).",
+    "data_check": "Exactly one run issued within 10 minutes of 03:27Z: Run PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202607311400_20260731133213 issued 2026-07-31T03:27:00Z (published 2026-07-31T03:32:13Z, available 2026-07-31T06:18:13Z); no other run within 10 minutes; it forecasts the half-hour ending 2026-07-31T06:00:00Z (POE50 8211 MW).",
+    "note": "Issue time given in UTC, target in AEST; both on 31 July."
+   }
+  },
+  {
+   "case_id": "Q09",
+   "kind": "demand_max",
+   "question": "On Wednesday 29 July 2026, when did Victoria's operational demand peak over the full local day, and how high did it get?",
+   "request": {},
+   "expected": {
+    "outcome": "bound",
+    "region": "VIC1",
+    "maximum": {
+     "measure": "operational_demand",
+     "window_kind": "whole_local_day",
+     "window_utc": [
+      "2026-07-28T14:00:00Z",
+      "2026-07-29T14:00:00Z"
+     ]
+    },
+    "as_of_utc": null,
+    "grounding": "region: 'Victoria'; measure: 'operational demand'; maximum: 'peak' / 'how high'; window: 'over the full local day' of 'Wednesday 29 July 2026' = AEST day 00:00–24:00 = 2026-07-28T14:00Z to 2026-07-29T14:00Z.",
+    "data_check": "Window (2026-07-28T14:00:00Z, 2026-07-29T14:00:00Z]: 48 of 48 half-hourly intervals present, no conflicting values. Maximum 8772 MW in the interval ending 2026-07-29T08:30:00Z; unique.",
+    "note": "Measure named before the maximum word. 29 July is the only local calendar day fully covered by the data."
+   }
+  },
+  {
+   "case_id": "Q10",
+   "kind": "demand_max",
+   "question": "Across the whole of 29 July 2026 on Adelaide time, what was the highest 5-minute dispatch total demand in SA1, and in which interval did it occur?",
+   "request": {},
+   "expected": {
+    "outcome": "bound",
+    "region": "SA1",
+    "maximum": {
+     "measure": "dispatch_total_demand",
+     "window_kind": "whole_local_day",
+     "window_utc": [
+      "2026-07-28T14:30:00Z",
+      "2026-07-29T14:30:00Z"
+     ]
+    },
+    "as_of_utc": null,
+    "grounding": "region: 'SA1'; measure: '5-minute dispatch total demand'; maximum: 'the highest'; window: 'Across the whole of 29 July 2026 on Adelaide time' = ACST day = 2026-07-28T14:30Z to 2026-07-29T14:30Z.",
+    "data_check": "Window (2026-07-28T14:30:00Z, 2026-07-29T14:30:00Z]: 288 of 288 5-minute intervals present, no conflicting values. Maximum 2162 MW in the interval ending 2026-07-29T09:15:00Z; unique.",
+    "note": "Measure named after the maximum word; ACST day boundary is at :30 UTC."
+   }
+  },
+  {
+   "case_id": "Q11",
+   "kind": "demand_max",
+   "question": "SA1, calendar day 29 July 2026 (local time): operational demand's daily high - which half-hour, and how many MW?",
+   "request": {},
+   "expected": {
+    "outcome": "bound",
+    "region": "SA1",
+    "maximum": {
+     "measure": "operational_demand",
+     "window_kind": "whole_local_day",
+     "window_utc": [
+      "2026-07-28T14:30:00Z",
+      "2026-07-29T14:30:00Z"
+     ]
+    },
+    "as_of_utc": null,
+    "grounding": "region: 'SA1'; measure: 'operational demand'; maximum: 'daily high'; window: 'calendar day 29 July 2026 (local time)' = ACST day = 2026-07-28T14:30Z to 2026-07-29T14:30Z.",
+    "data_check": "Window (2026-07-28T14:30:00Z, 2026-07-29T14:30:00Z]: 48 of 48 half-hourly intervals present, no conflicting values. Maximum 2144 MW in the interval ending 2026-07-29T09:30:00Z; unique.",
+    "note": "Measure before the maximum phrase. Same day and region as Q10 but the other measure; the two maxima differ in value and interval."
+   }
+  },
+  {
+   "case_id": "Q12",
+   "kind": "demand_max",
+   "question": "Taking event VIC1-20260820T0910-hi exactly as listed, find the top dispatch total demand (TOTALDEMAND) reading anywhere in its window and the 5-minute interval that recorded it.",
+   "request": {},
+   "expected": {
+    "outcome": "bound",
+    "region": "VIC1",
+    "maximum": {
+     "measure": "dispatch_total_demand",
+     "window_kind": "event",
+     "window_utc": [
+      "2026-08-19T11:00:00Z",
+      "2026-08-20T11:30:00Z"
+     ]
+    },
+    "as_of_utc": null,
+    "grounding": "region and window: 'event VIC1-20260820T0910-hi exactly as listed' ... 'anywhere in its window' (events.json window 2026-08-19T11:00Z to 2026-08-20T11:30Z); measure: 'dispatch total demand (TOTALDEMAND)'; maximum: 'the top ... reading'.",
+    "data_check": "Window (2026-08-19T11:00:00Z, 2026-08-20T11:30:00Z]: 294 of 294 5-minute intervals present, no conflicting values. Maximum 7361.73 MW in the interval ending 2026-08-20T08:35:00Z; unique.",
+    "note": "Event named by its ID; measure after the maximum word."
+   }
+  },
+  {
+   "case_id": "Q13",
+   "kind": "demand_max",
+   "question": "Using the SA1 high-price event in the event list whose highest price landed at 02:35 (NEM time) in the early hours of Friday 31 July 2026, find the high point of operational demand across that event's window, and say when it came.",
+   "request": {},
+   "expected": {
+    "outcome": "bound",
+    "region": "SA1",
+    "maximum": {
+     "measure": "operational_demand",
+     "window_kind": "event",
+     "window_utc": [
+      "2026-07-30T04:30:00Z",
+      "2026-07-31T05:00:00Z"
+     ]
+    },
+    "as_of_utc": null,
+    "grounding": "region: 'SA1'; window: 'the SA1 high-price event in the event list whose highest price landed at 02:35 (NEM time) in the early hours of Friday 31 July 2026' = SA1-20260731T0235-hi (the only SA1 event with that peak), 'across that event's window' = 2026-07-30T04:30Z to 2026-07-31T05:00Z; measure: 'operational demand'; maximum: 'the high point'.",
+    "data_check": "Window (2026-07-30T04:30:00Z, 2026-07-31T05:00:00Z]: 49 of 49 half-hourly intervals present, no conflicting values. Maximum 2173 MW in the interval ending 2026-07-30T09:30:00Z; unique.",
+    "note": "Event described, not named by ID. The runner-up is only 1 MW lower (in a different half-hour)."
+   }
+  },
+  {
+   "case_id": "Q14",
+   "kind": "demand_max",
+   "question": "Between 10 pm on Wednesday 19 August and 8 am on Thursday 20 August 2026, Brisbane time, when did QLD1 dispatch total demand reach its greatest value, and what was that value?",
+   "request": {},
+   "expected": {
+    "outcome": "bound",
+    "region": "QLD1",
+    "maximum": {
+     "measure": "dispatch_total_demand",
+     "window_kind": "explicit",
+     "window_utc": [
+      "2026-08-19T12:00:00Z",
+      "2026-08-19T22:00:00Z"
+     ]
+    },
+    "as_of_utc": null,
+    "grounding": "region: 'QLD1'; measure: 'dispatch total demand'; maximum: 'reach its greatest value'; window: 'Between 10 pm on Wednesday 19 August and 8 am on Thursday 20 August 2026, Brisbane time' = 2026-08-19T12:00Z to 2026-08-19T22:00Z.",
+    "data_check": "Window (2026-08-19T12:00:00Z, 2026-08-19T22:00:00Z]: 120 of 120 5-minute intervals present, no conflicting values. Maximum 6962.05 MW in the interval ending 2026-08-19T21:15:00Z; unique.",
+    "note": "Overnight explicit window crossing local midnight; measure before the maximum phrase."
+   }
+  },
+  {
+   "case_id": "Q15",
+   "kind": "demand_max",
+   "question": "What was the largest half-hourly operational demand reading for NSW1 from midday to 7 pm AEST on Friday 31 July 2026, and which half-hour was it?",
+   "request": {},
+   "expected": {
+    "outcome": "bound",
+    "region": "NSW1",
+    "maximum": {
+     "measure": "operational_demand",
+     "window_kind": "explicit",
+     "window_utc": [
+      "2026-07-31T02:00:00Z",
+      "2026-07-31T09:00:00Z"
+     ]
+    },
+    "as_of_utc": null,
+    "grounding": "region: 'NSW1'; measure: 'half-hourly operational demand'; maximum: 'the largest'; window: 'from midday to 7 pm AEST on Friday 31 July 2026' = 2026-07-31T02:00Z to 2026-07-31T09:00Z.",
+    "data_check": "Window (2026-07-31T02:00:00Z, 2026-07-31T09:00:00Z]: 14 of 14 half-hourly intervals present, no conflicting values. Maximum 11057 MW in the interval ending 2026-07-31T08:30:00Z; unique.",
+    "note": "Measure after the maximum word. Window lies inside the NSW1 event window but is stated explicitly."
+   }
+  },
+  {
+   "case_id": "Q16",
+   "kind": "demand_max",
+   "question": "VIC1, 6 August 2026, 04:00 to 16:00 Melbourne time: give the peak in dispatch total demand over that span and the 5-minute interval it fell in.",
+   "request": {},
+   "expected": {
+    "outcome": "bound",
+    "region": "VIC1",
+    "maximum": {
+     "measure": "dispatch_total_demand",
+     "window_kind": "explicit",
+     "window_utc": [
+      "2026-08-05T18:00:00Z",
+      "2026-08-06T06:00:00Z"
+     ]
+    },
+    "as_of_utc": null,
+    "grounding": "region: 'VIC1'; window: '6 August 2026, 04:00 to 16:00 Melbourne time' (AEST) = 2026-08-05T18:00Z to 2026-08-06T06:00Z, referred back to as 'that span'; measure: 'dispatch total demand'; maximum: 'the peak'.",
+    "data_check": "Window (2026-08-05T18:00:00Z, 2026-08-06T06:00:00Z]: 144 of 144 5-minute intervals present, no conflicting values. Maximum 7966.18 MW in the interval ending 2026-08-05T22:15:00Z; unique.",
+    "note": "Measure after the maximum word; 24-hour clock times, a 12-hour window."
+   }
+  },
+  {
+   "case_id": "Q17",
+   "kind": "forecast_run_clarify",
+   "question": "In QLD1, for the 13:00–13:30 Brisbane-time half-hour, I'd like the run AEMO issued most recently before that half-hour kicked off, plus its operational demand number for the slot.",
+   "request": {},
+   "expected": {
+    "outcome": "clarify",
+    "region": "QLD1",
+    "as_of_utc": null,
+    "missing": [
+     "date"
+    ],
+    "grounding": "region: 'QLD1'; rule: 'the run AEMO issued most recently before that half-hour kicked off'; half-hour and zone: 'the 13:00–13:30 Brisbane-time half-hour'; no date is given.",
+    "data_check": "The 13:00–13:30 AEST half-hour (ending 03:30Z) is forecast for QLD1 on 5 different dates in the data, so the date cannot be inferred.",
+    "note": "Time, zone, start/end and rule are clear; only the date is missing."
+   }
+  },
+  {
+   "case_id": "Q18",
+   "kind": "forecast_run_clarify",
+   "question": "VIC1, Thursday 30 July 2026: for the 19:00 AEST half-hour, find the newest forecast run whose issue time precedes the half-hour's opening. What operational demand did that run expect?",
+   "request": {},
+   "expected": {
+    "outcome": "clarify",
+    "region": "VIC1",
+    "as_of_utc": null,
+    "missing": [
+     "start_or_end"
+    ],
+    "grounding": "region: 'VIC1'; date: 'Thursday 30 July 2026'; zone: 'AEST'; rule: 'the newest forecast run whose issue time precedes the half-hour's opening'; half-hour: 'the 19:00 AEST half-hour' - a single clock time, which could be its start or its end.",
+    "data_check": "The two readings select different runs: ending 19:00 AEST (09:00Z) gives the run issued 2026-07-30T08:27:02Z; starting 19:00 AEST (ending 09:30Z) gives the run issued 2026-07-30T08:57:00Z.",
+    "note": "Genuinely ambiguous because NEM intervals are labelled by end time while everyday usage often means start."
+   }
+  },
+  {
+   "case_id": "Q19",
+   "kind": "demand_max_clarify",
+   "question": "When did Queensland demand hit its highest level on 6 August 2026 in the six hours from 06:00 to 12:00 AEST, and what was the figure?",
+   "request": {},
+   "expected": {
+    "outcome": "clarify",
+    "region": "QLD1",
+    "as_of_utc": null,
+    "missing": [
+     "measure"
+    ],
+    "grounding": "region: 'Queensland'; window: 'on 6 August 2026 in the six hours from 06:00 to 12:00 AEST'; maximum: 'its highest level'; measure: only 'demand', not which one.",
+    "data_check": "Both measures cover the window fully (72 five-minute and 12 half-hour intervals), so either could answer it and the two maxima are different quantities.",
+    "note": "Window and region are pinned down; only the measure is missing."
+   }
+  },
+  {
+   "case_id": "Q20",
+   "kind": "demand_max_clarify",
+   "question": "How high did SA1 operational demand climb on the evening of Thursday 30 July 2026, and at what time did it peak?",
+   "request": {},
+   "expected": {
+    "outcome": "clarify",
+    "region": "SA1",
+    "as_of_utc": null,
+    "missing": [
+     "window"
+    ],
+    "grounding": "region: 'SA1'; measure: 'operational demand'; maximum: 'How high ... climb' / 'peak'; window: 'on the evening of Thursday 30 July 2026' - 'evening' has no stated start or end.",
+    "data_check": "Data cover SA1 on 30 July from 14:00 ACST onward, so any evening reading is available; the window bounds are the only gap.",
+    "note": "Measure and region are clear; the window is vague."
+   }
+  },
+  {
+   "case_id": "Q21",
+   "kind": "control",
+   "question": "What was SA1's dispatch total demand in the 5-minute interval where price peaked during the SA1 high-price event of 29 July 2026?",
+   "request": {},
+   "expected": {
+    "outcome": "no_request",
+    "region": "SA1",
+    "as_of_utc": null,
+    "grounding": "'dispatch total demand in the 5-minute interval where price peaked during the SA1 high-price event of 29 July 2026' - demand at the event's price peak, not a demand maximum.",
+    "data_check": "Event SA1-20260729T1755-hi, price peak interval ending 2026-07-29T07:55Z; the data hold dispatch total demand for that interval.",
+    "note": "Control: demand at a price peak is not a request."
+   }
+  },
+  {
+   "case_id": "Q22",
+   "kind": "control",
+   "question": "What was the highest QLD1 spot price from 16:00 to 21:00 Brisbane time on 20 August 2026, and how much dispatch total demand was there in the very interval where it occurred?",
+   "request": {},
+   "expected": {
+    "outcome": "no_request",
+    "region": "QLD1",
+    "as_of_utc": null,
+    "grounding": "'the highest QLD1 spot price' (peak price) and 'how much dispatch total demand was there in the very interval where it occurred' (demand in that same interval).",
+    "data_check": "Price and dispatch total demand both cover 06:00Z-11:00Z on 20 August for QLD1.",
+    "note": "Control: uses 'highest' and names a demand measure and window, but the maximum is of price."
+   }
+  },
+  {
+   "case_id": "Q23",
+   "kind": "control",
+   "question": "As at 9:00 pm AEST on 5 August 2026, which operational demand forecast for VIC1's 6:00–6:30 pm half-hour on 6 August 2026 was the newest one the public could already see?",
+   "request": {},
+   "expected": {
+    "outcome": "as_of_availability",
+    "region": "VIC1",
+    "as_of_utc": "2026-08-05T11:00:00Z",
+    "grounding": "'As at 9:00 pm AEST on 5 August 2026' (= 2026-08-05T11:00Z) and 'the newest one the public could already see' - selects by availability at a cutoff, not by issue time.",
+    "data_check": "For the half-hour ending 2026-08-06T08:30Z, the latest run available by the cutoff was issued 2026-08-05T07:56:59Z (available 10:48:00Z), while the latest run issued by the cutoff (10:57:02Z) only became available at 13:48:02Z, so the two rules give different runs.",
+    "note": "Control: availability-based selection."
+   }
+  },
+  {
+   "case_id": "Q24",
+   "kind": "control",
+   "question": "Over 20 August 2026, how well did AEMO's operational demand forecasts track actuals in TAS1 - for example the mean absolute error of POE50?",
+   "request": {},
+   "expected": {
+    "outcome": "no_request",
+    "region": "TAS1",
+    "as_of_utc": null,
+    "grounding": "'Over 20 August 2026, how well did AEMO's operational demand forecasts track actuals' - forecast accuracy in general.",
+    "data_check": "Not applicable (no run or maximum to bind).",
+    "note": "Control: general forecast accuracy over a day."
+   }
+  }
+ ]
+}
