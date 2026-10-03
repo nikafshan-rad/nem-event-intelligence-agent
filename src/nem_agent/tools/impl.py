@@ -14,7 +14,7 @@ from datetime import date, datetime, timedelta
 from typing import Any
 
 from ..aemo_schema import METRIC_DEFINITIONS
-from ..evidence import EvidenceRegistry
+from ..evidence import EvidenceRegistry, aggregate_coverage
 from ..selection import Selection
 from ..store import Store
 from ..timeutil import NEM_TZ, REGIONS, iso_utc, local_str, parse_iso
@@ -237,7 +237,9 @@ def get_price_timeline(ctx: ToolContext, a: A.PriceTimelineArgs) -> ToolOutput:
         evidence_class="derived", metric="mean_dispatch_rrp", value=round(mean, 2), unit="$/MWh", region=a.region,
         valid_at_utc=a.end_utc, interval_minutes=None, source_row_ids=[s["row_id"] for s in series],
         source_urls=sorted({r["source_url"] for r in rows}), tool_call_id=ctx.call_id,
-        derivation=f"arithmetic mean of {len(series)} 5-minute RRP values (unweighted; not a settlement price)")
+        derivation=f"arithmetic mean of {len(series)} 5-minute RRP values (unweighted; not a settlement price)",
+        coverage=aggregate_coverage((start, end), 5, [parse_iso(s["interval_end_utc"]) for s in series],
+                                    excluded if as_of is not None else None))  # the series it averages (I-20)
     thr = float(ctx.selection.analysis_threshold["high_price_rrp_at_or_above"])
     n_thr = sum(s["rrp"] >= thr for s in series)
     n_thr_ev = ctx.registry.add(
@@ -468,27 +470,36 @@ def compare_forecast_actual(ctx: ToolContext, a: A.CompareArgs) -> ToolOutput:
         return ToolOutput("refused", {"reason": reason}, missing=[reason])
     t0, t1 = parse_iso(a.target_start_utc), parse_iso(a.target_end_utc)
     as_of = a.ts("as_of_utc")
-    frows = _forecast_rows(ctx, a.region, t0, t1)
+    frows_all = _forecast_rows(ctx, a.region, t0, t1)
+    frows = frows_all
     if as_of is not None:
         frows = [r for r in frows if r["available_at_utc"] <= as_of]
     arows = _actual_rows(ctx, a.region, t0, t1)
     actuals, hidden = _pick_actuals(arows, a.actual_revision, as_of)
-    targets = sorted({r["target_end_utc"] for r in _forecast_rows(ctx, a.region, t0, t1)} | set(actuals))
+    targets = sorted({r["target_end_utc"] for r in frows_all} | set(actuals))
     if not targets:
         return ToolOutput("unavailable", {"reason": "no forecast or actual rows"},
                           missing=[f"No data for {a.region} {a.target_start_utc}..{a.target_end_utc}. {_coverage_note(ctx)}"])
-    pairs, missing = [], []
-    margin = timedelta(minutes=int(ctx.selection.availability["margin_minutes"]))
-    for t in targets:
-        cands = [r for r in frows if r["target_end_utc"] == t]
+
+    def select(rows: list[dict[str, Any]], t: datetime) -> dict[str, Any] | None:
+        cands = [r for r in rows if r["target_end_utc"] == t]
         if a.run_selector == "run_id":
             cands = [r for r in cands if r["run_id"] == a.run_id]
         elif a.run_selector == "latest_before_target":
             cands = [r for r in cands if r["available_at_utc"] <= t - timedelta(minutes=30)]
         elif a.run_selector == "min_lead_hours":
             cands = [r for r in cands if r["available_at_utc"] <= t - timedelta(minutes=30) - timedelta(hours=a.min_lead_hours or 0)]
-        f = max(cands, key=lambda r: r["published_at_utc"]) if cands else None
+        return max(cands, key=lambda r: r["published_at_utc"]) if cands else None
+    all_actuals = _pick_actuals(arows, a.actual_revision, None)[0] if as_of is not None else actuals
+    pairs, missing = [], []
+    cut_by_as_of = 0  # targets left without a pair only by the cutoff: one would exist without it (I-20 coverage)
+    margin = timedelta(minutes=int(ctx.selection.availability["margin_minutes"]))
+    for t in targets:
+        f = select(frows, t)
         act = actuals.get(t)
+        if (f is None or act is None) and as_of is not None and select(frows_all, t) is not None \
+                and all_actuals.get(t) is not None:
+            cut_by_as_of += 1
         if f is None:
             missing.append(f"{_ts(t)}: no forecast run satisfying selector '{a.run_selector}' (availability margin {margin})")
             continue
@@ -542,17 +553,22 @@ def compare_forecast_actual(ctx: ToolContext, a: A.CompareArgs) -> ToolOutput:
     bias = statistics.fmean(errs)
     worst = max(pairs, key=lambda p: abs(p["error_mw"]))
     ids = [p["error_evidence_id"] for p in pairs]
+    # what the three aggregates were computed from: the pairs actually used, in the call's own window (I-20)
+    cov = aggregate_coverage((t0, t1), 30, [parse_iso(p["target_end_utc"]) for p in pairs],
+                             cut_by_as_of if as_of is not None else None)
     mae_ev = ctx.registry.add(evidence_class="derived", metric="mae_mw", value=round(mae, 2), unit="MW", region=a.region,
                               valid_at_utc=a.target_end_utc, interval_minutes=30, source_row_ids=[], source_urls=[],
-                              tool_call_id=ctx.call_id, derivation=f"mean(|error|) over {len(pairs)} half-hours: {ids[:6]}...")
+                              tool_call_id=ctx.call_id, derivation=f"mean(|error|) over {len(pairs)} half-hours: {ids[:6]}...",
+                              coverage=cov)
     bias_ev = ctx.registry.add(evidence_class="derived", metric="mean_error_mw", value=round(bias, 2), unit="MW",
                                region=a.region, valid_at_utc=a.target_end_utc, interval_minutes=30, source_row_ids=[],
                                source_urls=[], tool_call_id=ctx.call_id,
-                               derivation=f"mean(error) over {len(pairs)} half-hours; positive = over-forecast")
+                               derivation=f"mean(error) over {len(pairs)} half-hours; positive = over-forecast", coverage=cov)
     n_ev = ctx.registry.add(evidence_class="derived", metric="n_aligned_half_hours", value=float(len(pairs)),
                             unit="half-hours", region=a.region, valid_at_utc=a.target_end_utc, interval_minutes=30,
                             source_row_ids=[], source_urls=[], tool_call_id=ctx.call_id,
-                            derivation="number of target half-hours with both an eligible forecast and an eligible actual")
+                            derivation="number of target half-hours with both an eligible forecast and an eligible actual",
+                            coverage=cov)
     view = {
         "region": a.region, "targets_utc": [a.target_start_utc, a.target_end_utc], "as_of_utc": a.as_of_utc,
         "n_pairs_evidence_id": n_ev.evidence_id,

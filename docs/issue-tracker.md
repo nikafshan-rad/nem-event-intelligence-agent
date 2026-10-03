@@ -32,6 +32,7 @@ One list of known defects, so that each fix is weighed against the whole. Eviden
 | I-17 | **A measure's requested maximum replaced by its value at the price peak and another measure's maximum** | Z04 (held-out v6, Live, 2026-10-02): "… when did TAS1 total demand peak and at what level?" for 29 July 2026 (Hobart time). The answer gave dispatch TOTALDEMAND at the price peak (1,321.81 MW, 20:05) and the maximum of operational demand (1,452 MW, half-hour ending 08:00). TOTALDEMAND's maximum, 1,367.32 MW in the interval ending 07:55, was retrieved but never given | P1 | **verified offline; Live unverified** (PR `#53`, merged as `cf9558e`; below). A requested maximum is now computed by code over the requested window, stated by the controller and required of the answer; Z04's answer gives 1,367.32 MW at 07:55, and substitutes stated as the peak are rejected. v6's FAIL verdict and Z04's scores are unchanged. **Targeted Live check 2026-10-02 (code `cf9558e`, PR `#54`; overall FAIL): not held.** "total demand highest" and "hit its highest point" were not read as maximum requests, so nothing was computed: K09 and K10 show wrong maxima. Where the wording was read, the maximum was supplied (Z04, K11) |
 | I-18 | **Forecast-run and demand-maximum requests that silently skip their binding** | Targeted Live check 2026-10-02 (`docs/live-gates.md`): wording outside the fixed patterns ("issued ahead of it", "issued before it", am/pm half-hours, "total demand highest", "hit its highest point") left K05–K07, K09 and K10 unbound; K06, K07, K09 and K10 then showed another run or a wrong maximum, and nothing checked them | P1 | **merged as `f2455ca`; verified offline; Live unverified** (PR `#56`; below). Requests are resolved from the request, the question parsers and the routing model's grounded reading (prompts v12), with provenance; a detected request that is not bound is sent back; two bounded answer backstops (the demand-extreme backstop window- and coverage-checked before merging). With saved routes K06, K07, K09 and K10 are sent back; with *scripted* correct routing fields K05, K06, K09 and K10 are supplied and K07 is answered unavailable; extraction by the real routing model is unverified. **Live check of the routing extraction, 2026-10-03 (PR #57's frozen protocol): FAIL.** No wrong routing binding was observed in this sample of 42 (18 correct, 14 of them using the model's reading; containment 6 of 6), but 4 of 42 routing calls were cut off at the 2,000-token cap; K09 shows an incorrect maximum (X: its headline contradicts the controller's correct maximum); K05 has an H4 finding (its MAE window is misdescribed); and requests were over-clarified (Q11, Q12, Q14, Q15, Q22, Q23, and K10 end to end). The earlier check's FAIL verdict and all historical scores are unchanged |
 | I-19 | **Answer text that contradicts the requested result the controller holds** | Live check of the v12 routing extraction (E-dev, 2026-10-03): K09's controller line gives the correct maximum (10954.2 MW, ending 19:05 AEST), but its headline gives 10,890.3 MW at 19:35 AEST as the answer, an explanation calls 19:35 the maximum, and two caveats deny the maximum is established. K07's correct "unavailable" answer names the requested half-hour (17:00–17:30 AEST) as "ending 17:00" in four items. Nothing checked either | P1 | **verified offline; Live unverified** (branch `fix/requested-result-text`, validator only; below). K09's and K07's saved drafts are rejected at exactly the contradicting items and fall back, with the rejected caveats not shown; faithful text, comparisons, neighbouring half-hours and data-quality caveats pass; only K09 and K07 change among the 267 saved replays. The checks are lexical (limits below). K05's aggregation coverage, routing truncation and over-clarification are queued separately |
+| I-20 | **An aggregate described as covering more than it was computed from** | Live check of the v12 routing extraction (E-dev, 2026-10-03): K05 says "the run's MAE for the 24-hour target window as 10.0 MW". The MAE (`ev0554`) is the mean over one paired half-hour (ending 08:00Z) of a 12-hour comparison window holding 24 target half-hours. The answer passed validation and was shown; the independent reviewer read H4 = 1 | P1 | **verified offline; Live unverified** (branch `fix/aggregate-coverage`; below). Aggregates over a window (`mae_mw`, `mean_error_mw`, `n_aligned_half_hours`, `mean_dispatch_rrp`) carry their coverage from their own inputs, and stated durations, counts and completeness are checked against it. K05's "24-hour target window" is rejected and a faithful description passes; among the 267 saved replays only K05 changes outcome (Z05 gains one true finding in a draft that already fell back). The check is lexical (limits below). Routing truncation and over-clarification are queued separately |
 | I-5 | **Known safety-language limitations** | See the list below. Each is recorded with its risk. None is being worked on, to avoid an open-ended wording cycle | P3 | recorded; revisit only with a new concrete failure |
 
 ### I-1a: F04, the causal question not answered directly
@@ -3272,6 +3273,209 @@ controller's lines).**
   K07's saved draft, with no repair available, now falls back, where Live would first attempt a full repair.
 - **Not in this item (queued separately):** K05's aggregation coverage (Step B), routing truncation and
   over-clarification.
+- **Live is unverified;** no paid run was made. The earlier checks' FAIL verdicts and all historical scores are
+  unchanged.
+
+### I-20: K05, an aggregate described as covering more than it was computed from
+
+**What happened** (Live check of the v12 routing extraction, E-dev, 2026-10-03, code `f2455ca`, prompts v12; record
+`artifacts/live/LC-route-v12-e2e/K05.json`, trace `tr-7eedf8f6f4cb`):
+- **The question:** "Looking at the 5:30 to 6:00 pm (AEST) half-hour in Queensland on 6 August 2026: what POE50
+  operational demand did the most recent forecast run issued before that half-hour predict, and how close did actual
+  operational demand come to it?"
+- **The answer was right** on the gold run, its POE50 (7598.0 MW), the actual (7608.0 MW) and the error.
+- **The misdescription:** summary[3], "The compare_forecast_actual output reports the run's MAE for the 24-hour target
+  window as 10.0 MW (evidence ev0554)", and the model's own claim text for it (c5), "MAE 10.0 MW for the 24-hour
+  target window".
+- **What the MAE was computed from:** the model's `compare_forecast_actual` call over 2026-08-05T20:00Z to
+  2026-08-06T08:00Z, a **12-hour** window of **24** target half-hours, with `run_selector='run_id'`. That run (issued
+  07:27:01Z) forecasts only the last target in the window, so **1 of 24** half-hours had a pair (ending 08:00Z), and the
+  MAE is that one half-hour's absolute error.
+- **Reviews:** the developer read H4 = 0, the independent reviewer H4 = 1 ("an MAE for one half-hour described as a
+  24-hour window"). The stricter reading applies.
+
+**Root cause.**
+1. **The aggregate's evidence does not say what it covers.** `mae_mw`, `mean_error_mw` and `n_aligned_half_hours` are
+   registered like one half-hour's value: `valid_at_utc` is the window's end and `interval_minutes` is 30. What they
+   cover appears only as free text ("mean(|error|) over 1 half-hours"). `mean_dispatch_rrp` (`get_price_timeline`) is
+   the same, with no interval length.
+2. **The tool's view is partial.** It gives the window (`targets_utc`) and `n_pairs`, but not which intervals were
+   included or where the gaps are. `n_targets_without_pair` counts only targets that hold some row, not the
+   window's expected intervals.
+3. **No check reads coverage.** The duration parser knows only half-hour, 30-minute and 5-minute.
+   `CLAIM_INTERVAL_MISMATCH` compares a stated length with `interval_minutes`, which for an aggregate is the length of
+   each input, not its coverage. Nothing checks a duration, a count or a completeness statement about an aggregate,
+   in the summary or in the claim's own text.
+- **Not a cause:** the model had `n_pairs` = 1 and the 12-hour window in the view, so no prompt change is needed.
+
+**Proposed fix** (no change to routing, the prompts, Step A's checks, or the model-facing tool views).
+1. **Structured coverage on aggregate evidence** (`evidence.py`, registered in `tools/impl.py`), computed from the
+   calculation's own inputs, for every aggregate over a window: `mae_mw`, `mean_error_mw` and `n_aligned_half_hours`
+   (the pairs) and `mean_dispatch_rrp` (the series). It keeps apart:
+   - **the requested analysis window** (the call's own start and end);
+   - **the intervals included** in the calculation (their ends, from the pairs or series actually used);
+   - **the expected and included counts** (the window's length over the interval length, and the number used);
+   - **the interval length**, the **contiguous runs** of included intervals and the **gaps** between and around them;
+   - **intervals excluded by an as-of cutoff**, where the tool knows them.
+
+   Coverage is never taken from the first and last included timestamps: sparse intervals that span a window are not
+   continuous coverage of it. Every other item, and the existing fields, are unchanged.
+2. **Validate coverage statements** (`AGGREGATE_COVERAGE_MISMATCH`, new) in every text the model writes: headline (the
+   shown one and the model's own), summary, explanations and their tests, findings, uncertainties, missing evidence,
+   and a numeric claim's own text. The aggregate is the one a stated number traces to (its marker or claim), or the one
+   named ("the MAE") when the answer uses only one such aggregate. In the aggregate's clause:
+   - **A count** ("over 24 half-hours", "20 of 24 half-hours") must equal the intervals included, and an "of N" the
+     intervals expected.
+   - **A duration or a time range** ("24-hour", "over 12 hours", "the whole day", "20:00Z to 08:00Z") must be either
+     the span of one contiguous run of included intervals, or the requested window when every interval of it is
+     included. A partial or gapped coverage may still be described by its window when the same clause states the
+     included count ("over the 12-hour window, in which 1 half-hour had a pair").
+   - **Completeness** ("all", "every", "the whole", "the full", "complete") needs every expected interval included;
+     **continuity** ("continuous", "contiguous", "consecutive", "unbroken") needs no gap.
+   - **Not coverage claims:** lead times ("a day ahead", "at least 24 hours ahead"), as-of and issue times, the length
+     of one input interval ("half-hourly MAE", "30-minute pairs"), and any duration not in the aggregate's clause.
+3. **Unchanged:** Step A's checks (I-19), I-15 to I-18, the backstops, `CLAIM_INTERVAL_MISMATCH`, the repair and
+   fallback code, the model-facing tool views and the prompts. Violations name their item, so the repair is scoped
+   (narrative items), full (caveats), or to the claim, and the fallback drops a named caveat.
+
+**Acceptance check** (offline, written before the code change). Reported separately: (1) the wrong statement is
+rejected, (2) faithful text passes, (3) coverage is recorded correctly.
+1. **K05, from its saved draft and its saved repair:**
+   - **(1)** summary[3] and the claim c5 ("24-hour target window") are rejected, naming the MAE's coverage (1 of 24
+     half-hours, 2026-08-05T20:00Z to 2026-08-06T08:00Z); on `main` they pass and are shown;
+   - **(2)** a faithful description of its one paired half-hour passes: "the MAE, over the one half-hour with a pair
+     (ending 2026-08-06 18:00 AEST), was 10.0 MW";
+   - **(3)** `ev0554`'s coverage: window 2026-08-05T20:00Z to 2026-08-06T08:00Z, 30-minute intervals, 1 included
+     (ending 08:00Z), 24 expected, not complete, gaps before it.
+2. **Coverage, recorded from the inputs (3), on real data:**
+   - **full coverage:** every half-hour of a window paired, one contiguous run, no gap;
+   - **partial coverage:** K05's 1 of 24;
+   - **non-contiguous intervals:** included intervals with a gap between them are two runs, never one span from the
+     first to the last;
+   - **as-of-limited coverage:** intervals not yet public at the cutoff are not included, and are counted as excluded;
+   - **the price timeline's mean:** its 5-minute series, full and as-of-limited.
+3. **Statements (1) and (2), each tested:**
+   - **full coverage:** "the whole window", "all 24 half-hours", "over 12 hours" pass;
+   - **partial coverage:** "24-hour", "whole window" and "all half-hours" rejected; the count, or the window with the
+     count, passes;
+   - **non-contiguous:** a span from the first to the last included interval, or "continuous", rejected; the count
+     passes;
+   - **as-of-limited:** "the whole window" rejected; "the half-hours public by the cutoff" with their count passes;
+   - **counts:** a wrong count or a wrong "of N" rejected;
+   - **headlines and caveats,** and the model's own headline when not shown, are read too.
+4. **Unaffected, each tested:** unrelated durations (a 5-minute price, "a day ahead", a 24-hour window named for
+   something else); aggregates stated with no coverage claim; the Replay controller's own sentences ("over N
+   half-hour(s) with published actuals").
+5. **No case-specific code.**
+6. **Unchanged:**
+   - every saved Live record's replay, except where the check fires (each changed outcome explained);
+   - the Replay evaluation and the safety suite;
+   - the full suite, ruff and mypy; I-15 to I-19's tests;
+   - frozen evaluation material, verdicts and scores; v1.0; the real ledger (USD 7.663248; replays use a scratch
+     ledger).
+   - **Live is unverified;** no paid call.
+
+**Result: verified offline; Live unverified** (branch `fix/aggregate-coverage`; evidence in
+`artifacts/logs/aggregate_coverage.log`; tests `tests/provider/test_aggregate_coverage.py`, 66 after the review below). The three outcomes are
+reported separately:
+1. **Is the wrong statement rejected? Yes.**
+   - **K05,** with its saved draft and actual saved repair: on `main` it passes and is shown, "MAE for the 24-hour target
+     window" included. On the branch summary[3] and the claim c5 are rejected (`AGGREGATE_COVERAGE_MISMATCH`: "1 of
+     the 24 30-minute intervals of 2026-08-05T20:00:00Z to 2026-08-06T08:00:00Z"). The saved repair fixed only c4's
+     unit, so the answer falls back, and the statement is not shown.
+   - **Also rejected** (scripted variants of K05; real-data statements):
+     - the 12-hour window, "all half-hours", twenty-four half-hours, a wrong "of N", the window's range, and "the day",
+       each for the partial MAE;
+     - the headline, an uncertainty, a missing-evidence item, and the model's own headline when not shown;
+     - "the whole window" and the 12-hour window under an as-of cutoff;
+     - for non-contiguous coverage: the window's range, the range from the first included interval to the last,
+       "continuous", and the included count stated as a duration with no count;
+     - "the mean dispatch price over the whole day" under a cutoff.
+2. **Does faithful text pass? Yes.**
+   - **K05:** "the run's MAE, over the one half-hour with a pair (ending 2026-08-06 18:00 AEST), is 10.0 MW", with
+     its claim text; a faithful repair is shown.
+   - **Partial coverage,** described by what it includes: the 12-hour window "in which one half-hour had a pair"; "one
+     of the twenty-four half-hours"; the half-hour it covers; a negated "does not cover the whole window"; "only one
+     half-hour".
+   - **Full coverage:** "the whole 12-hour window", "all twenty-four half-hours", "12 hours of continuous pairs".
+   - **As-of-limited:** "the twelve half-hours public by the cutoff", and 6 hours (its one run).
+   - **Non-contiguous:** "31 paired half-hours (15.5 hours, in two separate runs)".
+   - **The price mean** over a fully held day.
+3. **Is coverage recorded from the calculation's inputs? Yes,** on real data from the pinned store.
+   - **K05:** 1 of 24.
+   - **Full:** 24 of 24.
+   - **As-of-limited:** 12 of 24, with 12 left out by the cutoff.
+   - **Non-contiguous:** 31 of 48 in two runs, across the store's gap between held days, never one span from the first
+     included interval to the last.
+   - **The price timeline's mean:** 288 of 288; included plus cut-off intervals totalling 288; 186 of 288 in two runs.
+   - **Serialisation:** an item without coverage serialises as before.
+
+**Unaffected, each tested:** "a day ahead" and "the day-ahead view" (the Replay controller's own wording), "issued 24
+hours before", an MAE stated with no coverage, a 24-hour horizon stated for a forecast run, and "30-minute pairs".
+
+**Unchanged:**
+- **Saved replays** (267 records, both ways, against `main` `41b1a7f`; fake-transport IDs masked): only K05 and
+  held-out v6 Z05 change.
+  - **Z05:** its first draft gains a true finding: "MAE … over the 24 half-hours" for an MAE over 18 of 24. Its
+    outcome is unchanged: it already fell back on `main` for `FORECAST_RUN_SUBSTITUTED`.
+  - **No other record's** status, headline, summary, caveats, codes, fallback or report changes, and no Replay-mode
+    answer changes.
+- **The Replay evaluation** (identical to `main`, volatile fields stripped) **and the safety suite** (identical).
+- **Step A (I-19), and I-15 to I-18:** their tests pass unchanged.
+- **The full suite** (1,618 passed), ruff and mypy.
+- **Other code:** the model-facing tool views, routing, the prompts, `CLAIM_INTERVAL_MISMATCH`, the repair and fallback
+  code, and every other evidence item.
+- **No case-specific code.**
+
+**Review before merge: the qualifier exemption** (offline; `artifacts/logs/aggregate_coverage.log`, last section).
+- **The bypass at the PR's first head (`2b10008`):** "only", a negation, or "incomplete" anywhere in an aggregate's
+  clauses switched off every duration, range, completeness and continuity check in them. Counts were checked, but read
+  no negation at all. Against K05's MAE (1 of 24) and a real gapped MAE (31 of 48), each statement written with the MAE
+  named and with its value, 10 of 24 checks were wrong:
+  - **false statements that passed:**
+    - "This MAE covers only a 24-hour window";
+    - "The coverage is not continuous, but the MAE covers the whole window";
+    - "Only this MAE is reported, and it covers the whole 12-hour window";
+    - "The MAE covers an incomplete 24-hour window" (its window is 12 hours);
+  - **a valid denial that was rejected:** "The MAE does not use all twenty-four half-hours".
+  - "The coverage is not continuous, but the MAE covers all forty-eight half-hours" was already rejected, but only by
+    its count.
+- **Fixed:** a qualifier now affects only the statement it stands before, in that statement's own clause (the five
+  words before it).
+  - **A negation withdraws that statement only:** "does not cover the full window", "not for the 24-hour window", "does
+    not use all twenty-four half-hours".
+  - **"Only" limits a statement but still makes it:** "covers only a 24-hour window" claims 24 hours.
+  - **"Partial" or "incomplete" makes a duration name the window:** "an incomplete 12-hour window" passes and "an
+    incomplete 24-hour window" does not.
+  - **A stated span qualifies the window beside it,** but not itself: "only 30 minutes of the 12-hour window" passes,
+    and a gapped coverage's total ("over 15.5 hours") still needs its count.
+- **After the fix:** 24 of 24 checks are right, and the valid wording passes: "The MAE uses only one of the twenty-four
+  half-hours" and "This MAE does not cover the full window". The checks are now tests (24 more, 66 in the file).
+- **Unchanged after the review:**
+  - K05's rejection and its faithful description;
+  - the saved replays: only K05 and Z05 change, with the same detail;
+  - the Replay evaluation and the safety suite;
+  - Step A's tests, and I-15 to I-18's.
+  - **The full suite** now has 1,642 passed. Ruff and mypy are clean.
+
+**Still open for I-20:**
+- **Lexical reading.** Coverage statements are read from fixed wording:
+  - **counts:** digits or number words up to twelve, twenty-four and forty-eight, before an interval noun;
+  - **durations:** hours, minutes, "the day", "the half-hour";
+  - **completeness:** "all", "every", "whole", "full"; **continuity:** "continuous", "consecutive";
+  - **ranges:** two stated times.
+
+  Other wording ("most of the window", "throughout") is not read. A qualifier is read only in the five words before a
+  statement, in its own clause: a negation further away, or worded otherwise ("hardly"), is not seen, and a negated
+  statement is not checked.
+- **Binding.** An aggregate is bound by its traced number, or by its name when the answer uses only one of that kind.
+  An unnamed reference ("it covers the whole window") in another sentence is not bound.
+- **Digits.** A faithful count written in digits must still be a registered claim (`NUMERIC_UNTRACKED`, unchanged), so
+  an expected count such as "of 24" can be written only in words.
+- **The tool views are unchanged:** the model sees `n_pairs` and the window, not the included intervals or gaps.
+  Coverage is enforced, not shown.
+- **Scope:** counts of intervals meeting a threshold, and single named intervals, are not checked as coverage.
+- **Supply:** a contradicting description now falls back (F), or is repaired, instead of being shown.
 - **Live is unverified;** no paid run was made. The earlier checks' FAIL verdicts and all historical scores are
   unchanged.
 

@@ -8,8 +8,12 @@ never by the model.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 from typing import Any, Literal
+
+from .timeutil import iso_utc
 
 EvidenceClass = Literal[
     "observed",                     # AEMO actual / dispatch observation
@@ -37,9 +41,48 @@ class EvidenceItem:
     available_at_utc: str | None = None
     derivation: str | None = None
     label: str | None = None
+    coverage: dict[str, Any] | None = None  # an aggregate over intervals: what it was computed from (I-20)
 
     def as_dict(self) -> dict[str, Any]:
-        return dict(self.__dict__)
+        d = dict(self.__dict__)
+        if d["coverage"] is None:  # only aggregates carry it; every other item is serialised as before
+            del d["coverage"]
+        return d
+
+
+def aggregate_coverage(window: tuple[datetime, datetime], interval_minutes: int, included: Iterable[datetime],
+                       excluded_by_as_of: int | None = None) -> dict[str, Any]:
+    """What an aggregate over intervals was computed from (I-20, K05: an MAE over one paired half-hour of a 12-hour
+    window was described as covering "the 24-hour target window"), from the calculation's own inputs:
+    - **the requested analysis window** (the call's own start and end, interval-ending: (start, end]);
+    - **the intervals included** (their ends), and how many the window holds (``intervals_expected``);
+    - **the interval length**, the **contiguous runs** of included intervals and the **gaps** around and between them.
+      The runs are never the span from the first included interval to the last: sparse intervals spanning a window
+      are not continuous coverage of it;
+    - **intervals left out by an as-of cutoff,** when the tool knows them (else None)."""
+    w0, w1 = window
+    step = timedelta(minutes=interval_minutes)
+    ends = sorted({t for t in included if w0 < t <= w1})
+    runs: list[list[datetime]] = []
+    for t in ends:
+        if runs and t - runs[-1][1] == step:
+            runs[-1][1] = t
+        else:
+            runs.append([t - step, t])
+    gaps, at = [], w0
+    for a, b in runs:
+        if a > at:
+            gaps.append([at, a])
+        at = b
+    if at < w1:
+        gaps.append([at, w1])
+    expected = round((w1 - w0) / step)
+    return {"window_utc": [iso_utc(w0), iso_utc(w1)], "interval_minutes": interval_minutes,
+            "intervals_expected": expected, "intervals_included": len(ends),
+            "included_ends_utc": [iso_utc(t) for t in ends],
+            "runs_utc": [[iso_utc(a), iso_utc(b)] for a, b in runs], "gaps_utc": [[iso_utc(a), iso_utc(b)] for a, b in gaps],
+            "complete": len(ends) == expected and not gaps, "contiguous": len(runs) == 1,
+            "excluded_by_as_of": excluded_by_as_of}
 
 
 @dataclass
