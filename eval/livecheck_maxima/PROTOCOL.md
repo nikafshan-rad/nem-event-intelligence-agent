@@ -38,7 +38,8 @@ their answer quality as well as their format.
   output caps, model-call limit, validators, controllers, tools and data as in that tree.
 - **These files, by SHA-256:** this protocol, `BRIEF.md`, `GOLD_CHECK_BRIEF.md`, `REVIEW_BRIEF.md`, `cases.json`,
   `GOLD.json`, `GOLD_CHECK.json`, `PROVENANCE.md`, `gold.py`, `export.py`, `run_case.py`, `run_eval.py`, `score.py`,
-  `build_kit.py` and `freeze.py`. Also every file the run reads from elsewhere: the source case files, and the
+  `build_kit.py` and `freeze.py`, and the agents' outputs kept for provenance: `WRITER_OUTPUT.json`,
+  `WRITER_REPORT.md` and `GOLD_CHECK_REPORT.md`. Also every file the run reads from elsewhere: the source case files, and the
   frozen gold of the reused cases.
 - **The case order, the caps, the starting ledger, and the blind review order.**
 
@@ -150,6 +151,9 @@ the 11 answerable maximum cases it computes, from the case's intended reading:
   advance.
 
   For total demand, one row per interval, the two counts are equal.
+- **In this sample (added after the questions and gold were written):** every case has one row per interval in its
+  window. That holds for D04 (total demand) and for F07, whose day holds one revision per half-hour. So the two counts
+  are equal throughout (118 and 40), and the defect is not exercised.
 
 ## The exporter (`export.py`, `run_case.py`)
 **The frozen exporters are not used and not changed:** `scripts/live_diagnose.py` and
@@ -359,6 +363,9 @@ Coverage (cases saved; reviews done) is printed next to the verdict, never folde
   and Z04. The fresh questions are new wording on familiar data.
 - **Small sample:** one execution per case, so no rates, and differences of one or two cases are within run-to-run
   variation.
+- **Revisions:** October 2025 and April 2026 hold only the next-day revision. So no case has a cutoff that falls
+  between a half-hour's `initial` and `updated` revisions; gold's rule for that is tested offline only. This note was
+  added after the questions were written.
 - **Ties:** there are none in any eligible whole-day window. Unless gold finds one in an explicit or event window, tie
   handling stays covered by offline tests only.
 - **Independence:** the writer, the gold checker and the independent reviewer are LLM agents. Their independence is
