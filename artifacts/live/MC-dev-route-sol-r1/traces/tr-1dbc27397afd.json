@@ -1,0 +1,134 @@
+{
+  "trace_id": "tr-1dbc27397afd",
+  "started_at": "2026-10-03T09:34:24.440290Z",
+  "events": [
+    {
+      "seq": 1,
+      "t_ms": 7406.5,
+      "kind": "model",
+      "name": "route",
+      "model": "gpt-6.1-sol",
+      "response_id": "resp_0903914fd2cf9688016ac0cc20c39887d0b625296dc76f3b79",
+      "function_calls": [],
+      "usage": {
+        "input_tokens": 1530,
+        "input_tokens_details": {
+          "cache_write_tokens": 50,
+          "cached_tokens": 1477
+        },
+        "output_tokens": 266,
+        "output_tokens_details": {
+          "reasoning_tokens": 86
+        },
+        "total_tokens": 1796
+      },
+      "cost_usd": 0.00294,
+      "cost_basis": "ledger accounting at the configured list prices (cached input at the cached rate); not the billed amount",
+      "max_output_tokens": 2000,
+      "status": "completed",
+      "incomplete": null,
+      "duration_ms": 7388.9,
+      "requested": {
+        "model": "gpt-6.1-sol",
+        "max_output_tokens": 2000,
+        "reasoning_effort": "not sent (the provider's default applies)"
+      },
+      "reported": {
+        "model": "gpt-6.1-sol",
+        "max_output_tokens": 2000,
+        "reasoning_effort": "medium"
+      }
+    },
+    {
+      "seq": 2,
+      "t_ms": 7408.3,
+      "kind": "route",
+      "name": "model_decision",
+      "decision": {
+        "intent": "forecast_review",
+        "region": "QLD1",
+        "event_date": null,
+        "as_of_utc": null,
+        "needs_clarification": true,
+        "clarification_reason": "missing_region_or_date",
+        "clarification": "What date is the 13:00\u201313:30 Brisbane-time half-hour for?",
+        "out_of_scope": false,
+        "requested": {
+          "forecast_run": {
+            "selection": "last_issued_before",
+            "selection_text": "the run AEMO issued most recently before that half-hour kicked off",
+            "half_hour_text": "13:00\u201313:30 Brisbane-time half-hour",
+            "target_half_hour_end_utc": null,
+            "issued_at_utc": null
+          },
+          "maximum": {
+            "kind": "none",
+            "measure": null,
+            "measure_text": null,
+            "window": null,
+            "window_text": null,
+            "window_start_utc": null,
+            "window_end_utc": null
+          }
+        }
+      },
+      "policy_notes": []
+    },
+    {
+      "seq": 3,
+      "t_ms": 7409.3,
+      "kind": "route",
+      "name": "forecast_review",
+      "status": "needs_clarification",
+      "routing": {
+        "router": "explicit",
+        "regions_found": [
+          "QLD1"
+        ],
+        "dates_found": [],
+        "region_tz": "Australia/Brisbane",
+        "requests": {
+          "routed": "reported",
+          "forecast_run": {
+            "status": "unresolved",
+            "selection": "last_issued_before",
+            "half_hour_utc": null,
+            "issued_at_utc": null,
+            "provenance": {
+              "selection": {
+                "source": "route_model",
+                "text": "the run AEMO issued most recently before that half-hour kicked off",
+                "conversion": ""
+              }
+            },
+            "detected_by": [
+              "route_model",
+              "cue"
+            ],
+            "missing": [
+              "date",
+              "time_zone"
+            ],
+            "conflicts": []
+          },
+          "maximum": {
+            "status": "absent",
+            "measures": [],
+            "window_kind": null,
+            "window_utc": null,
+            "provenance": {},
+            "detected_by": [],
+            "missing": [],
+            "conflicts": []
+          },
+          "notes": []
+        }
+      },
+      "reasons": [
+        "Which half-hour is the forecast asked about? The question asks for the last forecast run issued before a half-hour, but does not pin that half-hour down, so no run can be chosen. Give the half-hour's date with its year, its end time, and the time zone (for example AEST, market time or UTC)."
+      ],
+      "region": "QLD1",
+      "as_of": null
+    }
+  ]
+}

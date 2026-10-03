@@ -96,7 +96,8 @@ class Ledger:
         return round(self.total, 6)
 
 
-def _loop(freeze, events=None, *, costs=None, outcomes=None, records=None, ledger=None, task_cap=13.051248):
+def _loop(freeze, events=None, *, costs=None, outcomes=None, records=None, ledger=None, task_cap=13.051248,
+          live=None):
     ledger = ledger or Ledger()
     log, envs = list(events or []), []
 
@@ -111,7 +112,9 @@ def _loop(freeze, events=None, *, costs=None, outcomes=None, records=None, ledge
     def finish(slot, rc, text):
         return (outcomes or {}).get(slot["slot"], "saved"), (records or {}).get(slot["slot"], {"score": {}})
 
-    end = RUN.run(freeze, list(events or []), write, task_cap=task_cap, launch=launch, finish=finish, spent=ledger)
+    # ``live`` is passed, not patched: ``run`` binds its default to the real records directory when it is defined
+    end = RUN.run(freeze, list(events or []), write, task_cap=task_cap, launch=launch, finish=finish, spent=ledger,
+                  **({"live": live} if live is not None else {}))
     return end, log, envs
 
 
@@ -149,10 +152,9 @@ def test_a_safety_failure_is_a_safety_stop():
     assert [n for n, _ in envs] == [1, 2]  # nothing starts after it
 
 
-def test_an_interrupted_slot_is_re_run_once_and_not_after_a_second_interruption(tmp_path, monkeypatch):
+def test_an_interrupted_slot_is_re_run_once_and_not_after_a_second_interruption(tmp_path):
     freeze = _freeze()
     s3 = freeze["slots"][2]
-    monkeypatch.setattr(RUN, "LIVE", tmp_path)
     events = [{"event": "start", "attempt": 1}, *[{"event": "slot_start", "slot": n, "run": freeze["slots"][n - 1]["run"],
                                                    "label": freeze["slots"][n - 1]["label"],
                                                    "case": freeze["slots"][n - 1]["case"], "ledger_before": 7.663248}
@@ -161,7 +163,7 @@ def test_an_interrupted_slot_is_re_run_once_and_not_after_a_second_interruption(
               {"event": "slot_start", "slot": 2, "run": freeze["slots"][1]["run"], "label": freeze["slots"][1]["label"],
                "case": freeze["slots"][1]["case"], "ledger_before": 7.665248}]
     ledger = Ledger(7.667)
-    end, log, envs = _loop(freeze, events, ledger=ledger)
+    end, log, envs = _loop(freeze, events, ledger=ledger, live=tmp_path)
     assert envs[0][0] == 2 and end["result"] == "complete"  # the in-flight slot runs again, once
     kill = next(e for e in log if e.get("event") == "interrupted")
     assert kill["slot"] == 2 and kill["ledger_cost"] == round(7.667 - 7.665248, 6)
@@ -169,7 +171,7 @@ def test_an_interrupted_slot_is_re_run_once_and_not_after_a_second_interruption(
                       {"event": "start", "attempt": 2}, {"event": "slot_start", "slot": 2, "run": "R-sol",
                                                          "label": freeze["slots"][1]["label"],
                                                          "case": freeze["slots"][1]["case"], "ledger_before": 7.666}]
-    end2, _, envs2 = _loop(freeze, twice, ledger=Ledger(7.668))
+    end2, _, envs2 = _loop(freeze, twice, ledger=Ledger(7.668), live=tmp_path)
     assert end2["result"] == "incomplete" and "two interruptions" in end2["stop_reason"] and envs2 == []
     assert s3["slot"] == 3
 
