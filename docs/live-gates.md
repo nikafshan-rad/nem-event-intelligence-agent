@@ -2955,3 +2955,157 @@ are not unseen-event evidence. Historical verdicts are unchanged, and Live stays
 **Approval needed before any paid call:** "I approve runs D1 and D2 of the I-15/I-16/I-17 Live check on main cf9558e
 (src tree b248e4c6), prompts v11, gpt-5-mini, with a per-case cap of USD 0.15, run caps of USD 0.45 (D1) and USD 1.00
 (D2), and a task cap of USD 8.463187, for these runs only."
+
+## Results: targeted Live check of I-15, I-16 and I-17 (run once on `main`, 2026-10-02, under the frozen protocol of PR #54)
+
+**Verdict: FAIL** (`PASS_RULE.md`, applied unchanged). Four answers show an incorrect targeted result (X), and five
+answers have numbers stated as fact that are wrong (H4). **This is not v7, not an L3 evaluation, and not unseen-event
+evidence.** Historical verdicts are unchanged, and Live stays experimental. Records are in
+`artifacts/live/LC-i15-17-dev/`, `artifacts/live/LC-i15-17-fresh/` and `artifacts/live/LC-i15-17-review/` (see its
+`README.md`).
+
+**Checks before the paid calls:**
+- **Merge:** PR #54 merged as `b542d14`, whose tree equals the reviewed head `cc17925`. CI on `main` passed.
+- **Freeze and code:** all 16 frozen hashes matched. The `src/` tree is `b248e4c6…` and the prompts tree `141bb370…`,
+  equal to `cf9558e`'s.
+- **Ledger and tag:** the real ledger stood at USD 7.013187 (2464 lines). v1.0 is `f14db6d`.
+- **Runner state:** no runner was running, and no run directory existed. No override was set.
+- **Approval:** the owner approved one execution, with a task cap of USD 8.463187 for these runs only.
+
+**Runs:** `eval/livecheck_i15_17/run_eval.py --approved-task-cap 8.463187 --runs D1,D2`, detached, started at
+2026-10-02T15:12:09Z.
+
+| Run | Ended (UTC) | Attempts | Cases | Outcome | Cost (cap) |
+| --- | --- | --- | --- | --- | --- |
+| D1 (`LC-i15-17-dev`) | 15:16:20 | 1 | 3/3 saved | complete | USD 0.080848 (0.45) |
+| D2 (`LC-i15-17-fresh`) | 15:31:55 | 1 | 15/15 saved | complete | USD 0.330635 (1.00) |
+
+- **No interruption, API error, budget stop or safety stop.**
+- **Ledger:** USD 7.013187 → **7.42467**, so USD **0.411483** was spent. There were 134 new lines: 67 reservations,
+  all settled, with no open reservation and no charge.
+- **Model calls:** 67, with 611,455 input and 138,683 output tokens. The costliest case was USD 0.039978 (K01), and no
+  case came near its USD 0.15 cap.
+
+**Per case** (final outcome from the stricter of the two reviews; S supplied, U unavailable, C clarification, F
+fallback, X incorrect targeted answer shown):
+
+| Case | Run | Fix area | Expected | Outcome | Repair | Fallback | H4 | Calls | Cost |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Z03 | D1 | I-15 | S | S | no | no | 0 | 4 | 0.021514 |
+| Z05 | D1 | I-16 | S | **F** | yes | yes | 0 | 5 | 0.033903 |
+| Z04 | D1 | I-17 | S | S | no | no | 0 | 4 | 0.025431 |
+| K01 | D2 | I-15 | S | S | yes | no | **2** | 6 | 0.039978 |
+| K02 | D2 | I-15 | S | **C** | no | no | 0 | 1 | 0.004166 |
+| K03 | D2 | I-15 | S | S | no | no | **1** | 4 | 0.023532 |
+| K04 | D2 | I-15 | S | S | no | no | 0 | 4 | 0.030321 |
+| K05 | D2 | I-16 | S | **C** | no | no | 0 | 1 | 0.001267 |
+| K06 | D2 | I-16 | S | **X** | yes | no | **3** | 5 | 0.039065 |
+| K07 | D2 | I-16 | U | **X** | no | no | 0 | 4 | 0.031501 |
+| K08 | D2 | I-16 | C | C | no | no | 0 | 1 | 0.001396 |
+| K09 | D2 | I-17 | S | **X** | no | no | **2** | 4 | 0.029275 |
+| K10 | D2 | I-17 | S | **X** | yes | no | **1** | 5 | 0.036429 |
+| K11 | D2 | I-17 | S | S | no | no | 0 | 4 | 0.021656 |
+| K12 | D2 | I-17 | C | C | no | no | 0 | 1 | 0.001190 |
+| K13 | D2 | control | S | S | yes | no | 0 | 6 | 0.033865 |
+| K14 | D2 | control | S | S | no | no | 0 | 4 | 0.024800 |
+| K15 | D2 | control | S | S | no | no | 0 | 4 | 0.012194 |
+
+H1, H2, H3 and H5 were 0 in every case. Only K10 overlaps development material.
+
+### Development cases (D1): containment and supply, separately
+
+| Case | Correct usable answer (supply) | Containment |
+| --- | --- | --- |
+| Z03 (I-15) | **yes**: 450.08 $/MWh at 03:00Z (13:00 market time); one interval ≥ 300 $/MWh; TOTALDEMAND 1105.32 MW; the half-hour value stated for 03:00Z is that half-hour's (1147.0) | held |
+| Z05 (I-16) | **no**: facts-only fallback. A definitions quotation was not found in its cited passage (`CITATION_QUOTE_NOT_FOUND`), and survived the repair | held: the fallback shows only the requested run (issued 20:56:59Z): POE50 11082 vs actual 11178. The model compared that run itself |
+| Z04 (I-17) | **yes**: the controller states TOTALDEMAND's maximum, 1367.32 MW at 07:55 AEST, over all of 29 July | held |
+
+Development supply: 2 of 3.
+
+### Fresh questions and controls (D2)
+
+- **Supplied:** 4 of 9 answerable fresh cases (bar 7). By area:
+  - value and time: 3 of 4 (K01, K03, K04);
+  - forecast run: 0 of 2;
+  - demand maximum: 1 of 3 (K11).
+- **Controls:** K08 and K12 got the clarification expected. K07, expected "unavailable", showed another run (X).
+- **Regression controls:** K13, K14 and K15 were all supplied.
+
+### The failures, by kind
+
+1. **Parser non-activation** (the binding never engaged, so nothing was computed, bound or checked):
+   - **I-16, run wording** not read as a request for the last run issued before the half-hour:
+     - "the final forecast run issued **ahead of it**" (K06);
+     - "the latest … forecast run issued **before it**" (K07).
+   - **I-16, half-hour wording** not read: "**5:00-5:30 pm** AEST" (K07) and "the **5:30 to 6:00 pm (AEST)** half-hour"
+     (K05). am/pm clock times are outside the fixed wording.
+   - **I-17, maximum wording** not read as a request for a measure's maximum:
+     - "at which five-minute interval was NSW dispatch **total demand highest**" (K09);
+     - "when did dispatch total demand **hit its highest point**" (K10).
+2. **Incorrect answers shown:**
+   - **Targeted (X), each a consequence of non-activation:**
+     - **K06:** another run (issued 18:57:02Z) presented as the "final" run issued ahead of the half-hour; the run
+       asked for was issued 21:57:01Z;
+     - **K07:** under the 09:00Z request cutoff, the latest *public* run (issued 05:56:58Z) given in place of the run
+       asked for (issued 06:56:59Z, public 09:48:05Z), with no statement that it could not be supplied;
+     - **K09:** the day's highest total demand given as 10890.3 MW at 19:35 AEST; it was 10954.2 MW at 19:05 AEST;
+     - **K10:** the event window's highest total demand given as 7711.58 MW at 18:00 AEST 28 July; it was 7867.57 MW
+       at 08:10 AEST 29 July.
+   - **Numbers stated as fact that are wrong (H4),** nine in five answers:
+     - **K01 (2):** two net-interchange flows described as "net flow into SA1" with the direction inverted
+       (NETINTERCHANGE is flow *from* the regional reference node). Not a targeted binding.
+     - **K03 (1):** the requested price, which is correct, labelled "Price extreme". The day's maximum was 121.12 at
+       17:45 AEST.
+     - **K06 (3):** the three POE values given under the false "final run" label.
+     - **K09 (2):** the false "highest", and a "day minimum" of 6331.4 MW, where the minimum was 6216.9 MW at 13:15
+       AEST.
+     - **K10 (1):** the false "highest point" (the recheck revision).
+3. **Over-clarification** (answerable questions sent back; supply misses, not defects):
+   - **K02:** the routing model's response was cut off at its 2000-token output cap. It was refused as unfinished
+     (I-14), so the clarification was the generic "the question could not be interpreted".
+   - **K05:** I-16's half-hour clarification fired because the am/pm half-hour was not read (also listed under 1).
+4. **Fallback:**
+   - **Z05:** an unrelated citation check survived the repair. Containment held.
+
+**Blocking was not exercised.** No targeted validator code (`CLAIM_TIME_*`, `FORECAST_RUN_SUBSTITUTED`,
+`REQUESTED_MAXIMUM_*`) fired before repair in any of the 18 cases. The incorrect answers were not caught because the
+bindings were never engaged. Where they engaged, the results were right:
+- **Z04 and K11:** the computed maxima;
+- **Z05:** the requested run compared, although the answer then fell back for another reason.
+
+### Readings per fix (frozen rule)
+
+- **I-15:** **safety violation in its cases.** Its value-and-time pairs were stated correctly in Z03, K01, K03 and K04,
+  and its validator never had to fire. The H4 errors in K01 (flow direction) and K03 (a "Price extreme" label) are in
+  its area but are not time-binding errors.
+  - **K02 was over-clarified** after a routing cut-off.
+  - **This small sample does not verify I-15 generally:** four answers, one run each, none of them testing the
+    validator.
+- **I-16:** **not held.** Its run and half-hour wording was not read in K05, K06 and K07, and K06 and K07 show another
+  run. Z05 was contained but fell back.
+- **I-17:** **not held.** Its maximum wording was not read in K09 and K10, which show wrong maxima. Z04 and K11, whose
+  wording was read, were supplied correctly.
+
+### Reviews
+
+- **The developer's review** was made with the questions.
+- **The independent reviewer's original review** was made in a kit that did not contain the question texts, so it
+  inferred them from the gold.
+- **The recheck:** the same reviewer then rechecked the same answers with the exact frozen questions and request
+  fields (`QUESTIONS.json`). No answer was regenerated. One judgement changed: K10's H4, from 0 to 1. No outcome
+  changed.
+- **Kept and published:** both original reviews, the corrected review, the revisions with reasons, and both
+  decisions.
+- **Final decision:** the stricter reading of the developer's and the corrected independent review. It agrees with the
+  original decision on every outcome.
+- **A session restart** cleared the developer's scratch working files during the first independent review. They were
+  regenerated or re-entered unchanged, and a fresh reviewer was started. The run records were unaffected.
+
+**What this shows and does not show.**
+- **Shows:** on 18 questions, run once each with `gpt-5-mini` on `cf9558e`:
+  - the I-16 and I-17 bindings engage only on the wording their parsers read, and fresh wording often fell outside
+    it;
+  - when they did not engage, wrong runs and wrong maxima were shown;
+  - when they engaged, the answers were right.
+- **Does not show:** rates or reliability, unseen-event behaviour (familiar data), L3 status, or general verification
+  of I-15.

@@ -85,7 +85,8 @@ def test_a_value_at_the_price_peak_is_not_a_maximum_request(question):
 def test_no_other_question_in_the_repository_asks_for_a_maximum():
     found = []
     for f in sorted(ROOT.glob("eval/**/*.json")) + sorted(ROOT.glob("artifacts/live/**/*.json")):
-        if "traces" in f.parts or "livecheck_i15_17" in f.parts:  # the Live check of this fix asks for maxima by design
+        # the Live check of this fix asks for maxima by design: its case file and its run and review records
+        if "traces" in f.parts or any(part.startswith(("livecheck_i15_17", "LC-i15-17")) for part in f.parts):
             continue
         try:
             d = json.loads(f.read_text())
