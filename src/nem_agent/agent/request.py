@@ -68,6 +68,9 @@ class Resolution:
     # each demand measure's maximum the question asks for, as the controller computed it (I-17); the validator holds
     # the answer to it
     demand_max: list[dict[str, object]] | None = None
+    # the computed results the runtime verifier did not admit (D25): their bindings carry no value, and no statement may
+    # give their value (``validation.unadmitted_result_violations``)
+    results_not_admitted: list[Any] | None = None
     # the forecast-run and demand-maximum requests as resolved, with provenance (``structured.RequestResolution``,
     # I-18); None only for a resolution built elsewhere (tests)
     requests: Any = None

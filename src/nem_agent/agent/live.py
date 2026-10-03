@@ -976,7 +976,7 @@ class LiveController:
 
         first = validate(report, self.reg, as_of=res.as_of, window=res.window, records=self.d.records,
                          forecast_run=res.forecast_run, demand_max=res.demand_max,
-                         required_tools=pb.required, event_kind=res.kind)
+                         required_tools=pb.required, event_kind=res.kind, not_admitted=res.results_not_admitted)
         if first.critical and self.usage.model_calls < config.MAX_MODEL_CALLS:
             # scoped when every violation names a draft item: the model may change only those items
             targets, unmapped = (repair_targets(first, mrep, self._summary_origin) if isinstance(mrep, ModelReport)
@@ -1709,6 +1709,8 @@ class LiveController:
         report._provenance = {
             # the controller's own claims for each rendered answer, recorded as it rendered them (the fallback keeps them)
             "answer_claims": [[c.model_copy() for c in cs] for cs in answer_claims],
+            # D25: no valid model report, so no interpretation at all (recorded by the controller, never by the model)
+            **({"interpretation": "absent"} if m is None else {}),
             # every uncertainty here is the model's; the code writes only missing-evidence items
             "controller_notes": {"uncertainties": [], "missing_evidence": [i for i, c in enumerate(by_code) if c]}}
         return report

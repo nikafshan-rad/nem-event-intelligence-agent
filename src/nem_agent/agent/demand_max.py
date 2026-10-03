@@ -247,7 +247,10 @@ def compute(d: Dispatcher, res: Resolution, measure: str) -> dict[str, Any]:
     context read: today's (``binding_from_result``) for an admitted result, else the unavailable form (D25)."""
     r = compute_result(d, res, measure)
     v = d.results.submit_in_run(r, store=d.store, selection=d.selection, evidence=d.registry, trace=d.trace)
-    return binding_from_result(r) if v.outcome == "verified" else binding_not_verified(r, v.outcome)
+    if v.outcome == "verified":
+        return binding_from_result(r)
+    res.results_not_admitted = [*(res.results_not_admitted or []), r]
+    return binding_not_verified(r, v.outcome)
 
 
 # -- the controller's statement: one wording, from a result (D25) or from a binding (the validator's tests) ------------

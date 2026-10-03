@@ -837,6 +837,33 @@ def requested_max_violations(report: InvestigationReport, registry: EvidenceRegi
     return out
 
 
+def unadmitted_result_violations(report: InvestigationReport, registry: EvidenceRegistry, not_admitted: list[Any],
+                                 sentences: list[tuple[str, str]], numbers: Any) -> list[Violation]:
+    """``REQUESTED_RESULT_NOT_VERIFIED`` (D25): a sentence anywhere (headline, the model's own headline, summary,
+    explanations, findings, notes) gives the value of a computed result the runtime verifier did not admit. Matched by
+    evidence, not wording: a number whose claim traces to one of the result's own source rows (the value, or a rounding
+    of it), or an untraced number equal to its value. A traced value of another row or measure is not this one, and an
+    observation (a tool value with its source row) is not a statement."""
+    out: list[Violation] = []
+    for r in not_admitted:
+        value = r.maximum if r.maximum is not None else r.highest_held
+        rows = set(r.source_row_ids)
+        if value is None or not rows:
+            continue
+        for where, sentence in sentences:
+            for v, _, _ in numbers(sentence):
+                claims = [c for c in report.numeric_claims if abs(v - c.value) <= c.rounding + 1e-9]
+                evs = [ev for c in claims if (ev := registry.get(c.evidence_id)) is not None]
+                traced = any(ev.metric == r.metric and rows & set(ev.source_row_ids) for ev in evs)
+                if traced or (not evs and abs(v - value) <= 0.005 + 1e-9):
+                    out.append(Violation("REQUESTED_RESULT_NOT_VERIFIED", "critical",
+                                         f"{_item(report, where, sentence)}: {v:g} is the {r.identity.measure} "
+                                         f"maximum the code computed, which the runtime verifier did not admit, so "
+                                         "it may not be stated; say only that the maximum cannot be given"))
+                    break
+    return out
+
+
 # -- the requested result in the model's own words (I-19) ----------------------------------------------------------
 # Live check of the v12 routing extraction (2026-10-03). K09: the controller's line gave the maximum it computed, and
 # the model had been given it, but the model's headline gave another interval's value as the answer, an explanation
@@ -2005,7 +2032,7 @@ def validate(report: InvestigationReport, registry: EvidenceRegistry, *, as_of: 
              window: tuple[datetime, datetime] | None = None, records: list[Any] | None = None,
              forecast_run: dict[str, Any] | None = None, demand_max: list[dict[str, Any]] | None = None,
              required_tools: tuple[str, ...] = (), event_kind: str | None = None,
-             approval_records: Sequence[Any] = ()) -> ValidationResult:
+             approval_records: Sequence[Any] = (), not_admitted: list[Any] | None = None) -> ValidationResult:
     """``approval_records``: approval records (``approvals.Approval``) that belong to this answer. An investigation
     never has one, so the service passes none and every action claim fails."""
     res = ValidationResult()
@@ -2435,6 +2462,11 @@ def validate(report: InvestigationReport, registry: EvidenceRegistry, *, as_of: 
         V.extend(found)
         mismatched = {(hit.group(1), float(hit.group(2))) for v in found if v.code == "REQUESTED_MAXIMUM_MISMATCH"
                       and (hit := re.match(r"([^:]+): (-?[\d.]+) is stated", v.detail))}
+    # -- a computed result the runtime verifier did not admit (D25): no statement gives its value, in any words
+    if not_admitted:
+        res.checks_run.append("unadmitted_result")
+        V.extend(unadmitted_result_violations(report, registry, not_admitted, result_texts,
+                                              lambda s: number_spans(s, chunk_ids, titles(s))))
     # -- the half-hour a forecast-run request names, named by its own end or start (I-19)
     if forecast_run and forecast_run.get("half_hour_utc"):
         res.checks_run.append("requested_interval")
@@ -2751,6 +2783,18 @@ def merge_repeated_observations(report: InvestigationReport,
     return report.model_copy(update={"observations": kept}), list(merged.values())
 
 
+def interpretation_status(report: InvestigationReport, fallback: bool) -> str:
+    """The status of the narrative shown besides the computed answer (D25), from the report and the controller's own
+    record of a missing model report (never from model output)."""
+    if report.mode != "live":
+        return "scripted"
+    if (report._provenance or {}).get("interpretation") == "absent":
+        return "absent: the model produced no valid output"
+    if not str(report.generator).startswith("live-model:"):
+        return "none: no answer was generated"
+    return "withheld: it failed validation (facts-only fallback)" if fallback else "validated"
+
+
 def validate_and_finalize(report: InvestigationReport, registry: EvidenceRegistry, records: list[Any], res: Any,
                           trace: Any) -> InvestigationReport:
     from .agent.playbook import PLAYBOOKS
@@ -2761,8 +2805,9 @@ def validate_and_finalize(report: InvestigationReport, registry: EvidenceRegistr
     kind = res.kind if res is not None else None
     run = getattr(res, "forecast_run", None)
     maxima = getattr(res, "demand_max", None)
+    unadmitted = getattr(res, "results_not_admitted", None)
     first = validate(report, registry, as_of=as_of, window=window, records=records, required_tools=req, event_kind=kind,
-                     forecast_run=run, demand_max=maxima)
+                     forecast_run=run, demand_max=maxima, not_admitted=unadmitted)
     info: dict[str, Any] = {"initial": first.as_dict(), "fallback_applied": False,
                             "repair_attempted": bool(report.validation.get("repair_attempted"))}
     final = report
@@ -2770,7 +2815,7 @@ def validate_and_finalize(report: InvestigationReport, registry: EvidenceRegistr
         fb: dict[str, Any] = {}
         final = facts_only(report, registry, first, as_of, maxima, diag=fb)
         second = validate(final, registry, as_of=as_of, window=window, records=records, required_tools=req,
-                          event_kind=kind, forecast_run=run, demand_max=maxima)
+                          event_kind=kind, forecast_run=run, demand_max=maxima, not_admitted=unadmitted)
         # a kept result must also pass the fallback's own validation (I-21): one named there is not kept
         named_kept = frozenset(r["answer_index"] for r in fb.get("result_retained", []) for v in second.critical
                                if v.detail.startswith((f"answer[{r['fallback_answer_index']}]",
@@ -2779,7 +2824,7 @@ def validate_and_finalize(report: InvestigationReport, registry: EvidenceRegistr
             fb = {}
             final = facts_only(report, registry, first, as_of, maxima, exclude=named_kept, diag=fb)
             second = validate(final, registry, as_of=as_of, window=window, records=records, required_tools=req,
-                              event_kind=kind, forecast_run=run, demand_max=maxima)
+                              event_kind=kind, forecast_run=run, demand_max=maxima, not_admitted=unadmitted)
         info.update(fallback_applied=True, after_fallback=second.as_dict())
         if fb.get("result_retained") or fb.get("result_not_retained"):
             # diagnostics only, outside the displayed answer: the controller's result kept or not, and every model
@@ -2792,6 +2837,10 @@ def validate_and_finalize(report: InvestigationReport, registry: EvidenceRegistr
                 trace.add("validate", "fallback_withheld", items=fb["withheld"])
     if not first.critical and first.ruled_out:  # the answer is shown: its validated exclusions (I-7c)
         info["ruled_out_explanations"] = first.ruled_out
+    # D25: with a computed answer, the interpretation's status is recorded apart from it (``answer``); an answer without
+    # one is recorded exactly as before
+    if report.answer:
+        info["interpretation"] = interpretation_status(report, info["fallback_applied"])
     info["passed"] = not (first.critical and info.get("after_fallback", {}).get("n_critical", 1))
     info["final_passed"] = (not first.critical) or info.get("after_fallback", {}).get("n_critical", 1) == 0
     final = final.model_copy(update={"validation": {**report.validation, **info}})

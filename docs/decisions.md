@@ -558,3 +558,56 @@ Acceptance check recorded before implementation. One bounded offline PR; demand 
     "abstained" status. No saved record exercises this; it is scripted only.
   - **Scope:** only demand maxima.
   - **Not a quality claim:** this is not a claim of better Live answers; Live is unverified.
+- **Integration review** (PR #66, before merge; offline):
+  1. **The model cannot reach the computed answer.** These are refused or ignored:
+     - a model draft carrying `answer`, `results`, `statement`, `limitations`, `source_row_ids`, `verification`,
+       `result_id` or `server_verification` (refused: `extra="forbid"`);
+     - a repair patch targeting `answer[…]` or `results[…]` (ignored by `apply_patch`, even when listed as failing);
+     - a violation naming `answer[i]`, which is no draft item, so the repair is full and the controller renders the
+       answer again, unchanged;
+     - a model line dressed as a "Computed answer", which stays in the interpretation and is checked there.
+  2. **Correction: an unadmitted result in any words.** Gating the binding (D25) also switched off the headline check
+     for that maximum, so a headline or note could still give the unverified value in words no maximum rule reads.
+     - **The new check,** `REQUESTED_RESULT_NOT_VERIFIED`, is structural, not lexical. A statement (headline, the
+       model's own headline, summary, explanations, findings, notes) may not give a number whose claim traces to the
+       unadmitted result's own source rows, or an untraced number equal to its value.
+     - **What it reads:** rows, not evidence IDs, so the model's own evidence for the same row counts. Another row's
+       equal value does not.
+     - **Observations** (tool values with their source rows) may remain. They never state a maximum, and the controller
+       adds none for an unadmitted result.
+     - **Where it runs:** in the first validation, at repair and after the fallback. It runs only when a result is not
+       admitted, which no saved replay has.
+  3. **Correction: presentation.**
+     - **The status:** with a computed answer, the validation record carries `interpretation`, one of:
+       - `validated`;
+       - `withheld: it failed validation (facts-only fallback)`;
+       - `absent: the model produced no valid output` (recorded by the controller when it has no valid model report,
+         never by the model);
+       - `scripted` (Replay).
+     - **The app:** the computed answer's status (for example, "established (verified)") and the interpretation's are
+       shown apart. A missing interpretation is labelled as such ("the model produced no valid interpretation; showing
+       only the answer computed by code"); before this correction it read "answer written by …, passed on the first
+       draft".
+     - **A fallback stays a fallback:** its banner now names the computed answer and validated tool facts.
+     - **Unchanged:** reports without a computed answer.
+  4. **Consumers of `summary`, audited:**
+
+     | Consumer | Needs the computed answer? | Status |
+     | --- | --- | --- |
+     | The app | Yes | Shows `answer` in its own section |
+     | The API (`/investigate`, `/schema/report`) | Yes, for clients | **Migration:** `summary` is the interpretation only; the computed answer is in `answer`; `summary_v1(report)` gives the pre-D25 reading (for the saved Live K11 ×3 and Z04 records, exactly what they showed); `schema_version` is unchanged, since a bump would alter every report |
+     | CLI `investigate` | Yes | Prints the headline only; the full report it writes includes `answer` |
+     | Replay evaluation runner | Gold numbers only | Read from observations, which hold the computed maximum's row (tested); its narrative text is only for counting causal wording |
+     | Validator checks of `summary` (notice timing, document claims) | No | Not about maxima; the maximum checks read `answer` |
+     | Display rewriting | No | The computed statement is plain text already |
+     | Case notes | No | Never carried `summary` |
+     | Frozen and past-check readers (`eval/livecheck_i15_17`, `eval/holdout_v6`, `eval/live_check_dev2`, `eval/live_check_p1_dev`) | Their saved records only | All predate D25, so they read what they always read. A future run under a frozen protocol would show reviewers `summary` without the computed answer: a new protocol must read `answer` (or `summary_v1`). Frozen code is unchanged. |
+  5. **Evidence:**
+     - 30 new tests: 27 in `tests/provider/test_answer_integration.py` (including the app's labels, through
+       `ui_data.result_provenance`) and 3 in `tests/api/test_api_answer.py`;
+     - the both-ways replay, the Replay evaluation and the safety suite, as in the PR.
+  6. **Still not covered:**
+     - a Live answer with no valid model output and no computed maximum is still labelled as passed (a pre-existing
+       labelling issue outside this scope);
+     - an untraced number that rounds the unadmitted value ("about 7,500 MW") is not matched in a note;
+     - observations may still list the unadmitted row as a tool value.

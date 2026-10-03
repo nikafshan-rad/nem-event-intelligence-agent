@@ -160,5 +160,13 @@ class InvestigationReport(_M):
     _provenance: dict[str, Any] = PrivateAttr(default_factory=dict)
 
 
+def summary_v1(report: InvestigationReport | dict[str, Any]) -> list[str]:
+    """``summary`` as reports before D25 gave it: the computed answer's statements first, then the summary. Since D25
+    ``summary`` holds only the interpretation and the computed answer is in ``answer``; a reader that has not moved to
+    ``answer`` reads this instead (API migration, docs/decisions.md D25)."""
+    d = report.model_dump() if isinstance(report, InvestigationReport) else report
+    return [a["statement"] for a in d.get("answer") or []] + list(d.get("summary") or [])
+
+
 def report_json_schema() -> dict[str, Any]:
     return InvestigationReport.model_json_schema()

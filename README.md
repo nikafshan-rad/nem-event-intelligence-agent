@@ -155,6 +155,9 @@ fine-tuned**. In Live mode, gpt-5-mini is used unchanged through the OpenAI Resp
    with verbatim quotes, hedged hypotheses with tests, and missing evidence.
 
 Code, not the model, does everything else:
+- the **computed answer** to a demand-maximum question: computed from the pinned data, admitted only after it is
+  re-derived from the store, and rendered in the report's `answer` field with its limitations and source rows, apart
+  from the model's interpretation in `summary` (D25; a reader of the pre-D25 `summary` uses `report.summary_v1`);
 - all arithmetic;
 - data access (no SQL, URLs or paths reach the model);
 - the as-of rules;
