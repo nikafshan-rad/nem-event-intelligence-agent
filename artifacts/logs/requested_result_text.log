@@ -1,0 +1,102 @@
+# I-19: answer text that contradicts the requested result the controller holds (K09, K07; Live check of the v12
+# routing extraction, E-dev, 2026-10-03). Offline only: saved Live records replayed through the SYNTHETIC fake
+# transport (no network, no key; scratch ledgers), on main 3fab09d and on fix/requested-result-text. Live is unverified.
+
+## K09 and K07 on main 3fab09d: the saved synthesis drafts and K09's actual saved repair (its scoped patch); K07 had no repair
+===== K09 status answered_with_caveats fallback False mode scoped
+ -- pre_repair
+    TIME_OF_DAY_UNVERIFIED | possible_explanations[2].what_would_test_it: 'evening' is not shown by a region-local time in the sentence (local hours stated: 13h, 14h)
+ -- initial
+ -- shown headline: The price timeline summary reports a five-minute dispatch TOTALDEMAND of 10,890.3 MW at 2026-07-29 19:35 AEST (interval end 2026-07-29T09:35:00Z).
+   summary[0]: NSW1 dispatch total demand (TOTALDEMAND) was highest at 10954.2 MW in the 5-minute interval ending 2026-07-29T09:05:00Z = 2026-07-29 19:05 AEST, over all of 202
+   summary[1]: The price timeline summary includes a five-minute dispatch TOTALDEMAND value 10890.3 MW for interval end 2026-07-29T09:35:00Z (2026-07-29 19:35 AEST).
+   summary[2]: The dispatch TOTALDEMAND at the interval identified as the price peak is 10761.01 MW at interval end 2026-07-29T10:05:00Z (2026-07-29 20:05 AEST).
+   summary[3]: The half-hour operational demand (a different measure) peaks in the window at 11079.0 MW for the half-hour ending 2026-07-29T09:00:00Z (2026-07-29 19:00 AEST).
+   summary[4]: AEMO published a market notice for NSW1 in the event window that reports a non-conformance for unit WTAHB1 (see published findings).
+   uncertainties[0]: The price timeline result provided specific five-minute TOTALDEMAND values around the price peak and the listed neighbourhoods, but did not return a single labe
+   uncertainties[1]: Operational demand (half-hour average) is a different measure from the five-minute dispatch TOTALDEMAND; comparisons between them are indicative but not identic
+   missing_evidence[0]: The full five-minute dispatch TOTALDEMAND series for NSW1 across the window 2026-07-28T14:00:00Z to 2026-07-29T14:00:00Z (all 288 intervals) with evidence ids t
+   missing_evidence[1]: Five-minute NETINTERCHANGE and generator dispatch series for intervals around 2026-07-29T09:30:00Z–2026-07-29T10:10:00Z to test hypotheses about interchange or 
+===== K07 status abstained fallback False mode None
+ -- initial
+ -- shown headline: The specific forecast run requested (the last run issued before 2026-08-06 17:00 AEST) cannot be supplied as provably-public by 09:00 UTC on 2026-08-06; I cannot report its POE50 or compare it to actu
+   summary[0]: I searched NSW1 operational demand forecasts and actuals for the targets 2026-08-05T20:00:00Z to 2026-08-06T08:00:00Z as of 09:00 UTC on 2026-08-06.
+   summary[1]: The requested forecast run defined by the rule 'the last run issued before the half-hour start' for the half-hour ending 2026-08-06 17:00 AEST (UTC+1000) was no
+   uncertainties[0]: Which exact run is the 'last run issued before the half-hour' (by issue time) could not be proved public by 09:00 UTC on 2026-08-06 using the available evidence
+   uncertainties[1]: The actual operational demand for the interval ending 2026-08-06 17:00 AEST (2026-08-06T07:00:00Z) was not provably published by 09:00 UTC on 2026-08-06 accordi
+   missing_evidence[0]: A provably-public forecast run file or record that is demonstrably the 'last run issued before the half-hour ending 2026-08-06 17:00 AEST (UTC+1000)' as of 09:0
+   missing_evidence[1]: The actual operational demand value provably published for the half-hour ending 2026-08-06 17:00 AEST (2026-08-06T07:00:00Z) as of 09:00 UTC on 2026-08-06.
+
+## K09 and K07 on the branch: the same drafts and the same saved repair. A caveat violation asks for a full repair,
+## so K09's saved repair is replayed as the draft its patch produced (the record's repair:draft)
+===== K09 status answered_with_caveats fallback True mode full
+ -- pre_repair
+    TIME_OF_DAY_UNVERIFIED | possible_explanations[2].what_would_test_it: 'evening' is not shown by a region-local time in the sentence (local hours stated: 13h, 14h)
+    REQUESTED_MAXIMUM_MISMATCH | possible_explanations[0]: the time it states for the maximum of total demand (dispatch_totaldemand) over 2026-07-28T14:00:00Z to 2026-07-29T14:00:00Z, 2026-07-29T09:35:00Z, names another interval; the maximum is 10954.2 in the interval ending 2026-07-29T09:05:
+    REQUESTED_MAXIMUM_DENIED | uncertainties[0]: says the maximum of total demand (dispatch_totaldemand) over 2026-07-28T14:00:00Z to 2026-07-29T14:00:00Z is not established (“no other five-minute interval elsewhere in the window exceeded”), but every interval of that window is held and the
+    REQUESTED_MAXIMUM_DENIED | missing_evidence[0]: says the maximum of total demand (dispatch_totaldemand) over 2026-07-28T14:00:00Z to 2026-07-29T14:00:00Z is not established (“to confirm the absolute maximum”), but every interval of that window is held and the maximum is 10954.2 in the i
+    REQUESTED_MAXIMUM_MISMATCH | headline: gives 10890.3 (dispatch_totaldemand, interval ending 2026-07-29T09:35:00Z) as its answer, but the maximum asked for is 10954.2 in the interval ending 2026-07-29T09:05:00Z. Give that maximum in the headline, or say what 10890.3 is (for example, the va
+ -- initial
+    REQUESTED_MAXIMUM_MISMATCH | possible_explanations[0]: the time it states for the maximum of total demand (dispatch_totaldemand) over 2026-07-28T14:00:00Z to 2026-07-29T14:00:00Z, 2026-07-29T09:35:00Z, names another interval; the maximum is 10954.2 in the interval ending 2026-07-29T09:05:
+    REQUESTED_MAXIMUM_DENIED | uncertainties[0]: says the maximum of total demand (dispatch_totaldemand) over 2026-07-28T14:00:00Z to 2026-07-29T14:00:00Z is not established (“no other five-minute interval elsewhere in the window exceeded”), but every interval of that window is held and the
+    REQUESTED_MAXIMUM_DENIED | missing_evidence[0]: says the maximum of total demand (dispatch_totaldemand) over 2026-07-28T14:00:00Z to 2026-07-29T14:00:00Z is not established (“to confirm the absolute maximum”), but every interval of that window is held and the maximum is 10954.2 in the i
+    REQUESTED_MAXIMUM_MISMATCH | headline: gives 10890.3 (dispatch_totaldemand, interval ending 2026-07-29T09:35:00Z) as its answer, but the maximum asked for is 10954.2 in the interval ending 2026-07-29T09:05:00Z. Give that maximum in the headline, or say what 10890.3 is (for example, the va
+ -- shown headline: Validated facts only: the generated narrative failed independent validation. Observations below are retrieved values with source rows.
+   uncertainties[0]: Operational demand (half-hour average) is a different measure from the five-minute dispatch TOTALDEMAND; comparisons between them are indicative but not identic
+   uncertainties[1]: Narrative withheld because it failed validation.
+   missing_evidence[0]: Five-minute NETINTERCHANGE and generator dispatch series for intervals around 2026-07-29T09:30:00Z–2026-07-29T10:10:00Z to test hypotheses about interchange or 
+===== K07 status answered_with_caveats fallback True mode full
+ -- pre_repair
+    REQUESTED_INTERVAL_MISNAMED | summary[1]: names the half-hour the question asks about as the half-hour ending 2026-08-06 17:00 AEST, but it is the half-hour from 2026-08-06T07:00:00Z to 2026-08-06T07:30:00Z (2026-08-06 17:00 AEST to 2026-08-06 17:30 AEST), ending 2026-08-06T07:30:00Z. Name
+    REQUESTED_INTERVAL_MISNAMED | uncertainties[1]: names the half-hour the question asks about as the half-hour ending 2026-08-06 17:00 AEST, but it is the half-hour from 2026-08-06T07:00:00Z to 2026-08-06T07:30:00Z (2026-08-06 17:00 AEST to 2026-08-06 17:30 AEST), ending 2026-08-06T07:30:00Z
+    REQUESTED_INTERVAL_MISNAMED | missing_evidence[0]: names the half-hour the question asks about as the half-hour ending 2026-08-06 17:00 AEST, but it is the half-hour from 2026-08-06T07:00:00Z to 2026-08-06T07:30:00Z (2026-08-06 17:00 AEST to 2026-08-06 17:30 AEST), ending 2026-08-06T07:30:
+    REQUESTED_INTERVAL_MISNAMED | missing_evidence[1]: names the half-hour the question asks about as the half-hour ending 2026-08-06 17:00 AEST, but it is the half-hour from 2026-08-06T07:00:00Z to 2026-08-06T07:30:00Z (2026-08-06 17:00 AEST to 2026-08-06 17:30 AEST), ending 2026-08-06T07:30:
+ -- initial
+    REQUESTED_INTERVAL_MISNAMED | summary[1]: names the half-hour the question asks about as the half-hour ending 2026-08-06 17:00 AEST, but it is the half-hour from 2026-08-06T07:00:00Z to 2026-08-06T07:30:00Z (2026-08-06 17:00 AEST to 2026-08-06 17:30 AEST), ending 2026-08-06T07:30:00Z. Name
+    REQUESTED_INTERVAL_MISNAMED | uncertainties[1]: names the half-hour the question asks about as the half-hour ending 2026-08-06 17:00 AEST, but it is the half-hour from 2026-08-06T07:00:00Z to 2026-08-06T07:30:00Z (2026-08-06 17:00 AEST to 2026-08-06 17:30 AEST), ending 2026-08-06T07:30:00Z
+    REQUESTED_INTERVAL_MISNAMED | missing_evidence[0]: names the half-hour the question asks about as the half-hour ending 2026-08-06 17:00 AEST, but it is the half-hour from 2026-08-06T07:00:00Z to 2026-08-06T07:30:00Z (2026-08-06 17:00 AEST to 2026-08-06 17:30 AEST), ending 2026-08-06T07:30:
+    REQUESTED_INTERVAL_MISNAMED | missing_evidence[1]: names the half-hour the question asks about as the half-hour ending 2026-08-06 17:00 AEST, but it is the half-hour from 2026-08-06T07:00:00Z to 2026-08-06T07:30:00Z (2026-08-06 17:00 AEST to 2026-08-06 17:30 AEST), ending 2026-08-06T07:30:
+ -- shown headline: Validated facts only: the generated narrative failed independent validation. Observations below are retrieved values with source rows.
+   uncertainties[0]: Which exact run is the 'last run issued before the half-hour' (by issue time) could not be proved public by 09:00 UTC on 2026-08-06 using the available evidence
+   uncertainties[1]: Narrative withheld because it failed validation.
+
+## Every saved Live record replayed both ways (267 records: Live controller path with its saved route, tool calls,
+## draft and repair draft; Replay mode with the same question), main vs branch. The fake transport's response and
+## call IDs (a process-wide counter) are masked: an extra repair call in one record shifts every later record's IDs.
+== artifacts/live/LC-route-v12-e2e/K07.json [live] changed: status, headline, summary, uncertainties, codes, pre_repair_codes, fallback, report_sha
+   status: "abstained"
+      -> "answered_with_caveats"
+   fallback: false
+      -> true
+   pre_repair_codes: null
+      -> ["REQUESTED_INTERVAL_MISNAMED"]
+   codes: {"initial": [], "pre_repair": null, "final_candidate": null, "shown": null}
+      -> {"initial": ["REQUESTED_INTERVAL_MISNAMED"], "pre_repair": ["REQUESTED_INTERVAL_MISNAMED"], "final_candidate": null, "shown": null}
+== artifacts/live/LC-route-v12-e2e/K09.json [live] changed: uncertainties, codes, pre_repair_codes, report_sha
+   pre_repair_codes: ["TIME_OF_DAY_UNVERIFIED"]
+      -> ["REQUESTED_MAXIMUM_DENIED", "REQUESTED_MAXIMUM_MISMATCH", "TIME_OF_DAY_UNVERIFIED"]
+   codes: {"initial": ["TIME_OF_DAY_UNVERIFIED"], "pre_repair": ["TIME_OF_DAY_UNVERIFIED"], "final_candidate": null, "shown": null}
+      -> {"initial": ["REQUESTED_MAXIMUM_DENIED", "REQUESTED_MAXIMUM_MISMATCH"], "pre_repair": ["REQUESTED_MAXIMUM_DENIED", "REQUESTED_MAXIMUM_MISMATCH", "TIME_OF_DAY_UNVERIFIED"], "final_candidate": null, "shown": null}
+2 of 534 record-modes changed; errors on main 0, on the branch 0
+   K07: REQUESTED_INTERVAL_MISNAMED at summary[1], uncertainties[1], missing_evidence[0], missing_evidence[1] (the
+        half-hour from 07:00Z to 07:30Z named as ending 07:00Z); with no repair it falls back (abstained ->
+        answered_with_caveats with the facts-only fallback); the three rejected caveats are not shown.
+   K09: REQUESTED_MAXIMUM_MISMATCH (headline; possible_explanations[0]) and REQUESTED_MAXIMUM_DENIED
+        (uncertainties[0]; missing_evidence[0]). It already fell back in this sweep on main: the generic sweep hands
+        a full draft back when a scoped patch is asked for (its replay of the actual saved patch, above, shows main
+        passing it). The shown fallback now drops the two rejected caveats.
+   No other record's status, headline, summary, caveats, codes, fallback or report changes; no Replay-mode change.
+
+## Found by this sweep during development, before the final code (each fixed, then the sweep rerun):
+   1. a new module-level name (_CAUSE_TALK_RE) replaced the caveat check's regex of the same name: Replay EV01
+      failed UNSUPPORTED_CAUSALITY and the safety suite failed. Renamed (_CAUSE_WORDS_RE); no other name collides.
+   2. held-out v6 Z04 (two records) was rejected: '…highest five-minute dispatch price … at 2026-07-29 20:05 AEST …;
+      TAS1 dispatch TOTALDEMAND 1321.81 MW at the same interval end'. The value is labelled, by reference back to the
+      price peak the headline states, at a time its evidence fits: now read as a label (I-17's outcome kept).
+   3. held-out v5 Y06 was flagged for 'the half-hours ending 2026-07-29T07:30:00Z and 2026-07-29T08:00:00Z', a
+      comparison of the previous half-hour with the one asked about: several half-hours named together are allowed.
+   4. a maximum statement with a wrong value was also flagged for its time (I-17 tests): the time rule now reads only
+      statements with no number (a number's value is checked above, its time by I-15).
+
+## Replay evaluation: EVAL: PASS on both; identical to main with volatile fields (latencies, versions, timestamps) stripped
+## Safety suite: SAFETY-SUITE: PASS on both; the summary and the log are identical
