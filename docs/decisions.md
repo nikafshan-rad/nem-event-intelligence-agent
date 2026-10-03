@@ -458,3 +458,60 @@ Acceptance check recorded before implementation. A foundation change: it claims 
   - **Limitations are not displayed:** their deterministic texts are not shown anywhere yet.
   - **Scope:** only demand maxima.
   - **No quality claim:** this is not a claim of better Live answers; Live is unverified.
+
+## D25. Deterministic rendering of verified demand maxima, in Live and Replay (2026-10-03)
+
+Acceptance check recorded before implementation. One bounded offline PR; demand maxima only.
+
+- **Problem.** Since D24 each computed maximum is a typed result, admitted only by the runtime verifier, but nothing
+  reads the admission: the controller's sentence is still written from the legacy binding, sits in `summary` among the
+  model's lines, and is re-assembled by the fallback (I-21) from provenance.
+- **Decision** (`render.py`):
+  - **One renderer** turns each computed result into a `RenderedResult`: result ID, kind, status, the verifier's
+    outcome, the statement, its deterministic limitations and its source rows. The statement's wording is today's
+    controller sentence, from one shared wording function: ties (every interval), units, interval semantics ("the
+    5-minute interval ending …"), the requested window, coverage and as-of wording are kept.
+  - **Only an admitted result gives a value.** `established` states the maximum; `not_established` states that no
+    maximum is established and gives the highest value held as that, never as the maximum; `unavailable` gives its
+    reason; a result the verifier did not admit (`failed` or `unverifiable`) is rendered as `not_verified`, with no
+    value. The legacy binding never stands in: for such a result, the binding the validator and the model's context
+    read is the unavailable form, with the verifier's reason.
+  - **The computed answer is apart from the model's interpretation.** The report gains an additive `answer` field
+    (the rendered results, set only by the controller); the computed sentence is no longer put into `summary`, which
+    then holds only the interpretation (the model's lines in Live, the scripted lines in Replay). The trace keeps its
+    `max_answer` event with the same text, so the frozen scorers read what they read before.
+  - **Validation is unchanged for the model's text**: its draft and repair, including its own headline, are checked
+    exactly as before, before anything is shown. The `answer` statements are validated too, as narratives
+    (`answer[i]`) with their claims, and P2 counts them as stating the maximum. No phrase rule is added and no check
+    is retired.
+  - **The fallback shows the same rendered answer** (no second rendering): kept unless a critical violation names it,
+    in the first validation or in the fallback's own; an established answer is still gated by I-21's checks (binding,
+    evidence, region, window, coverage, as-of, claims), and with one kept, model notes are withheld as in I-21. It
+    stays a fallback, never supplied.
+- **API and display changes (explicit):**
+  - **API:** a new `answer` field on the report; for a question with a computed maximum, `summary` no longer holds the
+    computed sentence; violation details naming summary positions shift by the lines removed. Nothing else changes.
+  - **App:** when `answer` is present, a "Computed answer" section (statement, limitations, source rows) above the
+    narrative, which is then labelled as the model's interpretation (in Live); otherwise the display is unchanged.
+  - **Unchanged:** the headline, status, fallback classification, case-note content, and every answer to a question
+    without a computed maximum.
+- **Acceptance check** (offline):
+  1. **The eight saved replays holding a maximum** (Z04 ×2, K11 ×3, K09 ×3): the answer is rendered from the
+     admitted result, its statement equal to today's controller sentence, with its limitations and source rows;
+     `summary` holds the interpretation only; no maximum sentence appears twice; `fallback_applied`, `final_passed`,
+     status, headline and the critical codes (first, after repair, after the fallback) are unchanged.
+  2. **Records without a computed maximum:** identical in a both-ways replay (shown answer, validation, trace); every
+     record that cannot be replayed is accounted for.
+  3. **Not admitted:** a tampered in-run result (`failed`) and one that cannot be checked (`unverifiable`) are rendered
+     as `not_verified`, with no value; the validator's binding and the model's context are the unavailable form; no
+     legacy value appears anywhere in the shown answer.
+  4. **Incomplete coverage** (an as-of cutoff inside the window): `not_established`, the highest value held labelled
+     as not a maximum, with the incomplete-window and as-of limitations.
+  5. **Ties:** every tied interval stated, each with its claim and source rows.
+  6. **Adversarial model text** (scripted variants of slots 53 and 54): the computed answer is unchanged and shown;
+     the model's text is validated as before; the answer stays a fallback where it was one, with the model's notes
+     withheld (I-21).
+  7. **The same answer** in a normal answer and in its fallback.
+  8. **Safeguards:** all tests pass, with the assertions that looked for the computed sentence in `summary` moved to
+     `answer` (listed in the PR); the Replay evaluation (no case asks for a maximum) and the safety suite are
+     unchanged; ruff and mypy pass.
