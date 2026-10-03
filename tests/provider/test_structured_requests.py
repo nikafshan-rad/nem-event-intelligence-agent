@@ -62,11 +62,16 @@ SCRIPTED = {
     "K09": (NO_RUN, {"kind": "maximum", "measure": "dispatch_total_demand",
                      "measure_text": "NSW dispatch total demand highest", "window": "whole_local_day",
                      "window_text": "across the whole day", "window_start_utc": None, "window_end_utc": None}),
+    # K10's window words include the words that identify its event ("whose lowest price came at 9:20 pm AEST on 28
+    # July 2026"), as the v13 contract asks (D26): a time held by no role's words would block the window. The shorter
+    # reading first scripted here is kept below (K10_SHORT_WINDOW), and is sent back
     "K10": (NO_RUN, {"kind": "maximum", "measure": "dispatch_total_demand",
                      "measure_text": "dispatch total demand hit its highest point", "window": "event",
-                     "window_text": "the full window of the Victorian negative-price event", "window_start_utc": None,
+                     "window_text": "the full window of the Victorian negative-price event whose lowest price came at "
+                                    "9:20 pm AEST on 28 July 2026", "window_start_utc": None,
                      "window_end_utc": None}),
 }
+K10_SHORT_WINDOW = "the full window of the Victorian negative-price event"
 
 
 def _rec(cid: str) -> dict:
@@ -238,6 +243,17 @@ def test_with_scripted_fields_the_maximum_asked_for_is_computed_and_supplied(cid
     assert v["final_passed"] and not v["fallback_applied"], v["initial"]["violations"]
     assert any(f"was highest at {g['value']:g} MW" in s or f"was highest at {g['value']} MW" in s
                for s in [a.statement for a in res.report.answer])  # the computed answer (D25)
+
+
+def test_with_scripted_fields_k10s_window_without_its_identifying_time_is_sent_back():
+    """D26: "9:20 pm AEST" is written outside the shorter window words, held by no role's words, so it may narrow the
+    window: the event window is not bound and no maximum is computed in its place (the guarantee, not a phrase rule)."""
+    run, mx = SCRIPTED["K10"]
+    res = resolve_routed(InvestigateRequest(question=_rec("K10")["question"], mode="live"),
+                         _route(run, {**mx, "window_text": K10_SHORT_WINDOW}, intent="market_event_review",
+                                region="VIC1", event_date="2026-07-28"), SEL)
+    assert res.requests.maximum.status == "unresolved" and res.status == "needs_clarification"
+    assert any("9:20 pm" in u for u in res.requests.maximum.unused)
 
 
 def test_with_scripted_fields_k09s_saved_wrong_maximum_is_rejected():
