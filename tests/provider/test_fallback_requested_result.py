@@ -24,9 +24,17 @@ import pytest
 import nem_agent.validation as V
 from nem_agent.agent.live import ModelReport
 from nem_agent.agent.request import InvestigateRequest
+from nem_agent.approvals import note_content_from_report
 from nem_agent.report import InvestigationReport
 from nem_agent.service import investigate
-from nem_agent.validation import NOTES_WITHHELD, ValidationResult, Violation, facts_only, validate
+from nem_agent.validation import (
+    NOTES_WITHHELD,
+    WITHHELD_LABEL,
+    ValidationResult,
+    Violation,
+    facts_only,
+    validate,
+)
 from tests.provider.fake_model import FakeModel
 
 pytestmark = pytest.mark.synthetic
@@ -403,3 +411,32 @@ def test_the_shown_headline_gives_it_and_a_hidden_model_headline_does_not(monkey
     hidden = report.model_copy(update={"summary": [], "numeric_claims": claims, "headline": "SYNTHETIC headline."})
     hidden._model_headline = LINE
     assert _missing(hidden, registry, res)
+
+
+# ------------------------------------------------------------------------------------------------ where withheld notes are
+def test_withheld_notes_are_excluded_from_the_answer_but_kept_labelled_as_rejected_model_text():
+    """Excluded from the validated answer is not "displayed nowhere": the app's collapsed Validation details panel, the
+    API response's validation record and the trace keep them, each labelled as rejected, unvalidated model text."""
+    res = _replay(K09["v12 K09"])
+    rep, v = res.report, res.report.validation
+    items = v["fallback_withheld"]
+    assert items and all(w["source"] == "model" and w["label"] == WITHHELD_LABEL for w in items)
+    assert "rejected model text" in WITHHELD_LABEL and "not validated" in WITHHELD_LABEL
+    # the two notes the denial check named are marked as such; the others went with the narrative only
+    assert {w["where"]: w["named_by"] for w in items} == {
+        "uncertainties[0]": ["REQUESTED_MAXIMUM_DENIED"], "uncertainties[1]": [],
+        "missing_evidence[0]": ["REQUESTED_MAXIMUM_DENIED"], "missing_evidence[1]": []}
+    # the API returns the report as dumped: the labels travel with the text
+    assert all(w["label"] == WITHHELD_LABEL for w in rep.model_dump()["validation"]["fallback_withheld"])
+    event = next(e for e in res.trace.as_dict()["events"] if e["name"] == "fallback_withheld")
+    assert all(w["label"] == WITHHELD_LABEL for w in event["items"])
+    # the shown line says where they are, without calling them shown nowhere
+    assert NOTES_WITHHELD in rep.uncertainties
+    assert "not part of this answer" in NOTES_WITHHELD and "unvalidated, in the validation details" in NOTES_WITHHELD
+    assert "not shown" not in NOTES_WITHHELD
+
+
+def test_a_case_note_from_the_fallback_carries_no_withheld_note():
+    res = _replay(K09["slot 53"])
+    content = json.dumps(note_content_from_report(res.report), ensure_ascii=False)
+    assert not any(w["text"] in content for w in res.report.validation["fallback_withheld"])

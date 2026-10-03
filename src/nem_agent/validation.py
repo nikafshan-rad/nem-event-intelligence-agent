@@ -2568,9 +2568,13 @@ def validate(report: InvestigationReport, registry: EvidenceRegistry, *, as_of: 
 # I-21 (development model comparison, K09, slots 53 and 54): the fallback cleared the controller's line stating the
 # computed maximum with the model's narrative, and kept model notes that said the maximum was not established or gave
 # another value as the highest; the denial check is lexical and missed them, and the fallback passed its own checks.
-NOTES_WITHHELD = ("Notes the model wrote were withheld with its narrative; they are kept in the investigation record, "
-                  "not shown. Withholding them does not mean the data has no limitations: the result above is only as "
-                  "complete and accurate as the published data held for the requested window.")
+NOTES_WITHHELD = ("Notes the model wrote were withheld with its rejected narrative and are not part of this answer; "
+                  "they are kept, unvalidated, in the validation details. Withholding them does not mean the data has no "
+                  "limitations: the result above is only as complete and accurate as the published data held for the "
+                  "requested window.")
+# each withheld note's label wherever it is kept (validation record, trace): what it is, not a validated fact
+WITHHELD_LABEL = ("rejected model text: withheld with the narrative that failed validation; not validated; not part of "
+                  "the answer")
 
 
 def _result_refusal(report: InvestigationReport, registry: EvidenceRegistry, result: ValidationResult,
@@ -2670,14 +2674,16 @@ def facts_only(report: InvestigationReport, registry: EvidenceRegistry, result: 
                               "Narrative withheld because it failed validation."],
             "missing_evidence": [x for i, x in enumerate(report.missing_evidence)
                                  if f"missing_evidence[{i}]" not in named and not action_claims(x)]}
-        withheld: list[dict[str, str]] = []
+        withheld: list[dict[str, Any]] = []
     else:
         by_code = prov.get("controller_notes") or {}
         code_u, code_m = set(by_code.get("uncertainties") or []), set(by_code.get("missing_evidence") or [])
-        withheld = ([{"where": f"uncertainties[{i}]", "text": u} for i, u in enumerate(report.uncertainties)
-                     if i not in code_u]
-                    + [{"where": f"missing_evidence[{i}]", "text": x} for i, x in enumerate(report.missing_evidence)
-                       if i not in code_m])
+        withheld = [{"where": where, "text": text, "source": "model", "label": WITHHELD_LABEL,
+                     # the critical violations that named this note itself; empty when it went with the narrative only
+                     "named_by": sorted({v.code for v in result.critical if v.detail.startswith(f"{where}:")})}
+                    for field, notes, code in (("uncertainties", report.uncertainties, code_u),
+                                               ("missing_evidence", report.missing_evidence, code_m))
+                    for i, text in enumerate(notes) if i not in code for where in [f"{field}[{i}]"]]
         update = {
             "summary": [line["text"] for line in retained],
             "numeric_claims": [c.model_copy() for line in retained for c in line["claims"]],

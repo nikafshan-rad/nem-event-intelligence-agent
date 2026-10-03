@@ -3572,9 +3572,11 @@ to prompts, routing, the model, scoring, or other fallbacks):
    - the shown fallback's summary is the controller's line alone ("NSW1 dispatch total demand (TOTALDEMAND) was highest
      at 10954.2 MW in the 5-minute interval ending 2026-07-29T09:05:00Z = 2026-07-29 19:05 AEST, over all of 2026-07-29
      (AEST)."), with its claim `controller_max_ev1605`;
-   - no model note is shown (slot 53: four withheld; slot 54: two; the v12 K09: four, two of them faithful), each is
-     recorded verbatim in `validation.fallback_withheld` and the trace, and the shown notes are "Narrative withheld …"
-     and the limitation line;
+   - no model note is part of the answer (slot 53: four withheld; slot 54: two; the v12 K09: four, two of them
+     faithful); each is recorded verbatim in `validation.fallback_withheld` and the trace, labelled `source: model`,
+     "rejected model text: withheld with the narrative that failed validation; not validated; not part of the answer",
+     with the codes of any violation that named it (`named_by`); the answer's notes are "Narrative withheld …" and the
+     limitation line, which says where the withheld notes are;
    - the fallback passes its own validation; headline, `fallback_applied` and status are unchanged.
 2. **Controls** (`tests/provider/test_fallback_requested_result.py`, 38 tests): provenance recorded at construction,
    a model copy of the controller's sentence given none, model output unable to set it (`extra="forbid"`), never
@@ -3607,8 +3609,12 @@ to prompts, routing, the model, scoring, or other fallbacks):
   checks miss (held-out v6 Z04 replayed: "A tool-returned single-value maximum … over the entire window"); queued.
 - **Cost:** in those fallbacks every model note is withheld, faithful ones too (the v12 K09's two, one of slot 53's),
   recorded and disclosed.
-- **Where the withheld notes are:** the validation record and the trace; the app shows the validation record only in
-  its collapsed "Validation details" panel, as it already shows violation details quoting model text.
+- **Excluded from the validated answer, not displayed nowhere.** The withheld notes are not in the answer (headline,
+  summary, notes, observations) or in a case note built from it. They stay accessible as diagnostics: the app's
+  collapsed "Validation details" panel (the whole validation record as JSON, as it already shows violation details
+  quoting model text), the API response's `validation` record, and the trace. Each is labelled there as rejected,
+  unvalidated model text, never as a fact; the answer's own line says they are kept, unvalidated, in the validation
+  details (PR #64 review correction: it first said "not shown").
 - **The safety suite's fixtures** call the fallback without bindings, so they do not exercise this change (evaluation
   code unchanged).
 - **A report read back from JSON** carries no provenance, so its fallback keeps nothing (fails closed).
