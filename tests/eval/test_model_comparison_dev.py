@@ -374,7 +374,11 @@ def test_the_freeze_matches_the_protocol():
         "route": 2000, "tools": 8000, "synthesis": 16000, "repair": 16000}
     assert {m["id"] for m in FREEZE["models"].values()} == {"gpt-5-mini", "gpt-6.1-sol"}
     assert sorted(FREEZE["review_blind_order"].values()) == [s["slot"] for s in F.slots() if s["kind"] == "e2e"]
-    src = subprocess.run(["git", "rev-parse", f"{FREEZE['code_commit']}:src"], cwd=ROOT, capture_output=True, text=True,
-                         check=True).stdout.strip()
-    assert src == FREEZE["src_tree"]  # the code commit's src/ is the frozen tree
+    # the code commit's src/ is the frozen tree, where the checkout holds that commit (a shallow CI checkout of this
+    # branch does not: it is main's merge of PR #61; the runner itself checks HEAD's src/ before every slot)
+    if subprocess.run(["git", "cat-file", "-e", f"{FREEZE['code_commit']}^{{commit}}"], cwd=ROOT,
+                      capture_output=True).returncode == 0:
+        src = subprocess.run(["git", "rev-parse", f"{FREEZE['code_commit']}:src"], cwd=ROOT, capture_output=True,
+                             text=True, check=True).stdout.strip()
+        assert src == FREEZE["src_tree"]
     assert any("S1 made absolute" in c for c in FREEZE["changes_before_any_run"])
