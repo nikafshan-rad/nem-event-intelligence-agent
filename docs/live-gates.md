@@ -3191,6 +3191,10 @@ Prepared with the owner's approval for **unpaid preparation only**: no Live call
 **Correct binding** (`PASS_RULE.md`). A routing case is labelled mechanically against the verified gold:
 - **CORRECT:** every field is right: region, run-selection rule, target half-hour, issue time (within 60 s), measure,
   window kind and bounds, and as-of cutoff.
+  - **For a run, the run itself must be right:** the stored run the bound fields identify, by the controller's own
+    lookups, must be the gold run. A different run fails, even within 60 s.
+  - **The 60 s only absorbs** an issue time stated to the minute. This was amended before any run, at the owner's
+    request.
 - **WRONG:** any contradicting field, a binding where the gold has none, or a wrong region or cutoff.
 - **PARTIAL:** a gold field missing.
 - **SENT_BACK**, **UNBOUND**, **NO_REQUEST_OK** or **AS_OF_OK**.
@@ -3241,12 +3245,14 @@ Each run starts only after every earlier run ended complete.
 - **Standing cap:** `config.LIVE_TOTAL_BUDGET_USD` stays 5.00. No earlier approval covers these runs.
 
 **Runner checks:**
-- **The offline protocol tests** (`tests/eval/test_livecheck_routing_v12.py`, 37) cover:
+- **The offline protocol tests** (`tests/eval/test_livecheck_routing_v12.py`, 44) cover:
   - the caps, the start guards and the stops;
   - interruption, duplicates, stray records and the lock;
   - the run order;
   - the mechanical labels;
   - an offline routing case through `run_route.route_case`;
+  - the exact gold run (a different run within 60 s fails);
+  - cut-off and invalid routing output binding nothing;
   - the decision rules;
   - the freeze.
 - **Offline smoke run:** all 42 routing questions run through `route_case` with a SYNTHETIC transport without error.

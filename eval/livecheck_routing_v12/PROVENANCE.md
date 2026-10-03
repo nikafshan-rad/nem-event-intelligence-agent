@@ -59,6 +59,21 @@
    - **Every case's request builds,** and all 42 routing questions run through `run_route.route_case` offline (a
      SYNTHETIC transport, no model fields) without error.
 
+7. **An amendment before any run** (2026-10-03, no result seen; at the owner's request).
+   - **The gap:** a forecast run's issue time was compared within 60 seconds, but the scorer did not establish
+     which stored run that time identifies.
+   - **The change** (`PASS_RULE.md`, "Correct binding", and `score.py`, `run_identity`): a bound run is correct only
+     if the stored run its fields identify, by the controller's own lookups, is the gold run itself. A different run
+     fails, even within 60 seconds. The 60 seconds only absorbs a time stated to the minute.
+   - **Corroboration:** every forecast-run gold identifies exactly one stored run, which is:
+     - the run the writer recorded (Q01–Q08);
+     - the run in the targeted check's frozen gold (K05, K06, K07, K14, Z05);
+     - at the issue time the verifier recomputed (all 13).
+   - **What the change could affect:** in the pinned data, no two runs of one region are issued within 10 minutes of
+     each other (the closest are 1,792 seconds apart), so it changes no possible label. It makes the guarantee hold
+     by construction.
+   - The protocol was re-frozen.
+
 ## The writer
 
 - **Read only inside the kit:**

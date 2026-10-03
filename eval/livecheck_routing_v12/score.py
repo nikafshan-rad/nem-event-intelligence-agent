@@ -22,7 +22,7 @@ import argparse
 import importlib.util
 import json
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -61,8 +61,65 @@ def _near(a: str | None, b: str | None, seconds: int = 60) -> bool:
     return ta is not None and tb is not None and abs((ta - tb).total_seconds()) <= seconds
 
 
-def route_label(exp: dict[str, Any], rec: dict[str, Any]) -> dict[str, Any]:
-    """One routing case's outcome label (PASS_RULE.md, "Correct binding"), with what decided it."""
+Query = Any  # (sql, params) -> list of row dicts, as `Store.query`
+
+
+def _store_query() -> Query:
+    from nem_agent.service import _shared
+
+    return _shared()[0].query
+
+
+def _dt(s: str) -> datetime:
+    t = _t(s)
+    assert t is not None
+    return t
+
+
+def run_identity(region: str | None, selection: str | None, target_end: str | None, issued_at: str | None,
+                 query: Query | None = None) -> str | None:
+    """The stored forecast run a run request identifies, by the controller's own lookups (`LiveController.
+    _requested_run` and `_run_issued_at`), before any availability filter (an as-of cutoff is scored on its own):
+    - **the last run issued before the half-hour:** the run issued last before the half-hour ending ``target_end``
+      starts, among the runs that forecast it; two runs with that same issue time identify none;
+    - **the run issued at a stated time:** the run issued nearest ``issued_at``, within 10 minutes; two equally near
+      identify none. When a half-hour is bound too, the run must forecast it.
+    None when no single stored run is identified."""
+    q = query or _store_query()
+    if not region:
+        return None
+    if selection == "last_issued_before" and target_end:
+        end = _dt(target_end)
+        rows = q("SELECT run_id, MIN(issued_at_utc) AS issued_at_utc FROM opdemand_forecast WHERE region=? AND "
+                 "target_end_utc=? AND issued_at_utc < ? GROUP BY run_id ORDER BY issued_at_utc DESC LIMIT 2",
+                 [region, end, end - timedelta(minutes=30)])
+        if not rows or (len(rows) > 1 and rows[1]["issued_at_utc"] == rows[0]["issued_at_utc"]):
+            return None
+        return str(rows[0]["run_id"])
+    if selection == "issued_at" and issued_at:
+        t = _dt(issued_at)
+        rows = q("SELECT run_id, MIN(issued_at_utc) AS issued_at_utc FROM opdemand_forecast WHERE region=? AND "
+                 "issued_at_utc BETWEEN ? AND ? GROUP BY run_id",
+                 [region, t - timedelta(minutes=10), t + timedelta(minutes=10)])
+        if not rows:
+            return None
+        best = min(rows, key=lambda r: abs(r["issued_at_utc"] - t))
+        if sum(abs(r["issued_at_utc"] - t) == abs(best["issued_at_utc"] - t) for r in rows) > 1:
+            return None
+        if target_end and not q("SELECT 1 FROM opdemand_forecast WHERE region=? AND run_id=? AND target_end_utc=? "
+                                "LIMIT 1", [region, best["run_id"], _dt(target_end)]):
+            return None
+        return str(best["run_id"])
+    return None
+
+
+def route_label(exp: dict[str, Any], rec: dict[str, Any], query: Query | None = None) -> dict[str, Any]:
+    """One routing case's outcome label (PASS_RULE.md, "Correct binding"), with what decided it.
+
+    A bound run is correct only if it is the gold run itself: the stored run its bound fields identify
+    (``run_identity``) must be the run the gold's fields identify. The 60-second tolerance applies only to comparing
+    the issue-time value (a question may state the time to the minute, while the stored stamps carry seconds); a
+    different run fails, however near its issue time."""
     res = rec.get("resolution") or {}
     rq = res.get("requests") or {}
     fr, mx = rq.get("forecast_run") or {}, rq.get("maximum") or {}
@@ -88,6 +145,17 @@ def route_label(exp: dict[str, Any], rec: dict[str, Any]) -> dict[str, Any]:
                     partial.append("the issue time is not bound")
                 elif not _near(fr["issued_at_utc"], g_run["issued_at_utc"]):
                     wrong.append(f"issue time {fr['issued_at_utc']} (gold {g_run['issued_at_utc']})")
+            if not wrong:  # the run itself: the stored run the bound fields identify must be the gold run
+                gold_run = run_identity(exp.get("region"), g_run["selection"], g_run.get("target_half_hour_end_utc"),
+                                        g_run.get("issued_at_utc"), query)
+                if gold_run is None:
+                    raise ValueError(f"the gold identifies no single stored run: {g_run}")
+                bound_run = run_identity(res.get("region"), fr.get("selection"), (hh or [None, None])[1],
+                                         fr.get("issued_at_utc"), query)
+                if bound_run is not None and bound_run != gold_run:
+                    wrong.append(f"run {bound_run} (gold {gold_run})")
+                elif bound_run is None and not partial:
+                    wrong.append(f"the bound fields identify no single stored run (gold {gold_run})")
     if mx.get("status") == "bound":
         if not g_max:
             wrong.append("a maximum is bound; the gold has none")

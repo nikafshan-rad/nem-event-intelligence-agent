@@ -76,8 +76,17 @@ A routing case's outcome is decided mechanically from its saved record, against 
 
 - **A forecast run is bound correctly** only if all of these match the gold: the region; the run-selection rule (the
   last run issued before the half-hour, or the run issued at a stated time); the target half-hour's end (the interval);
-  the issue time, within 60 seconds, for a run named by it; and the as-of cutoff (none, or the gold instant within 60
-  seconds).
+  the issue time, within 60 seconds, for a run named by it; the as-of cutoff (none, or the gold instant within 60
+  seconds); **and the run itself.**
+  - **The stored run must be the gold run.** The stored run the bound fields identify, by the controller's own lookups,
+    must be the gold run (the same run ID). The lookups:
+    - the last run issued before the half-hour starts, among the runs that forecast it;
+    - or the run issued nearest the stated time, within 10 minutes, with no tie.
+  - **A different run fails, even if its issue time is within 60 seconds of the gold's.**
+  - **What the 60 seconds is for:** it applies only to comparing the issue-time value. It absorbs a question that
+    states the issue time to the minute, while the stored stamps carry seconds.
+  - **Amended on 2026-10-03, before any run, with no result seen,** at the owner's request: the run-identity requirement
+    was added to this rule and to `score.py` (`run_identity`). It only tightens the rule.
 - **A demand maximum is bound correctly** only if all of these match the gold: the region; the measure; the window's
   kind (whole local day, event window or explicit) and both bounds (the window); and the as-of cutoff.
 - **Outcome labels:**

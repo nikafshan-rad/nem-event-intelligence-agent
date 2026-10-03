@@ -30,6 +30,7 @@ from typing import Any
 
 import pytest
 
+from nem_agent.agent.request import InvestigateRequest
 from tests.provider.fake_model import FakeModel
 
 pytestmark = pytest.mark.synthetic
@@ -302,6 +303,157 @@ def test_a_cut_off_routing_output_is_route_invalid_and_sent_back():
     assert rec["route_invalid"] and rec["resolution"]["status"] == "needs_clarification"
     lab = SCORE.route_label(DEV_GOLD["K05"], rec)
     assert lab["route_invalid"] and lab["label"] == "SENT_BACK" and lab["supply_miss"]
+
+
+# ------------------------------------------------------------------------------------------------ run identity
+class _Runs:
+    """A SYNTHETIC store: TAS1 forecast runs (run ID, issue time, half-hours forecast), answering the three run
+    lookups the scorer makes (as `Store.query` does)."""
+
+    def __init__(self, runs: list[tuple[str, str, list[str]]]) -> None:
+        from datetime import datetime
+
+        def t(x: str) -> Any:
+            return datetime.fromisoformat(x.replace("Z", "+00:00"))
+        self.runs = [(r, t(i), [t(x) for x in ends]) for r, i, ends in runs]
+
+    def __call__(self, sql: str, params: list[Any]) -> list[dict[str, Any]]:
+        if "SELECT 1" in sql:
+            _region, run, end = params
+            return [{"1": 1}] if any(r == run and end in ends for r, _i, ends in self.runs) else []
+        if "BETWEEN" in sql:
+            _region, lo, hi = params
+            return [{"run_id": r, "issued_at_utc": i} for r, i, _e in self.runs if lo <= i <= hi]
+        _region, end, start = params
+        rows = sorted(((r, i) for r, i, ends in self.runs if end in ends and i < start), key=lambda x: x[1], reverse=True)
+        return [{"run_id": r, "issued_at_utc": i} for r, i in rows[:2]]
+
+
+GOLD_ISSUED = {"outcome": "bound", "region": "TAS1", "as_of_utc": None,
+               "forecast_run": {"selection": "issued_at", "target_half_hour_end_utc": "2026-07-30T05:00:00Z",
+                                "issued_at_utc": "2026-07-30T03:57:03Z"}}
+TWO_RUNS = _Runs([("GOLD_RUN", "2026-07-30T03:57:03Z", ["2026-07-30T05:00:00Z"]),
+                  ("OTHER_RUN", "2026-07-30T03:57:33Z", ["2026-07-30T05:00:00Z"])])  # 30 s apart (SYNTHETIC)
+
+
+def _bound_record(issued_at: str, end: str = "2026-07-30T05:00:00Z") -> dict[str, Any]:
+    start = (SCORE._dt(end) - __import__("datetime").timedelta(minutes=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return {"route_invalid": False, "resolution": {
+        "status": "ok", "intent": "forecast_review", "region": "TAS1", "as_of_utc": None,
+        "requests": {"forecast_run": {"status": "bound", "selection": "issued_at", "half_hour_utc": [start, end],
+                                      "issued_at_utc": issued_at}, "maximum": {"status": "absent"}}}}
+
+
+def test_a_different_run_within_the_60_seconds_is_wrong():
+    """SYNTHETIC: two runs issued 30 s apart. A binding whose issue time (03:57:33) is within 60 s of the gold's
+    (03:57:03) but identifies the other run fails: the run itself must be the gold run."""
+    lab = SCORE.route_label(GOLD_ISSUED, _bound_record("2026-07-30T03:57:33Z"), query=TWO_RUNS)
+    assert lab["label"] == "WRONG" and lab["wrong"] == ["run OTHER_RUN (gold GOLD_RUN)"]
+
+
+def test_the_60_seconds_only_absorbs_a_time_stated_to_the_minute():
+    """The question states 03:57; the stored stamp is 03:57:03. The time is within 60 s and identifies the gold run."""
+    assert SCORE.route_label(GOLD_ISSUED, _bound_record("2026-07-30T03:57:00Z"), query=TWO_RUNS)["label"] == "CORRECT"
+    tie = _Runs([("GOLD_RUN", "2026-07-30T03:57:03Z", ["2026-07-30T05:00:00Z"]),
+                 ("OTHER_RUN", "2026-07-30T03:57:33Z", ["2026-07-30T05:00:00Z"])])
+    # a time equally near two runs identifies none: not credited
+    assert SCORE.route_label(GOLD_ISSUED, _bound_record("2026-07-30T03:57:18Z"), query=tie)["label"] == "WRONG"
+    # a run that does not forecast the bound half-hour identifies none: not credited
+    assert SCORE.route_label(GOLD_ISSUED, _bound_record("2026-07-30T03:57:00Z", end="2026-07-30T05:30:00Z"),
+                             query=TWO_RUNS)["label"] == "WRONG"
+
+
+def test_the_last_run_issued_before_is_the_gold_runs_identity():
+    gold = {"outcome": "bound", "region": "TAS1", "as_of_utc": None,
+            "forecast_run": {"selection": "last_issued_before", "target_half_hour_end_utc": "2026-07-30T05:00:00Z",
+                             "issued_at_utc": None}}
+    runs = _Runs([("EARLIER", "2026-07-30T03:57:03Z", ["2026-07-30T05:00:00Z"]),
+                  ("GOLD_RUN", "2026-07-30T04:27:01Z", ["2026-07-30T05:00:00Z"]),
+                  ("AFTER_START", "2026-07-30T04:31:00Z", ["2026-07-30T05:00:00Z"])])
+    rec = _bound_record("x")
+    rec["resolution"]["requests"]["forecast_run"] |= {"selection": "last_issued_before", "issued_at_utc": None}
+    assert SCORE.route_label(gold, rec, query=runs)["label"] == "CORRECT"
+    assert SCORE.run_identity("TAS1", "last_issued_before", "2026-07-30T05:00:00Z", None, runs) == "GOLD_RUN"
+
+
+def test_every_gold_run_is_one_stored_run_corroborated_by_independent_records():
+    """Each forecast-run gold identifies exactly one stored run, and it is the run the writer recorded (fresh cases)
+    or the targeted check's frozen gold names (development cases)."""
+    lc = {c["case_id"]: c for c in json.loads((REPO / "eval" / "livecheck_i15_17" / "GOLD.json").read_text())["cases"]}
+    dev = json.loads((REPO / "eval" / "livecheck_i15_17" / "DEVCHECK.json").read_text())["cases"]
+    checked = 0
+    for c in json.loads((HERE / "cases.json").read_text())["cases"] + json.loads((HERE / "DEV_GOLD.json").read_text())[
+            "cases"]:
+        e = c["expected"]
+        fr = e.get("forecast_run")
+        if not fr:
+            continue
+        rid = SCORE.run_identity(e["region"], fr["selection"], fr["target_half_hour_end_utc"], fr.get("issued_at_utc"))
+        assert rid is not None, c["case_id"]
+        if "data_check" in e:
+            assert rid in e["data_check"], c["case_id"]
+        elif lc.get(c["case_id"], {}).get("gold_run"):
+            assert lc[c["case_id"]]["gold_run"]["run_id"] == rid, c["case_id"]
+        else:
+            assert rid in json.dumps(next(d for d in dev if d["case_id"] == c["case_id"])), c["case_id"]
+        checked += 1
+    assert checked == 13  # Q01-Q08, Z05, K05, K06, K07, K14
+
+
+# ------------------------------------------------------------------------------------------------ cut-off routing
+class _CutOff:
+    """A SYNTHETIC transport whose routing response stops at max_output_tokens: its text is a complete, valid routing
+    decision (with correct `requested` fields), but the response is incomplete."""
+
+    def __init__(self, route: dict[str, Any]) -> None:
+        self.route = route
+        self.calls = 0
+
+    def create(self, **kw: Any) -> dict[str, Any]:
+        self.calls += 1
+        return {"id": "resp_cut", "status": "incomplete", "incomplete_details": {"reason": "max_output_tokens"},
+                "output": [{"type": "message", "role": "assistant",
+                            "content": [{"type": "output_text", "text": json.dumps(self.route)}]}],
+                "usage": {"input_tokens": 2000, "output_tokens": 2000}}
+
+
+@pytest.mark.parametrize("cid,requested", [("K06", {"forecast_run": K06_RUN, "maximum": NO_MAX}),
+                                           ("K09", {"forecast_run": NO_RUN, "maximum": K09_MAX})])
+def test_cut_off_or_invalid_routing_output_binds_nothing(cid, requested):
+    """A routing response cut off at its cap, even one whose text would parse with correct fields, is no decision:
+    the model's reading is discarded, the question is sent back, and no tool runs, no run is looked up and no
+    maximum is computed. The record is ROUTE_INVALID, labelled SENT_BACK (a supply miss)."""
+    route = {**json.loads((SAVED / f"{cid}.json").read_text())["route"], "requested": requested}
+    rec = ROUTE.route_case({"case_id": cid, "question": K[cid]["question"], "request": K[cid].get("request") or {}},
+                           client=_CutOff(route), write_trace=False)
+    assert rec["route"] is None and rec["route_invalid"] and rec["route_invalid_events"] == ["route:incomplete"]
+    assert rec["resolution"]["status"] == "needs_clarification"
+    rq = rec["resolution"]["requests"]  # None when the question is not resolved as a data question at all
+    if rq is not None:
+        assert rq["routed"] == "not reported" and "route_model" not in rq["forecast_run"]["detected_by"] + \
+            rq["maximum"]["detected_by"]
+        assert rq["forecast_run"]["status"] != "bound" and rq["maximum"]["status"] != "bound"
+    lab = SCORE.route_label(DEV_GOLD[cid], rec)
+    assert lab["label"] == "SENT_BACK" and lab["route_invalid"] and lab["supply_miss"]
+    from nem_agent.service import investigate
+
+    res = investigate(InvestigateRequest(question=K[cid]["question"], mode="live"), live_client=_CutOff(route),
+                      write_trace=False)
+    assert res.report.status == "needs_clarification" and not res.records
+    assert res.resolution.forecast_run is None and res.resolution.demand_max is None
+
+
+def test_a_cut_off_route_on_a_parser_read_question_is_sent_back_before_any_lookup():
+    """Z05's wording is read by the question parser. With the routing output cut off, the question is still sent back
+    (invalid routing output) before any tool or run lookup: nothing is bound in practice."""
+    v6 = {c["case_id"]: c for c in json.loads((REPO / "eval" / "holdout_v6" / "cases.json").read_text())["cases"]}
+    route = json.loads((REPO / "artifacts" / "live" / "LC-i15-17-dev" / "Z05.json").read_text())["route"]
+    from nem_agent.service import investigate
+
+    res = investigate(InvestigateRequest(question=v6["Z05"]["question"], mode="live"), live_client=_CutOff(route),
+                      write_trace=False)
+    assert res.report.status == "needs_clarification" and not res.records and res.resolution.forecast_run is None
+    assert res.resolution.reasons == ["The routing model returned invalid output."]  # shown as "could not be interpreted"
 
 
 # ------------------------------------------------------------------------------------------------ the decision
