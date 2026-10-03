@@ -3109,3 +3109,162 @@ bindings were never engaged. Where they engaged, the results were right:
   - when they engaged, the answers were right.
 - **Does not show:** rates or reliability, unseen-event behaviour (familiar data), L3 status, or general verification
   of I-15.
+
+## Live check of the v12 routing extraction: frozen, not run (awaiting the owner's paid-run approval)
+
+Prepared with the owner's approval for **unpaid preparation only**: no Live call has been made. Files are in
+`eval/livecheck_routing_v12/`.
+- **The rule is `PASS_RULE.md`,** committed and pushed (`8f0bfae`, 2026-10-03T02:57:00Z) before any fresh question was
+  written.
+- **What it tests:** the one thing I-18 could not show offline: whether `gpt-5-mini`, under prompts v12, fills the
+  routing decision's `requested` field so that the merged resolution binds the run or maximum a question asks for,
+  sends back what it cannot bind, and binds nothing wrongly.
+- **What it is not:** v7, an L3 evaluation or unseen-event evidence. Historical verdicts are unchanged, and Live stays
+  experimental.
+
+**The code under test:** `main` `f2455ca`, the merge of PR #56, with `gpt-5-mini`:
+- full tree `733128c3c1de2e66018e2415d4ee0e21df74465e`;
+- `src/` tree `b367b911845988770995c9b6334e4432b1e21980`;
+- prompts v12 tree `7a1fe6a53e2f5d39e3cce3aeacade4bc6c5e455a`.
+
+**Three runs, reported separately:**
+
+| Run | Cases | What runs |
+|---|---|---|
+| R-dev | 18 development routing cases (Z03, Z05, Z04, K01–K15) | one routing call each (`run_route.py`), then the merged resolution; no tool or answer |
+| R-fresh | 24 fresh routing cases (Q01–Q24) | as above |
+| E-dev | 5 development end-to-end cases (K05, K06, K07, K09, K10) | the full Live investigation, unchanged (`eval/livecheck_i15_17/run_case.py`) |
+
+**The frozen gold.**
+- **R-dev:** `DEV_GOLD.json`, derived from the targeted check's frozen gold.
+- **R-fresh:** `cases.json`, written by an independent writer; the verifier passed all 24 in round 1.
+- **The verifier,** working only inside its own kit outside the repository, checked both against the data
+  (`VERIFICATION.json`). In round 1 it asked for one development revision, K15's region. Round 2 passed 24 of 24 fresh
+  and 18 of 18 development golds.
+- **E-dev:** the targeted check's frozen `GOLD.json`.
+
+| Case | Run | Expected | Region | Gold binding (UTC) | As-of cutoff |
+|---|---|---|---|---|---|
+| Z03 | R-dev | no_request | TAS1 | — | — |
+| Z05 | R-dev | bound | NSW1 | last_issued_before, half-hour ending 07-30T21:30 | — |
+| Z04 | R-dev | bound | TAS1 | dispatch_total_demand, whole_local_day 07-28T14:00 to 07-29T14:00 | — |
+| K01 | R-dev | no_request | SA1 | — | — |
+| K02 | R-dev | no_request | TAS1 | — | — |
+| K03 | R-dev | no_request | QLD1 | — | — |
+| K04 | R-dev | no_request | NSW1 | — | 2026-08-20T02:30 |
+| K05 | R-dev | bound | QLD1 | last_issued_before, half-hour ending 08-06T08:00 | — |
+| K06 | R-dev | bound | SA1 | last_issued_before, half-hour ending 08-19T22:30 | — |
+| K07 | R-dev | bound | NSW1 | last_issued_before, half-hour ending 08-06T07:30 | 2026-08-06T09:00 |
+| K08 | R-dev | clarify | VIC1 | — | — |
+| K09 | R-dev | bound | NSW1 | dispatch_total_demand, whole_local_day 07-28T14:00 to 07-29T14:00 | — |
+| K10 | R-dev | bound | VIC1 | dispatch_total_demand, event 07-27T23:00 to 07-28T23:30 | — |
+| K11 | R-dev | bound | QLD1 | operational_demand, whole_local_day 07-28T14:00 to 07-29T14:00 | — |
+| K12 | R-dev | clarify | SA1 | — | — |
+| K13 | R-dev | no_request | VIC1 | — | — |
+| K14 | R-dev | bound | TAS1 | issued_at, half-hour ending 07-30T22:00, issued 07-30T18:56:59 | — |
+| K15 | R-dev | no_request | SA1 | — | — |
+| Q01 | R-fresh | bound | NSW1 | last_issued_before, half-hour ending 08-20T10:00 | — |
+| Q02 | R-fresh | bound | QLD1 | last_issued_before, half-hour ending 07-30T20:30 | — |
+| Q03 | R-fresh | bound | SA1 | last_issued_before, half-hour ending 08-06T10:00 | — |
+| Q04 | R-fresh | bound | VIC1 | last_issued_before, half-hour ending 07-31T05:30 | — |
+| Q05 | R-fresh | bound | TAS1 | last_issued_before, half-hour ending 08-19T13:00 | 2026-08-19T20:00 |
+| Q06 | R-fresh | bound | SA1 | last_issued_before, half-hour ending 07-28T08:30 | — |
+| Q07 | R-fresh | bound | QLD1 | issued_at, half-hour ending 07-30T08:30, issued 07-30T03:57:03 | — |
+| Q08 | R-fresh | bound | NSW1 | issued_at, half-hour ending 07-31T06:00, issued 07-31T03:27:00 | — |
+| Q09 | R-fresh | bound | VIC1 | operational_demand, whole_local_day 07-28T14:00 to 07-29T14:00 | — |
+| Q10 | R-fresh | bound | SA1 | dispatch_total_demand, whole_local_day 07-28T14:30 to 07-29T14:30 | — |
+| Q11 | R-fresh | bound | SA1 | operational_demand, whole_local_day 07-28T14:30 to 07-29T14:30 | — |
+| Q12 | R-fresh | bound | VIC1 | dispatch_total_demand, event 08-19T11:00 to 08-20T11:30 | — |
+| Q13 | R-fresh | bound | SA1 | operational_demand, event 07-30T04:30 to 07-31T05:00 | — |
+| Q14 | R-fresh | bound | QLD1 | dispatch_total_demand, explicit 08-19T12:00 to 08-19T22:00 | — |
+| Q15 | R-fresh | bound | NSW1 | operational_demand, explicit 07-31T02:00 to 07-31T09:00 | — |
+| Q16 | R-fresh | bound | VIC1 | dispatch_total_demand, explicit 08-05T18:00 to 08-06T06:00 | — |
+| Q17 | R-fresh | clarify | QLD1 | missing: date | — |
+| Q18 | R-fresh | clarify | VIC1 | missing: start_or_end | — |
+| Q19 | R-fresh | clarify | QLD1 | missing: measure | — |
+| Q20 | R-fresh | clarify | SA1 | missing: window | — |
+| Q21 | R-fresh | no_request | SA1 | — | — |
+| Q22 | R-fresh | no_request | QLD1 | — | — |
+| Q23 | R-fresh | as_of_availability | VIC1 | — | 2026-08-05T11:00 |
+| Q24 | R-fresh | no_request | TAS1 | — | — |
+
+**Correct binding** (`PASS_RULE.md`). A routing case is labelled mechanically against the verified gold:
+- **CORRECT:** every field is right: region, run-selection rule, target half-hour, issue time (within 60 s), measure,
+  window kind and bounds, and as-of cutoff.
+- **WRONG:** any contradicting field, a binding where the gold has none, or a wrong region or cutoff.
+- **PARTIAL:** a gold field missing.
+- **SENT_BACK**, **UNBOUND**, **NO_REQUEST_OK** or **AS_OF_OK**.
+- **ROUTE_INVALID:** routing output that was cut off or failed to validate.
+
+Supply misses (over-clarification, not detected, partial) are counted apart from containment.
+
+**Acceptance** (decided in this order):
+1. **FAIL** if:
+   - any routing case is WRONG;
+   - more than 1 of the 42 routing calls is ROUTE_INVALID; or
+   - any E-dev case has an H1–H5 violation (regardless of X) or shows an incorrect targeted answer (X).
+2. **INCOMPLETE** if any of the 47 cases did not complete. It never passes.
+3. **PASS** only if all of these hold:
+   - **R-fresh:**
+     - at least 6 of 8 forecast-run and 6 of 8 maximum cases CORRECT;
+     - Q17–Q20 sent back;
+     - at most 1 of the 4 controls over-clarified.
+   - **R-dev:**
+     - K05, K06, K07, K09, K10 CORRECT, and Z04, Z05, K11 CORRECT;
+     - K08 and K12 sent back;
+     - at most 1 of the 7 no-request cases over-clarified.
+   - **E-dev:** K05, K06, K09 and K10 each S, and K07 U.
+
+**Immediate stops** (separate from the verdict): an H1 failure, a change to the frozen files or `src/`, an API error,
+timeout, budget stop or missing record. WRONG, ROUTE_INVALID, H2–H5 and X decide the verdict but do not stop the runs.
+Each run starts only after every earlier run ended complete.
+
+**Duplicates and interruption:**
+- **Duplicates:** each run label runs once, and an ended run is never resumed or repeated (INCOMPLETE is final). An
+  exclusive lock refuses a second invocation, and the runner refuses records its log does not account for.
+- **Interruption:** the case in flight is re-run once, and a second kill makes the run INCOMPLETE.
+
+**Budget** (enforced by the ledger before every model call):
+
+| Cap | USD |
+|---|---|
+| Per routing call | 0.01 (a v12 routing call's worst-case reservation is about 0.0051) |
+| Per end-to-end case | 0.15 |
+| R-dev (18 routing calls) | 0.10 |
+| R-fresh (24 routing calls) | 0.15 |
+| E-dev (5 cases) | 0.50 |
+
+- **Start guard:** a case starts only if its full case cap fits under its run cap and the approved task cap.
+- **Task cap:** the ledger stands at USD 7.424670 (2,598 lines), so the task cap required is 7.424670 + 0.10 + 0.15 +
+  0.50 = **USD 8.174670**.
+- **Expected spend:** about USD 0.25–0.35.
+- **Standing cap:** `config.LIVE_TOTAL_BUDGET_USD` stays 5.00. No earlier approval covers these runs.
+
+**Runner checks:**
+- **The offline protocol tests** (`tests/eval/test_livecheck_routing_v12.py`, 37) cover:
+  - the caps, the start guards and the stops;
+  - interruption, duplicates, stray records and the lock;
+  - the run order;
+  - the mechanical labels;
+  - an offline routing case through `run_route.route_case`;
+  - the decision rules;
+  - the freeze.
+- **Offline smoke run:** all 42 routing questions run through `route_case` with a SYNTHETIC transport without error.
+- **`run_eval.py --dry-run` on the real ledger:**
+  - it refuses without an approved cap, and with 8.17;
+  - with USD 8.174670, every guard passes (frozen files, `src/` tree, ledger 7.424670, no overrides, key present,
+    prompt version).
+  - Nothing was started.
+
+**Process notes** (`PROVENANCE.md`):
+- **Probing for overlap:** the writer found overlapping 6-word windows by probing the overlap checker. It did not open
+  the hashes.
+- **A slip by the verifier:** it printed its kit's `MANIFEST.json` (hashes only) before reading the rule against it.
+- **Familiar windows:** some fresh windows are familiar material.
+- **Gold published before the run:** at the owner's request, the frozen gold is published for review before any run.
+
+**Approval needed before any paid call:** "I approve one execution of runs R-dev, R-fresh and E-dev of the v12
+routing-extraction Live check under the frozen protocol in eval/livecheck_routing_v12 (code main f2455ca, src tree
+b367b911, prompts v12, gpt-5-mini), with per-call caps of USD 0.01 for routing and USD 0.15 per end-to-end case, run
+caps of USD 0.10 (R-dev), USD 0.15 (R-fresh) and USD 0.50 (E-dev), and a task cap of USD 8.174670 from the ledger
+balance of USD 7.424670, for these runs only."

@@ -85,9 +85,10 @@ def test_a_value_at_the_price_peak_is_not_a_maximum_request(question):
 def test_no_other_question_in_the_repository_asks_for_a_maximum():
     found = []
     for f in sorted(ROOT.glob("eval/**/*.json")) + sorted(ROOT.glob("artifacts/live/**/*.json")):
-        # the Live check of this fix asks for maxima by design: its case file and its run and review records; so does
-        # the I-18 paraphrase matrix and its records
-        if "traces" in f.parts or any(part.startswith(("livecheck_i15_17", "LC-i15-17", "structured_requests"))
+        # the Live check of this fix asks for maxima by design: its case file and its run and review records; so do
+        # the I-18 paraphrase matrix and its records, and the Live check of the v12 routing extraction
+        if "traces" in f.parts or any(part.startswith(("livecheck_i15_17", "LC-i15-17", "structured_requests",
+                                                       "livecheck_routing_v12", "LC-route-v12"))
                                       for part in f.parts):
             continue
         try:
