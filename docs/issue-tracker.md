@@ -30,6 +30,7 @@ One list of known defects, so that each fix is weighed against the whole. Eviden
 | I-15 | **A number shown with another interval's time** | Z03 (held-out v6, Live, 2026-10-02): "… (half-hour ending 2026-08-06T03:00:00Z / 2026-08-06 13:00 AEST) was 1204.0 MW …". 1204.0 MW is the half-hour ending 13:00Z (`ev0917`, the evidence the claim cites); the source value at 03:00Z is 1147.0 MW (`ev0897`, returned in the same series). The answer passed validation and was shown | P1 | **verified offline; Live unverified** (PR `#51`, merged as `8752b3d`; below). Each traced number's stated time is now bound to the evidence supporting it; Z03's saved answer is rejected and falls back. Pairing a time with its number is lexical (limits below). v6's FAIL verdict and Z03's scores are unchanged. **Targeted Live check 2026-10-02 (code `cf9558e`, PR `#54`; overall FAIL):** in its 4 value-and-time answers (Z03, K01, K03, K04) the stated times were right and the check never had to fire; K02 was sent back after a routing cut-off; K01 and K03 state other numbers wrongly (a flow direction, a "Price extreme" label). Too small a sample to verify I-15 generally; not exercised as a blocker in Live |
 | I-16 | **The forecast run asked for, not bound because its half-hour was not read** | Z05 (held-out v6, Live, 2026-10-02): "the half-hour finishing at 07:30 on 31 July in market time (UTC 2026-07-30T21:30:00Z) … the last forecast run issued ahead of that half-hour". The answer gave the run issued 18:27:01Z (POE50 10,954 MW, −224 MW), the latest available by the half-hour's end, as that run; the run asked for, issued 20:56:59Z, gave 11,082 MW against 11,178 | P1 | **verified offline; Live unverified** (PR `#52`, merged as `45e5203`; below). Z05's half-hour is now read and the run asked for bound: its saved answer is rejected and falls back. A run named relative to a half-hour that is not pinned down is sent back for it. v6's FAIL verdict and Z05's scores are unchanged. **Targeted Live check 2026-10-02 (code `cf9558e`, PR `#54`; overall FAIL): not held.** Wording outside its fixed set was not read ("issued ahead of it", "issued before it", am/pm half-hours), so no run was bound: K06 and K07 show another run as the one asked for, and K05 was sent back. Z05 was contained (the run asked for only) but fell back |
 | I-17 | **A measure's requested maximum replaced by its value at the price peak and another measure's maximum** | Z04 (held-out v6, Live, 2026-10-02): "… when did TAS1 total demand peak and at what level?" for 29 July 2026 (Hobart time). The answer gave dispatch TOTALDEMAND at the price peak (1,321.81 MW, 20:05) and the maximum of operational demand (1,452 MW, half-hour ending 08:00). TOTALDEMAND's maximum, 1,367.32 MW in the interval ending 07:55, was retrieved but never given | P1 | **verified offline; Live unverified** (PR `#53`, merged as `cf9558e`; below). A requested maximum is now computed by code over the requested window, stated by the controller and required of the answer; Z04's answer gives 1,367.32 MW at 07:55, and substitutes stated as the peak are rejected. v6's FAIL verdict and Z04's scores are unchanged. **Targeted Live check 2026-10-02 (code `cf9558e`, PR `#54`; overall FAIL): not held.** "total demand highest" and "hit its highest point" were not read as maximum requests, so nothing was computed: K09 and K10 show wrong maxima. Where the wording was read, the maximum was supplied (Z04, K11) |
+| I-18 | **Forecast-run and demand-maximum requests that silently skip their binding** | Targeted Live check 2026-10-02 (`docs/live-gates.md`): wording outside the fixed patterns ("issued ahead of it", "issued before it", am/pm half-hours, "total demand highest", "hit its highest point") left K05–K07, K09 and K10 unbound; K06, K07, K09 and K10 then showed another run or a wrong maximum, and nothing checked them | P1 | **scope approved; acceptance recorded before implementation** (below). The check's FAIL verdict and all historical scores are unchanged |
 | I-5 | **Known safety-language limitations** | See the list below. Each is recorded with its risk. None is being worked on, to avoid an open-ended wording cycle | P3 | recorded; revisit only with a new concrete failure |
 
 ### I-1a: F04, the causal question not answered directly
@@ -2780,6 +2781,123 @@ checks are met. The three outcomes are reported separately:
 - **A question about demand alone** (no price or event words) is not routed by the scripted Replay router. This is
   unchanged, and Live routing is the model's.
 - **Live is unverified;** no paid run was made. v6's FAIL verdict and Z04's scores are unchanged.
+
+### I-18: forecast-run and demand-maximum requests that silently skip their binding
+
+**What happened** (targeted Live check of I-15–I-17, 2026-10-02, code `cf9558e`; `docs/live-gates.md`; records
+`artifacts/live/LC-i15-17-*`):
+- **I-16 run wording not read:** "the final forecast run issued ahead of it" (K06) and "issued before it" (K07).
+- **I-16 half-hour wording not read:** am/pm half-hours (K05, K07).
+- **I-17 maximum wording not read:** "total demand highest" (K09) and "hit its highest point" (K10).
+- **The consequences:**
+  - K06 and K07 showed another forecast run as the one asked for;
+  - K09 and K10 showed a wrong maximum;
+  - K05 was sent back although it was answerable.
+- **No targeted validator code fired** in any of the 18 cases.
+
+**Root cause.**
+1. **Only narrow patterns switch the bindings on.** Whether a binding engages depends only on a few regular expressions
+   over the question text (`requested_forecast`, `half_hour_asked`, `requested_maxima`, `maximum_window_kind`).
+2. **The routing model's reading is discarded.** The model already turns every Live question into a strict structured
+   decision (`RouteDecision`: intent, region, date, as-of, clarification), but that decision has no field for run
+   selection, target half-hour, measure, aggregation or window.
+3. **A missed pattern leaves no requirement behind.** When the patterns miss, nothing is bound and nothing is required.
+   The question goes down the generic path, and the answer is checked against nothing.
+
+**The approved change** (one PR, verified offline only; the owner's decisions of 2026-10-03):
+1. **Routing records the request.**
+   - **The schema:** `RouteDecision` gains a `requested` object with two parts:
+     - `forecast_run`: the selection, the target half-hour end, the issue time, and the question's own words for each;
+     - `maximum`: request kind, measure, window kind, explicit bounds, and the question's words.
+   - **The prompt:** the routing prompt is versioned as **v12** to describe these fields. The synthesis and system
+     prompts are unchanged (byte-identical in v12).
+2. **Absent is not "none".** A route without the new fields, including every historical saved route, means "not
+   reported", never "no requirement". In that case, and in Replay mode, the existing parsers and the cue detector
+   decide.
+3. **Sources are merged deterministically, with provenance.**
+   - **Precedence:** explicit request fields, then the existing question parsers, then the routing model.
+   - **What is recorded for every resolved field:** its source, the supporting text or request field, and any
+     deterministic conversion (for example, a local clock time and date to UTC).
+   - **Normalisation:** equivalent dates, times and zones are normalised before comparison. A genuine disagreement is
+     never resolved by choosing silently; it is sent back for clarification, naming both readings.
+4. **A model field is used only when grounded.**
+   - **Its quoted words must appear in the question,** and every time must follow from times and dates the question
+     itself states (am/pm included), by a recorded conversion.
+   - **The relationship must be shown by the question's words, not by a keyword alone:**
+     - which bound of the half-hour a time is;
+     - that a peak belongs to a demand measure;
+     - which window is meant.
+
+     Otherwise the field is unresolved.
+5. **Explicit request fields are authoritative.** When the question's wording conflicts with one (a window, or an as-of
+   cutoff), the request field is used and the conflict is shown in the answer. It is never silently ignored.
+6. **Conservative cues, with contextual controls.**
+   - **What a cue is:** a broad, phrasing-independent cue that a run selection or a maximum is asked. Examples: a
+     forecast word with run, issue and order words; a demand word with a peak or extreme word.
+   - **What it does:** it marks the request as *detected*. A detected request must end **bound** (every required field
+     resolved) or **sent back** with a specific clarification naming the missing field. It never proceeds unbound.
+   - **Contextual controls** keep values at the price peak ("demand at the price peak", "in that interval", "the peak
+     half-hour" of an event) and price superlatives from counting as demand maxima. As-of questions keep the
+     availability path (I-10).
+7. **Existing calculations are reused.**
+   - **Forecast runs:** a resolved request feeds the existing lookup and comparison (`_requested_run`,
+     `_requested_comparison`) and `FORECAST_RUN_SUBSTITUTED`.
+   - **Maxima:** it feeds the existing maximum computation and checks (`demand_max.compute`, `REQUESTED_MAXIMUM_*`).
+   - **I-15's time binding is unchanged.**
+8. **An answer-side backstop.** Two cases become critical violations:
+   - a sentence stating a demand maximum or minimum whose number is not an extreme computed by code (a tool's own
+     maximum or minimum, or a bound maximum);
+   - a sentence presenting a forecast run as the last, final or latest run issued before a half-hour, when no run is
+     bound. As-of availability wording on the as-of path is exempt.
+
+   The answer is repaired or falls back.
+9. **Bounded safeguards.** The cue detector and the backstop are lexical. They do not cover every unrecognised
+   paraphrase, and are not described as doing so.
+
+**Acceptance check** (offline; written before implementation, and before the paraphrase matrix is read):
+1. **An independent paraphrase matrix,** written before implementation by an agent without access to the parser
+   patterns or the fix code. It is development test material, not Live evidence.
+   - **Each item:** a question, any request fields, and the expected resolution:
+     - **bound,** with the selection, target half-hour, measure and window;
+     - **clarify,** naming the missing field;
+     - **availability as-of;**
+     - **no request.**
+   - **Run three ways** (each passes when every item resolves as expected or ends sent back, never unbound or wrongly
+     bound):
+     - **(a) no model fields:** absent;
+     - **(b) correct scripted model fields:** every "bound" item binds as expected;
+     - **(c) wrong or ungrounded scripted fields:** no wrong binding.
+   - **Reporting:** containment and supply are counted separately. A clarification or fallback is never counted as
+     supplied.
+2. **The 18 check records** (K01–K15 now development data) are replayed with their saved routes, which have no new
+   fields.
+   - **Containment:** no incorrect run or maximum is shown. K06, K07, K09 and K10 end sent back, rejected, repaired or
+     in a fallback.
+   - **Supply, with scripted correct fields:**
+     - K05, K06, K09 and K10 supply the gold result through the existing calculations;
+     - K07 is answered "unavailable";
+     - Z04, Z05 and K11 are unchanged.
+3. **Adversarial controls:**
+   - model fields with unquoted or invented words, an unsupported relationship, or times not in the question;
+   - parser–model disagreement, and equivalent but differently written times (which must agree);
+   - explicit request fields conflicting with the question;
+   - cue phrases in value-at-peak and price contexts;
+   - backstop sentences: an unverified demand extreme, and an unbound "final run".
+4. **Provenance and clarifications:**
+   - every bound field records its source, supporting text and conversion, in the resolution and in the trace;
+   - every clarification names the missing or conflicting field.
+5. **Regression controls:**
+   - values at the price peak (K13 and the earlier "at the peak" questions);
+   - questions naming an issue time (K14, W07, W08) and as-of questions (Y07, W05, W06);
+   - the Y05, Y06, Z04, Z05 and K11 bindings;
+   - I-15's tests;
+   - the gate's decision on every repository question, listed and reviewed;
+   - every saved Live record replayed both ways, with every changed outcome explained;
+   - the Replay evaluation, identical or every change explained;
+   - the safety suite;
+   - lint and mypy.
+6. **No case-specific code. The real ledger is unchanged** (tests use a scratch ledger).
+7. **Unchanged:** historical scores, FAIL verdicts, frozen evaluation material and v1.0. **Live is unverified.**
 
 ### I-3a: F03, a notice time shown without its zone
 
