@@ -44,7 +44,7 @@ from ..timeutil import half_hour_end_for, iso_utc, local_str, parse_iso
 from ..tools import openai_function_tools
 from ..tools.args import strict_json_schema
 from ..tools.impl import NOTICE_TIME_RE
-from . import demand_max
+from . import demand_max, diagnostics
 from .dispatcher import Dispatcher
 from .playbook import PLAYBOOKS
 from .replay import forecast_focus
@@ -778,6 +778,8 @@ def _replayable(item: dict[str, Any]) -> dict[str, Any] | None:
 
 
 # ------------------------------------------------------------------------------------ controller
+# what a trace's cost_usd is: the ledger's accounting at the configured prices, not what the provider bills
+COST_BASIS = "ledger accounting at the configured list prices (cached input at the cached rate); not the billed amount"
 # two runs the question's rule cannot tell apart: the same latest issue time before the half-hour, or two equally near a
 # named issue time (I-16). Neither is chosen.
 TIED_RUNS = ("Two forecast runs fit the run the question asks for equally (the same issue time, or equally near the "
@@ -820,7 +822,8 @@ class LiveController:
             unbilled = isinstance(code, int) and 400 <= code < 500
             budget.settle(rid, 0.0 if unbilled else worst)
             trace.add("model", f"{stage}:error", error=type(exc).__name__, status_code=code,
-                      settled_usd=0.0 if unbilled else worst, duration_ms=round((time.monotonic() - t0) * 1000, 1))
+                      settled_usd=0.0 if unbilled else worst, duration_ms=round((time.monotonic() - t0) * 1000, 1),
+                      **diagnostics.settings(self.model, kwargs, max_out, None))
             raise
         cost = budget.call_cost(self.model, resp.get("usage"))
         budget.settle(rid, cost if cost is not None else worst, resp.get("usage"))
@@ -828,9 +831,13 @@ class LiveController:
         calls = [{"call_id": i.get("call_id"), "name": i.get("name"), "arguments": i.get("arguments")}
                  for i in resp.get("output", []) if i.get("type") == "function_call"]
         trace.add("model", stage, model=self.model, response_id=resp.get("id"), function_calls=calls,
-                  usage=resp.get("usage"), cost_usd=cost, max_output_tokens=max_out,
+                  usage=resp.get("usage"), cost_usd=cost, cost_basis=COST_BASIS, max_output_tokens=max_out,
                   status=resp.get("status"), incomplete=resp.get("incomplete_details"),
-                  duration_ms=round((time.monotonic() - t0) * 1000, 1))
+                  duration_ms=round((time.monotonic() - t0) * 1000, 1),
+                  **diagnostics.settings(self.model, kwargs, max_out, resp))
+        if resp.get("status") not in (None, "completed") or resp.get("incomplete_details"):
+            # described for diagnosis only, never parsed into an answer: the caller still rejects it (``_structured``)
+            trace.add("model", f"{stage}:incomplete_output", **diagnostics.incomplete_output(resp))
         self.transcript.append({"stage": stage, "response_id": resp.get("id"), "function_calls": calls})
         return resp
 

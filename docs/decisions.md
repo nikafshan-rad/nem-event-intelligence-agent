@@ -329,3 +329,29 @@ Each entry: the decision, why, the evidence, and what it costs. Departures from
   cache (run 36357940231), verified against their superseded pins, and stored as `superseded` objects.
 - **Not covered.** The embedding model (Hugging Face, pinned revision) and Python packages (PyPI, pinned versions)
   are still fetched from their services.
+
+## D23. Bounded diagnostics of hosted-model calls (2026-10-03)
+
+- **Problem.** Three of the four routing calls cut off in the Live check of the v12 routing extraction returned 912 to
+  1,168 visible tokens, but a cut-off response's text was never kept, so the cause could not be told. The trace also
+  named only the model requested, not the one that answered, or the reasoning effort applied. Both are needed before
+  comparing models.
+- **Decision** (`agent/diagnostics.py`, called from `LiveController._call`; recorded in the trace only):
+  - **Settings, kept apart.** Each model-call event records `requested` (model, `max_output_tokens`, reasoning effort:
+    "not sent" when the request sends none, so the provider's default applies) and `reported` (the same three as the
+    response gives them; "not reported" when a field is absent). A failed call records `requested` only.
+  - **A response that did not finish** gets a `<stage>:incomplete_output` event: the visible text's length, its first
+    and last 300 characters (never overlapping), the whitespace share, the longest run of one repeated character and
+    of one repeated line, the trailing whitespace, and the JSON field open at the cutoff.
+    - **Cause:** "unknown" unless the visible text establishes it, as "whitespace at the cutoff" or "repetition at the
+      cutoff" (a run reaching the cutoff that covers at least half the text and 200 characters). Token usage alone
+      never sets a cause.
+    - **Open field:** "established" only when the text is a valid JSON prefix that stops inside a value whose key is
+      known; otherwise "uncertain", with the reason.
+  - **Cost basis.** Each model-call event says what its `cost_usd` is: the ledger's accounting at the configured list
+    prices, not the billed amount.
+- **Unchanged.** A response that did not finish is still rejected before parsing (`_structured`, I-14), and nothing
+  recorded here feeds an answer, a resolution or validation. No prompt, schema, cap, budget or validator changes. No
+  request input, instruction or key is recorded: only the response's own visible output, bounded.
+- **Cost.** Trace events grow by a few hundred characters per model call, and by at most about 1 kB per cut-off
+  response.
