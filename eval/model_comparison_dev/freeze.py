@@ -10,11 +10,14 @@ It records:
 - **the blind review order:** the end-to-end slots' anonymous answer IDs, shuffled once here;
 - **the SHA-256 of every protocol file** and of every file the runs read.
 
-Usage: python eval/model_comparison_dev/freeze.py
+Usage: python eval/model_comparison_dev/freeze.py [--code-commit COMMIT]
+
+``--code-commit`` (default HEAD) names the commit whose code is under test; its `src/` tree must be the checkout's.
 """
 
 from __future__ import annotations
 
+import argparse
 import glob
 import hashlib
 import json
@@ -167,12 +170,15 @@ def ledger_fingerprint() -> dict[str, Any]:
 
 
 def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--code-commit", default="HEAD")
+    args = ap.parse_args()
     if os.environ.get("NEM_AGENT_BUDGET_LEDGER"):
         raise SystemExit("unset NEM_AGENT_BUDGET_LEDGER: the freeze records the real ledger")
-    commit = git("rev-parse", "HEAD")
-    src_tree = git("rev-parse", "HEAD:src")
-    if git("status", "--porcelain", "--", "src"):
-        raise SystemExit("the checkout's src/ is modified")
+    commit = git("rev-parse", args.code_commit)
+    src_tree = git("rev-parse", f"{commit}:src")
+    if src_tree != git("rev-parse", "HEAD:src") or git("status", "--porcelain", "--", "src"):
+        raise SystemExit("the checkout's src/ is not the code commit's src/ tree, or is modified")
     plan = slots()
     route, e2e = routing_reservations(), e2e_bounds()
     runs = caps(route, e2e, plan)
@@ -185,8 +191,12 @@ def main() -> int:
     freeze = {
         "protocol": "Development comparison of gpt-5-mini and gpt-6.1-sol (eval/model_comparison_dev/PROTOCOL.md)",
         "frozen_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "code_commit": commit, "code_tree": git("rev-parse", "HEAD^{tree}"), "src_tree": src_tree,
-        "prompts_tree": git("rev-parse", f"HEAD:src/nem_agent/{config.PROMPT_VERSION}"), "prompt_version": config.PROMPT_VERSION,
+        "code_commit": commit, "code_tree": git("rev-parse", f"{commit}^{{tree}}"), "src_tree": src_tree,
+        "prompts_tree": git("rev-parse", f"{commit}:src/nem_agent/{config.PROMPT_VERSION}"),
+        "prompt_version": config.PROMPT_VERSION,
+        "changes_before_any_run": ["2026-10-03, at the owner's request: S1 made absolute (zero H1-H5 violations for "
+                                   "gpt-6.1-sol, automatic and both reviews); comparative safety reported separately; "
+                                   "re-frozen against main 205974b (src/ tree unchanged)"],
         "max_output_tokens": config.MAX_OUTPUT_TOKENS, "max_model_calls": config.MAX_MODEL_CALLS,
         "reasoning_effort_sent": "not sent (each provider default applies)",
         "models": MODELS, "price_sources": SOURCES, "docs_read": DOCS_READ,

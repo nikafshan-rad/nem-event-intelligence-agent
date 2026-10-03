@@ -3457,9 +3457,13 @@ switched. Files are in `eval/model_comparison_dev/`; the pre-registered plan is 
 - **What it is:** one bounded development comparison of the current model with one stronger model the existing API
   workflow supports, on the same code, prompts, token caps, validators, data and cases.
   - Its result can only support **proposing** a frozen switch evaluation on fresh cases (criteria S1–S6).
+  - **S1 is absolute:** zero H1–H5 violations by gpt-6.1-sol, by the automatic checks and both reviews, plus no wrong
+    binding, no X and no critical violation shown. The comparison of the two models' safety is reported separately.
+  - **Disclosed change before any run:** S1 was first frozen as "H2 and H4 no higher than gpt-5-mini's". At the owner's
+    request it was made absolute, and the protocol re-frozen.
   - It is not an L3 evaluation, not evidence of generalisation, and not a switch.
-- **The code under test:** commit `3d6ac1d` (`src/` tree `bc74428`), which is `main` `7e1a2e7` plus the call
-  diagnostics of PR #61, and prompts v12. The runner refuses any other `src/` tree.
+- **The code under test:** `main` `205974b`, the merge of the call diagnostics of PR #61 (`src/` tree `bc74428`, the
+  same as the reviewed head `3d6ac1d`), and prompts v12. The runner refuses any other `src/` tree.
 - **Settings:**
   - **reasoning effort:** not sent, so each provider default applies (medium for both, as documented);
   - **output caps:** routing 2,000, tools 8,000, synthesis 16,000, repair 16,000;
