@@ -18,7 +18,7 @@ from nem_agent.agent import demand_max as DM
 from nem_agent.agent.live import ModelReport, RepairPatch, apply_patch, repair_targets
 from nem_agent.agent.request import InvestigateRequest
 from nem_agent.evaluation.runner import _gold_number_hits
-from nem_agent.report import summary_v1
+from nem_agent.report import InvestigationReport, report_format, summary_v1
 from nem_agent.service import investigate
 from nem_agent.ui_data import result_provenance
 from nem_agent.validation import ValidationResult, Violation, validate
@@ -75,7 +75,7 @@ def _shown_statements(rep) -> list[str]:
 
 # ------------------------------------------------------------------------------------------------ 1. the model's reach
 @pytest.mark.parametrize("key", ["answer", "results", "statement", "limitations", "source_row_ids", "verification",
-                                 "result_id", "server_verification"])
+                                 "result_id", "server_verification", "schema_version"])
 def test_a_model_draft_carrying_answer_or_its_provenance_is_rejected(key):
     draft = _rec("MC-dev-e2e-mini", "K11")["drafts"]["synthesis:draft"]
     ModelReport.model_validate(draft)
@@ -253,3 +253,39 @@ def test_the_replay_evaluation_still_finds_the_computed_maximum_through_observat
     (a,) = rep["answer"]
     gold = [{"metric": "dispatch_totaldemand", "value": 1367.32, "tolerance": 0.005, "source_row_id": a["source_row_ids"][0]}]
     assert _gold_number_hits(rep, res.registry, gold) == [True]
+
+
+# ------------------------------------------------------------------------------------------------ 5. the format
+def test_the_format_is_machine_detectable_and_the_primary_answer_obtainable_in_each():
+    """Format 2 (D25): a report with a separate computed answer says so; format 1 (no marker, or "1"): `summary` holds
+    everything shown, the computed sentence included. A consumer reads the primary answer from `answer` in format 2
+    and from `summary` in format 1, and `summary_v1` reads both the same way."""
+    normal = _replay("MC-dev-e2e-mini", "K11").report
+    fallback = _replay("MC-dev-e2e-mini", "K09").report
+    replay = investigate(InvestigateRequest(question=_rec("L3-holdout-v6", "Z04")["question"], mode="replay"),
+                         write_trace=False).report
+    for rep in (normal, fallback, replay):
+        assert rep.schema_version == "2" and report_format(rep) == "2" and report_format(rep.model_dump()) == "2"
+        assert rep.answer and rep.answer[0].statement not in rep.summary
+    for rep in (_replay("MC-dev-e2e-mini", "K07").report, _replay("live-check-p1-dev", "W18").report):
+        assert rep.schema_version == "1" and rep.answer == [] and summary_v1(rep) == rep.summary
+    # a saved record (pre-D25, written by an exporter that keeps no format marker) is format 1
+    saved = _rec("MC-dev-e2e-mini", "K11")
+    trace = json.loads((LIVE / "MC-dev-e2e-mini" / "traces" / f"{saved['score']['trace_id']}.json").read_text())
+    sentence = next(e for e in trace["events"] if e["name"] == "max_answer")["text"][0]
+    assert "schema_version" not in saved["report"] and report_format(saved["report"]) == "1"
+    assert summary_v1(saved["report"])[0] == sentence  # format 1: the primary answer is in summary
+    assert normal.answer[0].statement == sentence  # format 2: the same answer, in answer
+    assert summary_v1(normal) == summary_v1(saved["report"])
+
+
+def test_a_format_1_report_cannot_carry_a_computed_answer():
+    rep = _replay("MC-dev-e2e-mini", "K11").report
+    d = rep.model_dump(mode="json")
+    assert InvestigationReport.model_validate(d).schema_version == "2"
+    with pytest.raises(ValueError, match="schema_version '2'"):
+        InvestigationReport.model_validate({**d, "schema_version": "1"})
+    kept_none = InvestigationReport.model_validate({**d, "answer": []})  # a fallback that kept none of it
+    assert kept_none.schema_version == "2" and summary_v1(kept_none) == kept_none.summary
+    back = InvestigationReport.model_validate_json(rep.model_dump_json())
+    assert (back.schema_version, back.answer) == ("2", rep.answer)

@@ -25,6 +25,7 @@ def client(real_store):
 def test_a_computed_maximum_is_in_answer_and_not_in_summary(client):
     body = client.post("/investigate", json={"question": Z04}).json()
     raw = body["report"]
+    assert raw["schema_version"] == "2"  # format 2: the computed answer is in answer, summary is the interpretation
     (a,) = raw["answer"]
     assert (a["kind"], a["status"], a["verification"]) == ("demand_maximum", "established", "verified")
     assert a["statement"].startswith("TAS1 dispatch total demand (TOTALDEMAND) was highest at 1367.32 MW")
@@ -41,6 +42,8 @@ def test_a_computed_maximum_is_in_answer_and_not_in_summary(client):
 def test_the_published_schema_documents_answer(client):
     schema = client.get("/schema/report").json()
     assert "answer" in schema["properties"] and "RenderedResult" in json.dumps(schema)
+    assert schema["properties"]["schema_version"]["enum"] == ["1", "2"]
+    assert "summary_v1" in schema["properties"]["schema_version"]["description"]
     assert "interpretation" in schema["properties"]["answer"]["description"]
 
 
@@ -48,4 +51,5 @@ def test_a_question_without_a_computed_maximum_is_unchanged(client, selection):
     ev = selection.primary
     raw = client.post("/investigate",
                       json={"question": f"What happened around the {ev.region} price spike on 2026-07-31?"}).json()["report"]
-    assert raw["answer"] == [] and raw["results"] == [] and summary_v1(raw) == raw["summary"]
+    assert raw["schema_version"] == "1" and raw["answer"] == [] and raw["results"] == []
+    assert summary_v1(raw) == raw["summary"]  # format 1: unchanged

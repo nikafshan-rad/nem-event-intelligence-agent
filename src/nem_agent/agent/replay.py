@@ -295,6 +295,7 @@ class ReplayController:
             "documents": sorted({(c.doc_id, c.url) for c in comp.citations}),
         }
         out = InvestigationReport(
+            schema_version="2" if self._answers else "1",  # D25: format 2 carries the computed answer
             question=res.request.question, mode="replay", intent=res.intent, region=res.region,
             as_of=iso_utc(res.as_of) if res.as_of else None, event_window=ew, headline=headline, summary=summary,
             observations=comp.observations, citations=comp.citations, numeric_claims=comp.claims,

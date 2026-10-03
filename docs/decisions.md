@@ -611,3 +611,30 @@ Acceptance check recorded before implementation. One bounded offline PR; demand 
        labelling issue outside this scope);
      - an untraced number that rounds the unadmitted value ("about 7,500 MW") is not matched in a note;
      - observations may still list the unadmitted row as a tool value.
+- **API contract, made machine-detectable** (PR #66, before merge):
+  - **The discriminator:** `schema_version`. **"2"** marks a report in which the code rendered a separate computed
+    answer: the computed answer is in `answer`, and `summary` holds only the interpretation. **"1"** marks every
+    other report, and every report before D25: `summary` holds everything shown, a computed sentence included.
+    - The controller sets it, never model output: the model's schema has no such field.
+    - A format-1 report cannot carry `answer`; the schema refuses it. A format-2 report may hold an empty `answer`
+      (a fallback that kept none of it); its `summary` is still the interpretation only.
+  - **Reading the primary answer:** in format 2, from `answer` (each statement, with its limitations and source
+    rows); in format 1, from `summary`, as before.
+  - **The adapter:** `report.summary_v1(report)` reads either format as format 1 (in format 2, the computed
+    statements and then the summary; in format 1, the summary). `report.report_format(report)` gives the format, and
+    a record without `schema_version` is format 1.
+  - **Smallest compatible change:** only reports with a computed answer change format; every other report, and every
+    historical record, is format 1 and byte-for-byte unchanged. No historical record or frozen protocol is rewritten.
+  - **The frozen exporters** (`scripts/live_diagnose.py`, `eval/livecheck_i15_17/run_case.py`, frozen by the
+    development comparison) save a fixed set of report fields, which includes neither `schema_version` nor `answer`.
+    - **Existing records:** every saved record is pre-D25, so this is correct for them.
+    - **A future Live run must not use them unchanged:** its records would lose the computed answer and read as format
+      1. A new protocol needs an exporter that keeps both fields. A post-D24 run is also detectable from its trace
+      (the `analytical_result` event).
+- **The precise guarantee of `REQUESTED_RESULT_NOT_VERIFIED`:**
+  - **Blocked:** for a result the verifier did not admit, a statement giving its value as a number whose claim traces
+    to one of the result's own source rows (within the claim's rounding), or as an untraced number equal to its
+    value, in the headline (shown or the model's own), summary, explanations, findings or notes.
+  - **Not semantic containment.** Not matched: an untraced rounding or paraphrase of the value ("about 7,500 MW"),
+    a statement that gives no number, and an observation listing the row as a tool value. These are recorded
+    limitations, not to be closed with phrase rules.

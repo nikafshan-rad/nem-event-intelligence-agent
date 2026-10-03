@@ -842,8 +842,12 @@ def unadmitted_result_violations(report: InvestigationReport, registry: Evidence
     """``REQUESTED_RESULT_NOT_VERIFIED`` (D25): a sentence anywhere (headline, the model's own headline, summary,
     explanations, findings, notes) gives the value of a computed result the runtime verifier did not admit. Matched by
     evidence, not wording: a number whose claim traces to one of the result's own source rows (the value, or a rounding
-    of it), or an untraced number equal to its value. A traced value of another row or measure is not this one, and an
-    observation (a tool value with its source row) is not a statement."""
+    of it within the claim's rounding), or an untraced number equal to its value. A traced value of another row or
+    measure is not this one, and an observation (a tool value with its source row) is not a statement.
+
+    The guarantee is exactly that: those restatements of the value are blocked. It is not semantic containment. An
+    untraced rounding or paraphrase of the value ("about 7,500 MW"), a statement giving no number, or an observation
+    listing the row is not matched."""
     out: list[Violation] = []
     for r in not_admitted:
         value = r.maximum if r.maximum is not None else r.highest_held
