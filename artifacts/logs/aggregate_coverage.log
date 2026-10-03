@@ -60,3 +60,76 @@
 
 ## Replay evaluation: EVAL: PASS on both; identical to main with volatile fields (latencies, versions, timestamps) stripped
 ## Safety suite: SAFETY-SUITE: PASS on both; the summary and the log are identical
+
+## Review before merge: the qualifier exemption. The same controls on the PR's first head 2b10008 and after the fix.
+## Aggregates: K05's MAE (ev0554, 1 of 24 half-hours) and a real gapped MAE (QLD1 2026-07-29T14:00Z to
+## 2026-07-30T14:00Z, 31 of 48 in two runs). Each statement is a summary sentence, with the MAE named and with its value.
+### at 2b10008 (a negation, 'only' or 'incomplete' anywhere in the clauses suspended duration and completeness checks)
+BAD want reject got pass   [named] This MAE covers only a 24-hour window.
+BAD want reject got pass   [valued] This MAE of 10.0 MW covers only a 24-hour window.
+OK  want reject got reject [named] The coverage is not continuous, but the MAE covers all forty-eight half-hours.
+        summary[0]: states “forty-eight half-hours” for the MAE (the gapped MAE), 
+OK  want reject got reject [valued] The coverage is not continuous, but the MAE of 76.9 MW covers all forty-eight half-hours.
+        summary[0]: states “forty-eight half-hours” for the MAE (the gapped MAE), 
+OK  want pass   got pass   [named] The MAE uses only one of the twenty-four half-hours.
+OK  want pass   got pass   [valued] The MAE of 10.0 MW uses only one of the twenty-four half-hours.
+OK  want pass   got pass   [named] This MAE does not cover the full window.
+OK  want pass   got pass   [valued] This MAE of 10.0 MW does not cover the full window.
+BAD want reject got pass   [named] The coverage is not continuous, but the MAE covers the whole window.
+BAD want reject got pass   [valued] The coverage is not continuous, but the MAE of 76.9 MW covers the whole window.
+BAD want reject got pass   [named] Only this MAE is reported, and it covers the whole 12-hour window.
+BAD want reject got pass   [valued] Only this MAE of 10.0 MW is reported, and it covers the whole 12-hour window.
+BAD want reject got pass   [named] The MAE covers an incomplete 24-hour window.
+BAD want reject got pass   [valued] The MAE of 10.0 MW covers an incomplete 24-hour window.
+OK  want pass   got pass   [named] The MAE covers an incomplete 12-hour window.
+OK  want pass   got pass   [valued] The MAE of 10.0 MW covers an incomplete 12-hour window.
+OK  want pass   got pass   [named] The MAE covers only 30 minutes of the 12-hour window.
+OK  want pass   got pass   [valued] The MAE of 10.0 MW covers only 30 minutes of the 12-hour window.
+BAD want pass   got reject [named] The MAE does not use all twenty-four half-hours.
+        summary[0]: states “twenty-four half-hours” for the MAE (ev0554), 
+BAD want pass   got reject [valued] The MAE of 10.0 MW does not use all twenty-four half-hours.
+        summary[0]: states “twenty-four half-hours” for the MAE (ev0554), 
+OK  want pass   got pass   [named] The MAE is not for the 24-hour window.
+OK  want pass   got pass   [valued] The MAE of 10.0 MW is not for the 24-hour window.
+OK  want pass   got pass   [named] The MAE does not cover a continuous period.
+OK  want pass   got pass   [valued] The MAE of 76.9 MW does not cover a continuous period.
+mismatches: 10
+### after the fix (a qualifier affects only the statement it stands before, in its own clause)
+OK  want reject got reject [named] This MAE covers only a 24-hour window.
+        summary[0]: states “24-hour” for the MAE (ev0554), 
+OK  want reject got reject [valued] This MAE of 10.0 MW covers only a 24-hour window.
+        summary[0]: states “24-hour” for the MAE (ev0554), 
+OK  want reject got reject [named] The coverage is not continuous, but the MAE covers all forty-eight half-hours.
+        summary[0]: states “forty-eight half-hours” for the MAE (the gapped MAE), 
+OK  want reject got reject [valued] The coverage is not continuous, but the MAE of 76.9 MW covers all forty-eight half-hours.
+        summary[0]: states “forty-eight half-hours” for the MAE (the gapped MAE), 
+OK  want pass   got pass   [named] The MAE uses only one of the twenty-four half-hours.
+OK  want pass   got pass   [valued] The MAE of 10.0 MW uses only one of the twenty-four half-hours.
+OK  want pass   got pass   [named] This MAE does not cover the full window.
+OK  want pass   got pass   [valued] This MAE of 10.0 MW does not cover the full window.
+OK  want reject got reject [named] The coverage is not continuous, but the MAE covers the whole window.
+        summary[0]: states “covers the whole window” for the MAE (the gapped MAE), 
+OK  want reject got reject [valued] The coverage is not continuous, but the MAE of 76.9 MW covers the whole window.
+        summary[0]: states “covers the whole window” for the MAE (the gapped MAE), 
+OK  want reject got reject [named] Only this MAE is reported, and it covers the whole 12-hour window.
+        summary[0]: states “12-hour” for the MAE (ev0554), 
+OK  want reject got reject [valued] Only this MAE of 10.0 MW is reported, and it covers the whole 12-hour window.
+        summary[0]: states “12-hour” for the MAE (ev0554), 
+OK  want reject got reject [named] The MAE covers an incomplete 24-hour window.
+        summary[0]: states “24-hour” for the MAE (ev0554), 
+OK  want reject got reject [valued] The MAE of 10.0 MW covers an incomplete 24-hour window.
+        summary[0]: states “24-hour” for the MAE (ev0554), 
+OK  want pass   got pass   [named] The MAE covers an incomplete 12-hour window.
+OK  want pass   got pass   [valued] The MAE of 10.0 MW covers an incomplete 12-hour window.
+OK  want pass   got pass   [named] The MAE covers only 30 minutes of the 12-hour window.
+OK  want pass   got pass   [valued] The MAE of 10.0 MW covers only 30 minutes of the 12-hour window.
+OK  want pass   got pass   [named] The MAE does not use all twenty-four half-hours.
+OK  want pass   got pass   [valued] The MAE of 10.0 MW does not use all twenty-four half-hours.
+OK  want pass   got pass   [named] The MAE is not for the 24-hour window.
+OK  want pass   got pass   [valued] The MAE of 10.0 MW is not for the 24-hour window.
+OK  want pass   got pass   [named] The MAE does not cover a continuous period.
+OK  want pass   got pass   [valued] The MAE of 76.9 MW does not cover a continuous period.
+mismatches: 0
+
+## After the fix: saved replays (267, both ways) - the same two record-modes change as at 2b10008 (K05 and Z05), with
+## identical detail; Replay evaluation identical to main (EVAL: PASS); safety suite identical (SAFETY-SUITE: PASS)

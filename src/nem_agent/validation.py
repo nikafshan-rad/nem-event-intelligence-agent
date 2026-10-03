@@ -1160,13 +1160,30 @@ _WINDOW_NOUN_RE = re.compile(rf"^[{_DASHES} ]?(?:\s*(?:target|comparison|analysi
 _AGG_NOUN_RE = re.compile(rf"^[{_DASHES} ]?\s*(?:MAE|mean|average|error|bias)\b", re.I)
 _LEAD_RE = re.compile(rf"^[{_DASHES} ]?\s*(?:ahead|before|earlier|later|lead|in advance|after|prior|old|beforehand)\b",
                       re.I)
-_COMPLETE_RE = re.compile(rf"\b(?:over|across|for|from|covering|covers|covered|spanning|in|throughout|using|of)\s+"
+_COMPLETE_RE = re.compile(rf"\b(?:over|across|for|from|cover|covering|covers|covered|spanning|in|throughout|use|uses|"
+                          rf"used|using|of)\s+"
                           rf"(?:the\s+)?(?:all|every|each|whole|entire|full|complete)\s+(?:of\s+the\s+)?(?:(?:{_NUM})\s+)?"
                           rf"(?:[\w'’{_DASHES}]+\s+){{0,2}}?(?:{_UNITS}|window|day|period|range|horizon|series)\b"
                           r"|\b(?:full|complete)\s+coverage\b|\bfully\s+cover\w*", re.I)
 _CONTINUOUS_RE = re.compile(r"\b(?:continuous(?:ly)?|contiguous|consecutive|unbroken|uninterrupted|back-to-back)\b", re.I)
-_NEGATED_RE = re.compile(r"\b(?:not|no|never|without|only|just|partial(?:ly)?|incomplete|except|missing|lacking|fewer|"
-                         r"less than|rather than|instead of)\b|n't\b", re.I)
+# A qualifier qualifies the statement it stands before, in that statement's own clause (PR #60 review: "only" or a
+# negation anywhere in the clauses switched every duration and completeness check off, so "this MAE covers only a 24-hour
+# window" passed):
+# - a negation there withdraws that statement ("does not cover the full window", "not for the 24-hour window");
+# - "partial" or "incomplete" there makes a duration name the window, not the coverage ("an incomplete 12-hour window");
+# - "only" limits a statement but still makes it ("covers only a 24-hour window" claims 24 hours).
+_LOCAL_NEGATION_RE = re.compile(r"\b(?:not|no|never|without|nor|neither|rather than|instead of|except)\b|n't\b", re.I)
+_LOCAL_PARTIAL_RE = re.compile(r"\b(?:partial(?:ly)?|partly|incomplete(?:ly)?|part of|some of|portion of)\b", re.I)
+_LOCAL_BREAK_RE = re.compile(r"[,;:()]|\b(?:but|while|whereas|although|though|and|or)\b", re.I)
+
+
+def _lead_words(scope: str, start: int, n: int = 5) -> str:
+    """The words just before a statement in its own clause (at most ``n``): what qualifies that statement only."""
+    before = scope[:start]
+    cut = max((m.end() for m in _LOCAL_BREAK_RE.finditer(before)), default=0)
+    return " ".join(re.findall(r"[\w'’-]+", before[cut:])[-n:])
+
+
 # a description of the included set itself: "the paired half-hours", "with published actuals", "public by the cutoff"
 _INCLUDED_SET_RE = re.compile(rf"\b(?:paired|aligned|compared|matched|available|eligible|published|public)\s+"
                               rf"(?:target\s+)?(?:{_UNITS})|\bwith\s+(?:a\s+|both\s+(?:a\s+)?)?(?:pairs?|forecasts?\s+and|"
@@ -1198,23 +1215,21 @@ def _coverage_text(cov: dict[str, Any]) -> str:
 
 
 def _coverage_problem(scope: str, offset: int, cov: dict[str, Any], stated: list[_Stated]) -> str | None:
-    """The first statement in ``scope`` (an aggregate's clauses) that its coverage does not support, quoted, or None."""
+    """The first statement in ``scope`` (an aggregate's clauses) that its coverage does not support, quoted, or None.
+    Each statement is read with its own qualifiers only (``_lead_words``)."""
     inc, exp, mins = cov["intervals_included"], cov["intervals_expected"], cov["interval_minutes"]
     w0, w1 = (parse_iso(t) for t in cov["window_utc"])
     window = round((w1 - w0) / timedelta(minutes=1))
     runs = [(parse_iso(a), parse_iso(b)) for a, b in cov["runs_utc"]]
+
+    def negated(start: int) -> bool:
+        return bool(_LOCAL_NEGATION_RE.search(_lead_words(scope, start)))
     counts = [(m, _count(m.group("n")), _count(m.group("of")) if m.group("of") else None)
-              for m in _COUNT_RE.finditer(scope)]
-    qualified = bool(_INCLUDED_SET_RE.search(scope)) or any(n == inc and of in (None, exp) for _, n, of in counts)
-    for m, n, of in counts:
-        if (of is not None and (n != inc or of != exp)) or \
-                (of is None and n != inc and not (n == exp and (cov["complete"] or qualified))):
-            return m.group(0)
-    if _NEGATED_RE.search(scope):  # "not the whole window", "only 1 of …": no claim of more
-        return None
+              for m in _COUNT_RE.finditer(scope) if not negated(m.start())]
+    durations = []
     for m in _DURATION_RE.finditer(scope):
         before, after = scope[:m.start()], scope[m.end():]
-        if _LEAD_RE.match(after):
+        if _LEAD_RE.match(after) or negated(m.start()):
             continue
         if m.group("day"):
             minutes = 1440
@@ -1223,24 +1238,40 @@ def _coverage_problem(scope: str, offset: int, cov: dict[str, Any], stated: list
         else:
             minutes = round(_count(m.group("n")) * (60 if m.group("unit").lower().startswith("h") else 1))
         lead, noun = bool(_COVER_LEAD_RE.search(before)), bool(_WINDOW_NOUN_RE.match(after))
-        if not (lead or noun or (_AGG_NOUN_RE.match(after) and minutes != mins)):
-            continue  # an interval length ("30-minute pairs", "five-minute prices"), not coverage
-        if (minutes == window and (cov["complete"] or qualified)) or \
-                ((cov["contiguous"] or qualified) and minutes == inc * mins):
+        if lead or noun or (_AGG_NOUN_RE.match(after) and minutes != mins):  # else an interval length ("30-minute pairs")
+            durations.append((m, minutes, bool(_LOCAL_PARTIAL_RE.search(_lead_words(scope, m.start())))))
+    # the included intervals described as such: their count or the included set; their span ("30 minutes of the …")
+    # qualifies the other statements, not itself (a gapped coverage's total is not a continuous period)
+    counted = bool(_INCLUDED_SET_RE.search(scope)) or any(n == inc and of in (None, exp) for _, n, of in counts)
+    spans = [m for m, d, partial in durations if d == inc * mins != window and not partial]
+    qualified = counted or bool(spans)
+    for m, n, of in counts:
+        if (of is not None and (n != inc or of != exp)) or \
+                (of is None and n != inc and not (n == exp and (cov["complete"] or qualified))):
+            return m.group(0)
+    for m, minutes, partial in durations:
+        others = counted or any(x is not m for x in spans)
+        if partial:  # "an incomplete 12-hour window": the window, said to be partly covered
+            if minutes == window:
+                continue
+        elif (minutes == window and (cov["complete"] or others)) or \
+                ((cov["contiguous"] or counted) and minutes == inc * mins):
             continue
         return m.group(0)
     for st in stated:
-        if st.last is None or not offset <= st.start < offset + len(scope):
+        if st.last is None or not offset <= st.start < offset + len(scope) or negated(st.start - offset):
             continue
         lo, hi = sorted((st.first.near(w1), st.last.near(w1)))
         if ((lo, hi) == (w0, w1) and (cov["complete"] or qualified)) or (lo, hi) in runs or \
                 (qualified and w0 <= lo and hi <= w1):
             continue
         return st.label
-    if (whole := _COMPLETE_RE.search(scope)) and not cov["complete"] and not _INCLUDED_SET_RE.search(whole.group(0)):
-        return whole.group(0)
-    if (unbroken := _CONTINUOUS_RE.search(scope)) and not cov["contiguous"]:
-        return unbroken.group(0)
+    for whole in _COMPLETE_RE.finditer(scope):
+        if not cov["complete"] and not negated(whole.start()) and not _INCLUDED_SET_RE.search(whole.group(0)):
+            return whole.group(0)
+    for unbroken in _CONTINUOUS_RE.finditer(scope):
+        if not cov["contiguous"] and not negated(unbroken.start()):
+            return unbroken.group(0)
     return None
 
 
@@ -1262,8 +1293,10 @@ def aggregate_coverage_violations(report: InvestigationReport, registry: Evidenc
         paired half-hours");
       - **completeness** ("all", "every", "the whole", "full") needs every expected interval; **continuity**
         ("continuous", "consecutive") needs no gap.
-    - **Not coverage claims:** lead times ("a day ahead"), an interval length ("30-minute pairs"), negated or limited
-      statements ("not the whole window", "only …"), and durations outside the aggregate's clauses."""
+    - **Not coverage claims:** lead times ("a day ahead"), an interval length ("30-minute pairs"), a statement negated
+      just before it in its own clause ("does not cover the full window"), and durations outside the aggregate's
+      clauses. "Only" limits a statement but does not withdraw it, and "incomplete" or "partial" makes a duration the
+      window's."""
     used = {o.evidence_id for o in report.observations} | {c.evidence_id for c in report.numeric_claims}
     fc = report.forecast_comparison
     used |= {e for e in ((fc.mae_evidence_id, fc.mean_error_evidence_id) if fc else ()) if e}

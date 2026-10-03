@@ -3376,7 +3376,7 @@ rejected, (2) faithful text passes, (3) coverage is recorded correctly.
    - **Live is unverified;** no paid call.
 
 **Result: verified offline; Live unverified** (branch `fix/aggregate-coverage`; evidence in
-`artifacts/logs/aggregate_coverage.log`; tests `tests/provider/test_aggregate_coverage.py`, 42). The three outcomes are
+`artifacts/logs/aggregate_coverage.log`; tests `tests/provider/test_aggregate_coverage.py`, 66 after the review below). The three outcomes are
 reported separately:
 1. **Is the wrong statement rejected? Yes.**
    - **K05,** with its saved draft and actual saved repair: on `main` it passes and is shown, "MAE for the 24-hour target
@@ -3427,6 +3427,37 @@ hours before", an MAE stated with no coverage, a 24-hour horizon stated for a fo
   code, and every other evidence item.
 - **No case-specific code.**
 
+**Review before merge: the qualifier exemption** (offline; `artifacts/logs/aggregate_coverage.log`, last section).
+- **The bypass at the PR's first head (`2b10008`):** "only", a negation, or "incomplete" anywhere in an aggregate's
+  clauses switched off every duration, range, completeness and continuity check in them. Counts were checked, but read
+  no negation at all. Against K05's MAE (1 of 24) and a real gapped MAE (31 of 48), each statement written with the MAE
+  named and with its value, 10 of 24 checks were wrong:
+  - **false statements that passed:**
+    - "This MAE covers only a 24-hour window";
+    - "The coverage is not continuous, but the MAE covers the whole window";
+    - "Only this MAE is reported, and it covers the whole 12-hour window";
+    - "The MAE covers an incomplete 24-hour window" (its window is 12 hours);
+  - **a valid denial that was rejected:** "The MAE does not use all twenty-four half-hours".
+  - "The coverage is not continuous, but the MAE covers all forty-eight half-hours" was already rejected, but only by
+    its count.
+- **Fixed:** a qualifier now affects only the statement it stands before, in that statement's own clause (the five
+  words before it).
+  - **A negation withdraws that statement only:** "does not cover the full window", "not for the 24-hour window", "does
+    not use all twenty-four half-hours".
+  - **"Only" limits a statement but still makes it:** "covers only a 24-hour window" claims 24 hours.
+  - **"Partial" or "incomplete" makes a duration name the window:** "an incomplete 12-hour window" passes and "an
+    incomplete 24-hour window" does not.
+  - **A stated span qualifies the window beside it,** but not itself: "only 30 minutes of the 12-hour window" passes,
+    and a gapped coverage's total ("over 15.5 hours") still needs its count.
+- **After the fix:** 24 of 24 checks are right, and the valid wording passes: "The MAE uses only one of the twenty-four
+  half-hours" and "This MAE does not cover the full window". The checks are now tests (24 more, 66 in the file).
+- **Unchanged after the review:**
+  - K05's rejection and its faithful description;
+  - the saved replays: only K05 and Z05 change, with the same detail;
+  - the Replay evaluation and the safety suite;
+  - Step A's tests, and I-15 to I-18's.
+  - **The full suite** now has 1,642 passed. Ruff and mypy are clean.
+
 **Still open for I-20:**
 - **Lexical reading.** Coverage statements are read from fixed wording:
   - **counts:** digits or number words up to twelve, twenty-four and forty-eight, before an interval noun;
@@ -3434,8 +3465,9 @@ hours before", an MAE stated with no coverage, a 24-hour horizon stated for a fo
   - **completeness:** "all", "every", "whole", "full"; **continuity:** "continuous", "consecutive";
   - **ranges:** two stated times.
 
-  Other wording ("most of the window", "throughout") is not read. A negation or "only" anywhere in the aggregate's
-  clauses suspends the duration and completeness rules.
+  Other wording ("most of the window", "throughout") is not read. A qualifier is read only in the five words before a
+  statement, in its own clause: a negation further away, or worded otherwise ("hardly"), is not seen, and a negated
+  statement is not checked.
 - **Binding.** An aggregate is bound by its traced number, or by its name when the answer uses only one of that kind.
   An unnamed reference ("it covers the whole window") in another sentence is not bound.
 - **Digits.** A faithful count written in digits must still be a registered claim (`NUMERIC_UNTRACKED`, unchanged), so

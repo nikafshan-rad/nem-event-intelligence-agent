@@ -327,3 +327,36 @@ def test_unrelated_durations_and_aggregates_without_a_coverage_claim_are_unaffec
         "run_id": "PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202608061800_20260806173222"})
     assert ev.coverage["intervals_included"] == 1
     assert _codes(reg, ev, text.format(v=ev.value)) == []
+
+
+# ------------------------------------------------------------------------------------------------ qualifiers (PR #60 review)
+# A qualifier qualifies the statement it stands before, not every statement in the aggregate's clauses. At the PR's
+# first head (2b10008) "only", a negation or "incomplete" anywhere there switched every duration and completeness check
+# off: the four "reject" statements below passed, and the negated count was rejected.
+QUALIFIERS = [  # (aggregate: K05's 1 of 24, or the gapped 31 of 48), statement, passes
+    ("k05", "This MAE covers only a 24-hour window.", False),
+    ("gap", "The coverage is not continuous, but the MAE covers all forty-eight half-hours.", False),
+    ("k05", "The MAE uses only one of the twenty-four half-hours.", True),
+    ("k05", "This MAE does not cover the full window.", True),
+    ("gap", "The coverage is not continuous, but the MAE covers the whole window.", False),
+    ("k05", "Only this MAE is reported, and it covers the whole 12-hour window.", False),
+    ("k05", "The MAE covers an incomplete 24-hour window.", False),
+    ("k05", "The MAE covers an incomplete 12-hour window.", True),
+    ("k05", "The MAE covers only 30 minutes of the 12-hour window.", True),
+    ("k05", "The MAE does not use all twenty-four half-hours.", True),
+    ("k05", "The MAE is not for the 24-hour window.", True),
+    ("gap", "The MAE does not cover a continuous period.", True),
+]
+
+
+@pytest.mark.parametrize("which,text,ok", QUALIFIERS)
+@pytest.mark.parametrize("valued", [False, True])
+def test_a_qualifier_affects_only_the_statement_it_qualifies(call, which, text, ok, valued):
+    if which == "k05":
+        res = _replay(_k05(**FAITHFUL))
+        reg, ev = res.registry, res.registry.get("ev0554")
+    else:
+        reg, ev = call("compare_forecast_actual", _cmp("2026-07-29T14:00:00Z", "2026-07-30T14:00:00Z"))
+    if valued:  # the MAE given by its value, as well as named
+        text = text.replace("MAE", f"MAE of {ev.value} MW", 1)
+    assert (_codes(reg, ev, text) == []) is ok
