@@ -235,14 +235,17 @@ def test_number_spans_read_the_same_numbers_as_narrative_numbers_in_every_saved_
 
 
 def test_the_check_runs_on_every_narrative_place():
-    """Headline, summary, hypotheses, published findings and hypothesis tests, as the sentence-wide check."""
+    """Headline, the computed answer (D25), summary, hypotheses, published findings and hypothesis tests, as the
+    sentence-wide check."""
     res, _ = _z03()
     assert "claim_times" in res.report.validation["initial"]["checks_run"]
     s = "Peak 1147.0 MW at 2026-08-06T13:00:00Z."
-    report = SimpleNamespace(**{**_claims((1147.0, AT03)).__dict__, "headline": s, "summary": [s],
+    report = SimpleNamespace(**{**_claims((1147.0, AT03)).__dict__, "headline": s, "summary": [s], "answer": [],
                                 "possible_explanations": [], "published_findings": [], "forecast_comparison": None,
                                 "_model_headline": None})
     assert [w for w, _ in _narratives(report)] == ["headline", "summary[0]"]
+    report.answer = [SimpleNamespace(statement=s)]
+    assert [w for w, _ in _narratives(report)] == ["headline", "answer[0]", "summary[0]"]
 
 
 # ------------------------------------------------------------------------------------------------ interval semantics

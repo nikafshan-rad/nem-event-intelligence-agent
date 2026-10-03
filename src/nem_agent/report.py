@@ -6,6 +6,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
+from .render import RenderedResult
 from .results import ReportedResult
 
 Status = Literal["answered", "answered_with_caveats", "needs_clarification", "abstained", "refused"]
@@ -139,6 +140,12 @@ class InvestigationReport(_M):
     # D24: typed results the code computed (demand maxima), each with the producing server's verification statement at
     # response time; set only by the controller, never by model output, and not trusted when read back from JSON
     # (``results.verify_loaded`` re-derives them from the pinned store). Nothing displays or validates them yet.
+    # D25: the computed answer, rendered by ``render.render_result`` from results the runtime verifier admitted (a result
+    # it did not admit is rendered with no value); set only by the controller, apart from the model's interpretation
+    # (``summary`` and the rest), and validated like every other narrative (``answer[i]``)
+    answer: list[RenderedResult] = Field(default_factory=list, description=(
+        "The computed answer: each computed result rendered deterministically from a verified result, with its "
+        "limitations and source rows; apart from the narrative, which is the interpretation"))
     results: list[ReportedResult] = Field(default_factory=list, description=(
         "Typed analytical results computed by code (analytical_result/1), with the producing server's verification "
         "statement; re-verify against the pinned store before relying on a result read back from JSON"))

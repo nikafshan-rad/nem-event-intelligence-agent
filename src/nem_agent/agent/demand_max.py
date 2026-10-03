@@ -226,39 +226,52 @@ def binding_from_result(r: AnalyticalResult) -> dict[str, Any]:
                   "complete": r.coverage.complete, "excluded_by_as_of": r.coverage.excluded_by_as_of}
 
 
+NOT_VERIFIED = "the computed result could not be verified against the pinned data ({})"
+
+
+def binding_not_verified(r: AnalyticalResult, outcome: str) -> dict[str, Any]:
+    """The binding for a result the verifier did not admit (D25): the unavailable form, with no value, so neither the
+    validator nor the model's context reads a value the verifier did not admit."""
+    _, _, _, metric, minutes, _ = MEASURES[r.identity.measure]
+    out: dict[str, Any] = {"measure": r.identity.measure, "metric": metric, "interval_minutes": minutes,
+                           "window_kind": r.identity.window_kind,
+                           "window_utc": list(r.identity.window_utc) if r.identity.window_utc else None}
+    if r.transient.tool_call_id is not None:
+        out["call_id"] = r.transient.tool_call_id
+    return out | {"unavailable": NOT_VERIFIED.format(outcome)}
+
+
 def compute(d: Dispatcher, res: Resolution, measure: str) -> dict[str, Any]:
     """The measure's maximum over the requested window: the typed result, submitted to the investigation's
-    verified-result registry (``Dispatcher.results``, D24), and returned as today's binding (``binding_from_result``),
-    so everything that reads the binding is unchanged."""
+    verified-result registry (``Dispatcher.results``, D24), and returned as the binding the validator and the model's
+    context read: today's (``binding_from_result``) for an admitted result, else the unavailable form (D25)."""
     r = compute_result(d, res, measure)
-    d.results.submit_in_run(r, store=d.store, selection=d.selection, evidence=d.registry, trace=d.trace)
-    return binding_from_result(r)
+    v = d.results.submit_in_run(r, store=d.store, selection=d.selection, evidence=d.registry, trace=d.trace)
+    return binding_from_result(r) if v.outcome == "verified" else binding_not_verified(r, v.outcome)
 
 
-def sentence(b: dict[str, Any], region: str, num: Callable[[str], str], as_of: datetime | None) -> str:
-    """The controller's statement of a binding. ``num(evidence_id)`` formats a value (and records its claim)."""
-    _, _, _, _, minutes, name = MEASURES[b["measure"]]
+# -- the controller's statement: one wording, from a result (D25) or from a binding (the validator's tests) ------------
+def _text(measure: str, region: str, window_utc: Any, window_kind: str | None, cutoff: bool, *,
+          unavailable: str | None = None, value: str | None = None, ends: Any = (), complete: bool = True) -> str:
+    _, _, _, _, minutes, name = MEASURES[measure]
     length = _LENGTH[minutes]
     subject = f"{region} {name}"
-    if b.get("window_utc"):
-        w0 = parse_iso(b["window_utc"][0])
+    if window_utc:
+        w0 = parse_iso(window_utc[0])
         zone = local_str(w0, region).split(" ")[2]
         span = {"day": f"all of {local_str(w0, region)[:10]} ({zone})",
-                "event": f"the event window, {b['window_utc'][0]} to {b['window_utc'][1]}"}.get(
-                    str(b.get("window_kind")), f"the requested window, {b['window_utc'][0]} to {b['window_utc'][1]}")
+                "event": f"the event window, {window_utc[0]} to {window_utc[1]}"}.get(
+                    str(window_kind), f"the requested window, {window_utc[0]} to {window_utc[1]}")
     else:
         span = "the requested window"
-    if "unavailable" in b:
-        return f"The maximum of {subject} over {span} cannot be given: {b['unavailable']}."
+    if unavailable is not None:
+        return f"The maximum of {subject} over {span} cannot be given: {unavailable}."
 
     def at(t: str) -> str:
         return f"{t} = {re.sub(r' [(]UTC[^)]*[)]', '', local_str(parse_iso(t), region))}"
-    ends = b["interval_ends_utc"]
-    value = num(b["evidence_ids"][0])
-    for e in b["evidence_ids"][1:]:
-        num(e)  # each tied interval is claimed, so each stated time has its evidence
-    if not b["complete"]:
-        held = "held and public by the as-of cutoff" if as_of is not None else "held"
+    ends = list(ends)
+    if not complete:
+        held = "held and public by the as-of cutoff" if cutoff else "held"
         where = f"the {length} ending {at(ends[0])}" if len(ends) == 1 else \
             f"the {length}s ending {', '.join(at(t) for t in ends[:-1])} and {at(ends[-1])}"
         return (f"Not every {length} of {span} is {held}, so the maximum of {subject} over it cannot be established; "
@@ -267,3 +280,36 @@ def sentence(b: dict[str, Any], region: str, num: Callable[[str], str], as_of: d
         return f"{subject[0].upper()}{subject[1:]} was highest at {value} in the {length} ending {at(ends[0])}, over {span}."
     return (f"{subject[0].upper()}{subject[1:]} was highest at {value} in more than one {length}, those ending "
             f"{', '.join(at(t) for t in ends[:-1])} and {at(ends[-1])}, over {span}.")
+
+
+def statement(r: AnalyticalResult, region: str, num: Callable[[str], str]) -> str:
+    """The controller's statement of an admitted result (``render.render_result``). ``num(evidence_id)`` formats a
+    value and records its claim: each tied interval is claimed, so each stated time has its evidence."""
+    i = r.identity
+    if r.status == "unavailable":
+        return _text(i.measure, region, i.window_utc, i.window_kind, i.cutoff_utc is not None, unavailable=r.reason)
+    value = num(r.transient.evidence_ids[0])
+    for e in r.transient.evidence_ids[1:]:
+        num(e)
+    established = r.status == "established"
+    return _text(i.measure, region, i.window_utc, i.window_kind, i.cutoff_utc is not None, value=value,
+                 ends=r.interval_ends_utc if established else r.highest_held_interval_ends_utc, complete=established)
+
+
+def statement_not_verified(identity: ResultIdentity, region: str, outcome: str) -> str:
+    """The statement for a result the verifier did not admit: no value, only why it is not given."""
+    return _text(identity.measure, region, identity.window_utc, identity.window_kind, identity.cutoff_utc is not None,
+                 unavailable=NOT_VERIFIED.format(outcome))
+
+
+def sentence(b: dict[str, Any], region: str, num: Callable[[str], str], as_of: datetime | None) -> str:
+    """The controller's statement of a binding, in the same words as ``statement`` (kept for the validator's tests).
+    ``num(evidence_id)`` formats a value (and records its claim)."""
+    if "unavailable" in b:
+        return _text(b["measure"], region, b.get("window_utc"), b.get("window_kind"), as_of is not None,
+                     unavailable=b["unavailable"])
+    value = num(b["evidence_ids"][0])
+    for e in b["evidence_ids"][1:]:
+        num(e)  # each tied interval is claimed, so each stated time has its evidence
+    return _text(b["measure"], region, b.get("window_utc"), b.get("window_kind"), as_of is not None, value=value,
+                 ends=b["interval_ends_utc"], complete=b["complete"])

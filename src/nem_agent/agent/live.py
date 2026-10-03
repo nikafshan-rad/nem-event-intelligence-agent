@@ -28,6 +28,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, create_model
 from .. import budget, config
 from ..budget import BudgetExceeded
 from ..evidence import EvidenceItem, EvidenceRegistry
+from ..render import RenderedResult, render_result
 from ..report import (
     Citation,
     EventWindow,
@@ -1403,11 +1404,12 @@ class LiveController:
                               "measure's maximum, is not this maximum. If you mention it, claim it with these evidence "
                               "IDs."} for b in res.demand_max]
 
-    def _max_answer(self, res: Resolution) -> tuple[list[str], list[NumericClaim], list[Observation],
+    def _max_answer(self, res: Resolution) -> tuple[list[RenderedResult], list[NumericClaim], list[Observation],
                                                     list[list[NumericClaim]]] | None:
-        """The computed maxima as sentences (``demand_max.sentence``), with a claim and an observation for each value,
-        and each sentence's own claims (one list per binding, in order)."""
-        if not res.demand_max or not res.region:
+        """The computed answer (D25): each computed maximum rendered from the investigation's verified-result registry
+        (``render.render_result``), never from the binding, with a claim and an observation for each value it states,
+        and each answer's own claims (one list per result, in order)."""
+        if not res.demand_max or not res.region or self.d is None:
             return None
         claims: list[NumericClaim] = []
         obs: list[Observation] = []
@@ -1423,13 +1425,13 @@ class LiveController:
                                    source_row_ids=ev.source_row_ids[:12],
                                    evidence_class=ev.evidence_class, label=(ev.label or ev.metric)[:300]))
             return f"{ev.value:.4f}".rstrip("0").rstrip(".") + f" {ev.unit}"
-        lines: list[str] = []
+        answers: list[RenderedResult] = []
         own: list[list[NumericClaim]] = []
-        for b in res.demand_max:
+        for reported in self.d.results.reported():
             k = len(claims)
-            lines.append(demand_max.sentence(b, res.region, num, res.as_of))
+            answers.append(render_result(reported, self.d.results, res.region, num))
             own.append(claims[k:])
-        return lines, claims, obs, own
+        return answers, claims, obs, own
 
     def _cancellation_answer(self, res: Resolution, cited: list[str]) -> str | None:
         """For an event review citing market notices that a later retrieved notice cancelled before the price extreme,
@@ -1544,7 +1546,8 @@ class LiveController:
         summary: list[str] = []
         headline = m.headline if m else "Abstained: the live model did not produce a valid report."
         extra_claims: list[NumericClaim] = []
-        result_lines: list[dict[str, Any]] = []
+        answers: list[RenderedResult] = []
+        answer_claims: list[list[NumericClaim]] = []
         self._summary_origin = []
         not_verbatim: list[str] = []
         resolved: list[dict[str, Any]] = []
@@ -1598,20 +1601,6 @@ class LiveController:
                 self._summary_origin.insert(0, ("controller", 0))
                 if self.d is not None:
                     self.d.trace.add("model", "cancellation_answer", text=status)
-            maxima = self._max_answer(res)
-            if maxima is not None:  # written by the controller from the maximum it computed (I-17)
-                lines, max_claims, max_obs, line_claims = maxima
-                summary[0:0] = lines
-                self._summary_origin[0:0] = [("controller", 0)] * len(lines)
-                # provenance, recorded here as the lines are written (I-21): later lines are only put before these,
-                # so each one's distance from the end of the summary is fixed from now on
-                result_lines = [{"binding": j, "from_end": len(summary) - j, "text": line,
-                                 "claims": [c.model_copy() for c in line_claims[j]]} for j, line in enumerate(lines)]
-                claimed = {(c.evidence_id, c.value) for c in m.numeric_claims}
-                extra_claims += [c for c in max_claims if (c.evidence_id, c.value) not in claimed]
-                obs += [o for o in max_obs if o.evidence_id not in {x.evidence_id for x in obs}]
-                if self.d is not None:
-                    self.d.trace.add("model", "max_answer", text=lines)
             change = self._change_answer(res)
             if change is not None:  # written by the controller from the change it computed; the direct answer
                 line, change_claims, change_obs = change
@@ -1647,6 +1636,16 @@ class LiveController:
                 headline = summary[max(own, key=lambda i: (support(m.headline, summary[i]), -i))]
             if headline != m.headline and self.d is not None:
                 self.d.trace.add("model", "headline_from_answer", text=headline, model_headline=m.headline)
+        # the computed answer (D25): rendered from admitted results only, apart from the summary, whatever the model
+        # did (a failed or missing interpretation does not erase it); its claims trace its numbers
+        rendered = self._max_answer(res)
+        if rendered is not None:
+            answers, max_claims, max_obs, answer_claims = rendered
+            claimed = {(c.evidence_id, c.value) for c in (m.numeric_claims if m else [])}
+            extra_claims += [c for c in max_claims if (c.evidence_id, c.value) not in claimed]
+            obs += [o for o in max_obs if o.evidence_id not in {x.evidence_id for x in obs}]
+            if self.d is not None:
+                self.d.trace.add("model", "max_answer", text=[a.statement for a in answers])
         if not_verbatim and self.d is not None:
             self.d.trace.add("model", "statement_not_verbatim", citation_ids=not_verbatim)
         if resolved and self.d is not None:
@@ -1695,12 +1694,12 @@ class LiveController:
             as_of=iso_utc(res.as_of) if res.as_of else None, event_window=ew,
             headline=headline,
             summary=summary, observations=obs, search_scope=scope,
-            numeric_claims=[NumericClaim(**c.model_dump()) for c in m.numeric_claims] + extra_claims if m else [],
+            numeric_claims=([NumericClaim(**c.model_dump()) for c in m.numeric_claims] if m else []) + extra_claims,
             possible_explanations=[Hypothesis(statement=h.statement, supporting_evidence_ids=h.supporting_evidence_ids,
                                               what_would_test_it=h.what_would_test_it) for h in m.possible_explanations] if m else [],
             published_findings=findings,
             citations=cites, uncertainties=m.uncertainties if m else [], forecast_comparison=fcomp,
-            missing_evidence=missing_evidence, results=self.d.results.reported() if self.d else [],
+            missing_evidence=missing_evidence, results=self.d.results.reported() if self.d else [], answer=answers,
             source_manifest={"data_version": self.versions.data, "corpus_version": self.versions.corpus,
                              "model": self.model, "usage": self.usage.as_dict(), "transcript": self.transcript},
             status=status if status != "needs_clarification" else "needs_clarification",
@@ -1708,8 +1707,8 @@ class LiveController:
             generator=f"live-model:{self.model}")
         report._model_headline = m.headline if m is not None and m.headline != headline else None
         report._provenance = {
-            "result_lines": [{"binding": r["binding"], "summary_index": len(summary) - r["from_end"], "text": r["text"],
-                              "claims": r["claims"]} for r in result_lines],
+            # the controller's own claims for each rendered answer, recorded as it rendered them (the fallback keeps them)
+            "answer_claims": [[c.model_copy() for c in cs] for cs in answer_claims],
             # every uncertainty here is the model's; the code writes only missing-evidence items
             "controller_notes": {"uncertainties": [], "missing_evidence": [i for i, c in enumerate(by_code) if c]}}
         return report

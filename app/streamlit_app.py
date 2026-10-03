@@ -128,6 +128,19 @@ if rep["mode"] == "live":
     lc[3].metric("Cost (USD)", "-" if prov["cost_usd"] is None else f"{prov['cost_usd']:.4f}")
     st.caption(f"generator `{prov['generator']}` · prompts `{prov['prompt']}` · cost: {prov['cost_note']}")
 st.subheader(md(rep["headline"]))
+# D25: the computed answer, rendered by code from verified results, shown apart from the narrative
+if rep.get("answer"):
+    st.markdown("**Computed answer** (computed by code from the pinned data; a value is shown only when its result "
+                "was verified)")
+    for a in rep["answer"]:
+        st.markdown(md(f"- {a['statement']}"))
+        for lim in a["limitations"]:
+            st.caption(md(lim))
+        if a["source_row_ids"]:
+            st.caption("source rows: " + ", ".join(f"`{r}`" for r in a["source_row_ids"]))
+    if rep["summary"]:
+        st.markdown("**Interpretation** (written by the model and checked by the independent validator)"
+                    if rep["mode"] == "live" else "**Narrative** (scripted controller)")
 for s in rep["summary"]:
     st.markdown(md(f"- {s}"))
 
