@@ -56,9 +56,9 @@ from .request import (
     asks_if_notice_event_caused,
     named_instants,
     requested_forecast,
-    requested_maxima,
     requested_measures,
 )
+from .structured import RoutedRequest
 
 CONTROLLER = "live-responses-controller/1"
 # Retrieved text is capped at config.MAX_RETRIEVED_CHARS (12k) plus ~0.6k metadata per result; 20k keeps a full
@@ -226,6 +226,26 @@ class RouteDecision(_S):
         description="why clarification is needed; null when needs_clarification is false")
     clarification: str | None
     out_of_scope: bool
+    # the forecast run and demand maximum the question asks for, with the question's own words for each (I-18);
+    # absent in routes recorded before prompts v12: "not reported", never "no requirement"
+    requested: RoutedRequest | None = None
+
+
+def checked_route(dec: RouteDecision) -> RouteDecision:
+    """A routing decision with an unparsable event date sent back and an unparsable as-of cutoff dropped."""
+    if dec.event_date:
+        try:
+            date.fromisoformat(dec.event_date)
+        except ValueError:
+            return dec.model_copy(update={"event_date": None, "needs_clarification": True,
+                                          "clarification_reason": "missing_region_or_date",
+                                          "clarification": "The event date could not be parsed."})
+    if dec.as_of_utc:
+        try:
+            parse_iso(dec.as_of_utc)
+        except ValueError:
+            return dec.model_copy(update={"as_of_utc": None})
+    return dec
 
 
 EVIDENCE_ID_NOTE = "an evidence_id (ev + 4 digits) from a tool result; never a chunk_id or citation_id"
@@ -689,6 +709,14 @@ REPAIR_HINTS = {
                              "two notices must be supported by each of them. In an event or forecast review, delete "
                              "a summary sentence that describes market notices: published_findings already shows "
                              "each notice verbatim.",
+    "DEMAND_EXTREME_UNVERIFIED": "Do not call a demand value a peak, maximum, minimum or the highest or lowest unless a "
+                                 "tool or the controller computed it as that extreme (get_actual_demand's max, or the "
+                                 "requested demand maximum computed by the controller). Otherwise state the value at "
+                                 "its interval without the superlative, or delete the sentence.",
+    "RUN_SELECTION_UNVERIFIED": "Do not present a forecast run as the final, last or latest one issued before a "
+                                "half-hour: no such run was looked up. Name the run by its issue time or by how the "
+                                "tool selected it (for example, the latest run available before the half-hour), or "
+                                "delete the sentence.",
 }
 
 
@@ -831,19 +859,7 @@ class LiveController:
         if dec is None:
             return None
         assert isinstance(dec, RouteDecision)
-        if dec.event_date:
-            try:
-                date.fromisoformat(dec.event_date)
-            except ValueError:
-                return dec.model_copy(update={"event_date": None, "needs_clarification": True,
-                                              "clarification_reason": "missing_region_or_date",
-                                              "clarification": "The event date could not be parsed."})
-        if dec.as_of_utc:
-            try:
-                parse_iso(dec.as_of_utc)
-            except ValueError:
-                return dec.model_copy(update={"as_of_utc": None})
-        return dec
+        return checked_route(dec)
 
     # -- 2 + 3. tools and synthesis -----------------------------------------------------------------------------
     def run(self, res: Resolution) -> InvestigationReport:
@@ -872,7 +888,9 @@ class LiveController:
         measures = requested_measures(res.request.question)
         if measures:  # say which tool field holds each measure the question names (held-out H02, H03, H14)
             context["requested_measures"] = measures
-        wanted = requested_forecast(res.request.question)
+        # the run a bound request names (I-18); a resolution built elsewhere (tests) falls back to the question parser
+        wanted = res.requests.forecast_run.forecast_request() if res.requests is not None else \
+            requested_forecast(res.request.question)
         if wanted is not None and res.region and self.d is not None:
             context["requested_forecast_run"] = self._requested_run(res, wanted)
         if res.window and res.region and res.intent in ("forecast_review", "market_event_review"):
@@ -1366,7 +1384,7 @@ class LiveController:
         the price peak and operational demand's maximum, not TOTALDEMAND's maximum). Recorded for the validator."""
         if self.d is None or res.intent not in ("market_event_review", "forecast_review") or not res.region:
             return None
-        measures = [m for m in requested_maxima(res.request.question) if m in demand_max.MEASURES]
+        measures = demand_max.requested_measures(res)
         if not measures:
             return None
         res.demand_max = [demand_max.compute(self.d, res, m) for m in measures]

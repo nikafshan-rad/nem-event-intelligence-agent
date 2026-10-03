@@ -289,6 +289,9 @@ def test_the_runner_refuses_overrides_a_moved_ledger_and_a_missing_key(monkeypat
         monkeypatch.delenv(k, raising=False)
     assert "override" in (RUN.refusal(frozen) or "")  # the tests' own scratch ledger is an override
     monkeypatch.setattr(RUN, "OVERRIDES", RUN.OVERRIDES[1:])  # the scratch ledger stays set throughout
+    # prompts v12 (I-18): the frozen runner refuses the current prompts; the other checks run under the frozen ones
+    assert RUN.refusal(frozen) == "the prompt version differs"
+    monkeypatch.setattr(RUN.config, "PROMPT_VERSION", FREEZE["prompt_version"])
     assert RUN.refusal(frozen) is None
     for k in ("NEM_AGENT_TOTAL_BUDGET_USD", "NEM_AGENT_PRICE_OUTPUT_PER_MTOK", "NEM_AGENT_MODEL"):
         monkeypatch.setenv(k, "1")

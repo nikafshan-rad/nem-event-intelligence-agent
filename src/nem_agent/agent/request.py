@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta, timezone
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -68,6 +68,9 @@ class Resolution:
     # each demand measure's maximum the question asks for, as the controller computed it (I-17); the validator holds
     # the answer to it
     demand_max: list[dict[str, object]] | None = None
+    # the forecast-run and demand-maximum requests as resolved, with provenance (``structured.RequestResolution``,
+    # I-18); None only for a resolution built elsewhere (tests)
+    requests: Any = None
 
 
 def extract_regions(text: str) -> list[str]:
@@ -503,7 +506,20 @@ def _event_for(sel: Selection, region: str, day: date) -> EventSelection | None:
     return None
 
 
-def resolve(req: InvestigateRequest, sel: Selection) -> Resolution:
+def resolve(req: InvestigateRequest, sel: Selection, routed: Any = None,
+            given: InvestigateRequest | None = None) -> Resolution:
+    """``routed``: the routing model's structured reading of the request (``structured.RoutedRequest``), or None when
+    it reported none (Replay mode, a route without the field). None is "not reported", never "no requirement".
+    ``given``: the request as the user gave it, when ``req`` also carries the routing model's values (Live); only the
+    user's own fields are request fields whose conflict with the question's wording is noted."""
+    from .structured import (
+        RequestResolution,
+        clarifications,
+        request_field_notes,
+        resolve_maximum,
+        resolve_run,
+    )
+
     q = req.question
     if NON_NEM.search(q):
         return Resolution(req, None, None, None, None, None, status="refused",
@@ -543,11 +559,20 @@ def resolve(req: InvestigateRequest, sel: Selection) -> Resolution:
         else:
             window = local_day_window(day, region)
     as_of = parse_iso(req.as_of_utc) if req.as_of_utc else extract_as_of(q, region, day)
+    # the forecast run and the demand maximum the question asks for: from the request, the question parsers and the
+    # routing model's grounded reading, with provenance; a detected request that is not bound is sent back (I-18)
+    data_intent = intent in ("market_event_review", "forecast_review")
+    requests = RequestResolution(routed="reported" if routed is not None else "not reported")
+    if data_intent:
+        requests.forecast_run = resolve_run(q, region, routed)
     target = None
     if intent == "forecast_review" and region:
         # the half-hour asked about is the target; an as-of cutoff only says what was public (I-10). An explicit date or
-        # ISO time names the target; a clock-only half-hour is dated by the cutoff only when that is safe
+        # ISO time names the target; a clock-only half-hour is dated by the cutoff only when that is safe. A bound
+        # forecast-run request names it too (I-18)
         target = half_hour_asked(q)
+        if target is None and requests.forecast_run.status == "bound" and requests.forecast_run.half_hour:
+            target = requests.forecast_run.half_hour
         if target is None and not dates and as_of is not None:
             target = half_hour_after_cutoff(q, as_of)
             if target is not None:
@@ -564,23 +589,13 @@ def resolve(req: InvestigateRequest, sel: Selection) -> Resolution:
         if window is None and not dates and as_of is not None:
             reasons.append("Which date is the half-hour (or period) asked about? The as-of cutoff says what was public "
                            "by then, not which day the forecast is for.")
-    wanted = requested_forecast(q) if intent == "forecast_review" else None
-    if wanted is not None and wanted.run == "last_issued_before" and wanted.half_hour is None:
-        # the run is named relative to a half-hour that is not pinned down: no run can be chosen without a guess, and
-        # any run the answer used would stand in for the one asked for (held-out v6 Z05, I-16)
-        reasons.append(HALF_HOUR_CLARIFICATION)
-    maxima = requested_maxima(q) if intent in ("market_event_review", "forecast_review") else []
-    if maxima == ["demand"]:
-        # a demand peak without its measure: total demand and operational demand peak differently, so it is sent back
-        # rather than guessed (I-17)
-        reasons.append(MAXIMUM_CLARIFICATION)
-    elif maxima:
-        # a maximum over a window that is not given: never the whole day in its place (I-17 review)
-        window_kind = maximum_window_kind(q, req)
-        if window_kind == "unresolved":
-            reasons.append(MAXIMUM_WINDOW_CLARIFICATION)
-        elif window_kind == "event" and event is None:
-            reasons.append(MAXIMUM_EVENT_CLARIFICATION)
+    if data_intent:
+        requests.maximum = resolve_maximum(q, req, region, day, event, routed)
+        requests.notes = request_field_notes(q, given or req, region, day, requests.maximum)
+        # a run named relative to a half-hour that is not pinned down (held-out v6 Z05, I-16), a demand peak without
+        # its measure, or over a window that is not given (I-17), and any other detected request that is not bound
+        # (I-18): sent back, naming what is missing, rather than guessed
+        reasons += clarifications(requests)
     needs_data = intent in ("market_event_review", "forecast_review")
     if needs_data and region is None and not reasons:
         reasons.append("Which NEM region (NSW1, QLD1, SA1, TAS1 or VIC1)?")
@@ -593,4 +608,5 @@ def resolve(req: InvestigateRequest, sel: Selection) -> Resolution:
         status, reasons = "ok", []
     return Resolution(req, intent, region, event, window, as_of, kind=kind, status=status, reasons=reasons,
                       routing={**diag, "regions_found": regions, "dates_found": [str(d) for d in dates],
-                               "region_tz": REGION_TZ.get(region or "", None)}, target=target)
+                               "region_tz": REGION_TZ.get(region or "", None), "requests": requests.as_dict()},
+                      target=target, requests=requests)

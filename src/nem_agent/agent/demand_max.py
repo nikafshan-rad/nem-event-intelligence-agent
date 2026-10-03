@@ -17,7 +17,7 @@ from typing import Any
 
 from ..timeutil import iso_utc, local_day_window, local_str, parse_iso
 from .dispatcher import Dispatcher
-from .request import Resolution, maximum_window_kind
+from .request import Resolution, maximum_window_kind, requested_maxima
 
 # measure -> (tool, value field, evidence-ID field, registered metric, interval minutes, name in an answer)
 MEASURES: dict[str, tuple[str, str, str, str, int, str]] = {
@@ -43,11 +43,23 @@ def max_claim_re(measure: str) -> re.Pattern[str]:
         rf"|\b{_MAX_WORD}\s+{_QUALIFIER}{m}|\b{m}\s+(?:peak|maximum|max)\b(?!\s+(?:price|interval))", re.I)
 
 
+def requested_measures(res: Resolution) -> list[str]:
+    """The measures whose maximum is asked for and bound (I-18: from the request, the question parser or the routing
+    model's grounded reading). A resolution built elsewhere (tests) falls back to the question parser."""
+    if res.requests is not None:
+        mx = res.requests.maximum
+        return [m for m in mx.measures if m in MEASURES] if mx.status == "bound" else []
+    return [m for m in requested_maxima(res.request.question) if m in MEASURES]
+
+
 def requested_window(res: Resolution) -> tuple[str, tuple[datetime, datetime] | None]:
     """The window a maximum is asked over, and how it is given (``request.maximum_window_kind``): exactly the request's
     explicit window; the event's window, from the event the resolution holds; or the whole local day of the question's
     one date in the region's time. Never the whole day in place of a window the question narrows or does not give
-    (I-17 review): None then, and ``resolve`` has sent the question back."""
+    (I-17 review): None then, and ``resolve`` has sent the question back. A bound request's window (I-18) is used as
+    resolved."""
+    if res.requests is not None and res.requests.maximum.status == "bound" and res.requests.maximum.window:
+        return str(res.requests.maximum.window_kind), res.requests.maximum.window
     req = res.request
     kind = maximum_window_kind(req.question, req)
     if kind == "explicit" and req.window_start_utc and req.window_end_utc:
