@@ -1700,7 +1700,7 @@ class LiveController:
                                               what_would_test_it=h.what_would_test_it) for h in m.possible_explanations] if m else [],
             published_findings=findings,
             citations=cites, uncertainties=m.uncertainties if m else [], forecast_comparison=fcomp,
-            missing_evidence=missing_evidence,
+            missing_evidence=missing_evidence, results=self.d.results.reported() if self.d else [],
             source_manifest={"data_version": self.versions.data, "corpus_version": self.versions.corpus,
                              "model": self.model, "usage": self.usage.as_dict(), "transcript": self.transcript},
             status=status if status != "needs_clarification" else "needs_clarification",

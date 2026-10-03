@@ -6,6 +6,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
+from .results import ReportedResult
+
 Status = Literal["answered", "answered_with_caveats", "needs_clarification", "abstained", "refused"]
 Mode = Literal["replay", "live"]
 
@@ -134,6 +136,12 @@ class InvestigationReport(_M):
     versions: Versions
     generator: str = Field(description="'scripted-replay-controller' or 'live-model:<model id>'")
     validation: dict[str, Any] = Field(default_factory=dict)
+    # D24: typed results the code computed (demand maxima), each with the producing server's verification statement at
+    # response time; set only by the controller, never by model output, and not trusted when read back from JSON
+    # (``results.verify_loaded`` re-derives them from the pinned store). Nothing displays or validates them yet.
+    results: list[ReportedResult] = Field(default_factory=list, description=(
+        "Typed analytical results computed by code (analytical_result/1), with the producing server's verification "
+        "statement; re-verify against the pinned store before relying on a result read back from JSON"))
     # The model's own headline when the controller shows another (Live, I-3c): validated like the shown headline, so
     # replacing it hides nothing the validator would act on, and never serialised or shown.
     _model_headline: str | None = PrivateAttr(default=None)

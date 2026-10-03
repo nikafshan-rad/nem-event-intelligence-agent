@@ -13,11 +13,25 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 from datetime import date, datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+from ..results import (
+    AnalyticalResult,
+    Coverage,
+    Limitation,
+    ResultIdentity,
+    Transient,
+    make_result,
+    request_digest,
+)
 from ..timeutil import iso_utc, local_day_window, local_str, parse_iso
 from .dispatcher import Dispatcher
 from .request import Resolution, maximum_window_kind, requested_maxima
+
+if TYPE_CHECKING:
+    from ..evidence import EvidenceRegistry
+    from ..selection import Selection
+    from ..store import Store
 
 # measure -> (tool, value field, evidence-ID field, registered metric, interval minutes, name in an answer)
 MEASURES: dict[str, tuple[str, str, str, str, int, str]] = {
@@ -72,35 +86,153 @@ def requested_window(res: Resolution) -> tuple[str, tuple[datetime, datetime] | 
     return kind, None
 
 
-def compute(d: Dispatcher, res: Resolution, measure: str) -> dict[str, Any]:
-    """The measure's maximum over the requested window, from the controller's own tool call (under the request's as-of
-    cutoff). The binding: the window, the maximum's value and evidence IDs (each tied interval), whether every
-    interval of the window is held, or why none can be given."""
-    tool, field, eid_field, metric, minutes, _ = MEASURES[measure]
+# -- the typed result (D24) and today's binding, derived from it --------------------------------------------------------
+CALCULATION_VERSION = "demand_max/1"  # change it whenever the calculation below changes
+_RUNTIME_ONLY = ("blocked", "error")  # call statuses the dispatcher sets at run time; a tool alone never returns them
+_DEFINITION = {"total demand": ("MEASURE_DEFINITION", "Dispatch total demand (TOTALDEMAND) is a 5-minute dispatch "
+                                "quantity, not operational demand."),
+               "operational demand": ("MEASURE_DEFINITION", "Operational demand is the half-hour measure, not dispatch "
+                                      "total demand (TOTALDEMAND).")}
+
+
+def result_identity(res: Resolution, measure: str, data_version: str) -> ResultIdentity:
+    """Everything the result is a function of: the request, measure, region, window, cutoff, calculation and data."""
     kind, window = requested_window(res)
-    out: dict[str, Any] = {"measure": measure, "metric": metric, "interval_minutes": minutes, "window_kind": kind,
-                           "window_utc": [iso_utc(window[0]), iso_utc(window[1])] if window else None}
-    if window is None or res.region is None:
-        return out | {"unavailable": "the window is not pinned down"}
-    w0, w1 = window
-    rec = d.call(tool, {"region": res.region, "start_utc": iso_utc(w0), "end_utc": iso_utc(w1),
-                        "as_of_utc": iso_utc(res.as_of) if res.as_of else None},
-                 call_id=f"controller_requested_max_{metric}", origin="controller")
-    out["call_id"] = rec.call_id
-    if rec.status != "ok":
-        return out | {"unavailable": f"the controller's {tool} call returned {rec.status}"
-                                     + (f" ({rec.blocked_reason})" if rec.blocked_reason else "")}
-    series = [x for x in (rec.data or {}).get("series", []) if x.get(field) is not None and x.get(eid_field)
+    return ResultIdentity(
+        request_digest=request_digest(res.request), kind="demand_maximum", measure=measure, region=res.region,
+        window_utc=(iso_utc(window[0]), iso_utc(window[1])) if window else None, window_kind=kind,
+        cutoff_utc=iso_utc(res.as_of) if res.as_of else None, calculation_version=CALCULATION_VERSION,
+        data_version=data_version)
+
+
+def _limitations(identity: ResultIdentity, status: str, excluded: int) -> tuple[Limitation, ...]:
+    """Deterministic limitations of a result: what it was computed from, and what it cannot say."""
+    out = [Limitation(code="PINNED_DATA", text=f"Computed from the values held in the pinned data snapshot "
+                                                f"{identity.data_version} for the requested window; it is only as "
+                                                "complete and accurate as that data.")]
+    out.append(Limitation(code=_DEFINITION[identity.measure][0], text=_DEFINITION[identity.measure][1]))
+    if identity.cutoff_utc is not None:
+        out.append(Limitation(code="AS_OF_CUTOFF", text=f"Only intervals provably public by {identity.cutoff_utc} are "
+                                                        f"used; {excluded} interval(s) of the window were excluded by it."))
+    if status == "not_established":
+        out.append(Limitation(code="INCOMPLETE_WINDOW", text="Not every interval of the window is held, so no maximum "
+                                                             "is established; the highest value held is not a maximum."))
+    return tuple(out)
+
+
+def _unavailable(identity: ResultIdentity, reason: str, call_id: str | None) -> AnalyticalResult:
+    metric = MEASURES[identity.measure][3]
+    return make_result(identity, status="unavailable", reason=reason, metric=metric,
+                       limitations=_limitations(identity, "unavailable", 0),
+                       transient=Transient(evidence_ids=(), tool_call_id=call_id))
+
+
+def result_from_output(identity: ResultIdentity, status: str, data: dict[str, Any] | None, view: dict[str, Any] | None,
+                       registry: EvidenceRegistry, call_id: str | None,
+                       blocked_reason: str | None = None) -> AnalyticalResult:
+    """The result of one call of the measure's tool over the identity's window: its maximum (every tied interval kept)
+    when every interval is held, else the highest value held apart, else why there is no value."""
+    tool, field, eid_field, metric, minutes, _ = MEASURES[identity.measure]
+    if status != "ok":
+        return _unavailable(identity, f"the controller's {tool} call returned {status}"
+                            + (f" ({blocked_reason})" if blocked_reason else ""), call_id)
+    assert identity.window_utc is not None
+    w0, w1 = parse_iso(identity.window_utc[0]), parse_iso(identity.window_utc[1])
+    series = [x for x in (data or {}).get("series", []) if x.get(field) is not None and x.get(eid_field)
               and w0 < parse_iso(x["interval_end_utc"]) <= w1]
     if not series:
-        return out | {"unavailable": "no value of the measure is held for the window"}
+        return _unavailable(identity, "no value of the measure is held for the window", call_id)
     top = max(float(x[field]) for x in series)
     tied = [x for x in series if float(x[field]) == top]
     expected = round((w1 - w0) / timedelta(minutes=minutes))
-    return out | {"value": top, "evidence_ids": [x[eid_field] for x in tied],
-                  "interval_ends_utc": [x["interval_end_utc"] for x in tied], "intervals_held": len(series),
-                  "intervals_in_window": expected, "complete": len(series) >= expected,
-                  "excluded_by_as_of": int((rec.view or {}).get("excluded_not_yet_available_at_as_of") or 0)}
+    excluded = int((view or {}).get("excluded_not_yet_available_at_as_of") or 0)
+    complete = len(series) >= expected
+    eids = tuple(x[eid_field] for x in tied)
+    ends = tuple(x["interval_end_utc"] for x in tied)
+    evs = [registry.get(e) for e in eids]
+    rows = tuple(r for ev in evs if ev is not None for r in ev.source_row_ids)
+    status_ = "established" if complete else "not_established"
+    return make_result(
+        identity, status=status_, reason=None if complete else "not every interval of the window is held",
+        metric=metric, unit=next((ev.unit for ev in evs if ev is not None), None),
+        **({"maximum": top, "interval_ends_utc": ends} if complete else
+           {"highest_held": top, "highest_held_interval_ends_utc": ends}),
+        coverage=Coverage(interval_minutes=minutes, intervals_in_window=expected, intervals_held=len(series),
+                          complete=complete, excluded_by_as_of=excluded),
+        source_row_ids=rows, limitations=_limitations(identity, status_, excluded),
+        transient=Transient(evidence_ids=eids, tool_call_id=call_id))
+
+
+def compute_result(d: Dispatcher, res: Resolution, measure: str) -> AnalyticalResult:
+    """The measure's maximum over the requested window, from the controller's own tool call (under the request's as-of
+    cutoff), as a typed result."""
+    tool, _, _, metric, _, _ = MEASURES[measure]
+    identity = result_identity(res, measure, d.store.data_version)
+    if identity.window_utc is None or res.region is None:
+        return _unavailable(identity, "the window is not pinned down", None)
+    rec = d.call(tool, {"region": res.region, "start_utc": identity.window_utc[0], "end_utc": identity.window_utc[1],
+                        "as_of_utc": identity.cutoff_utc},
+                 call_id=f"controller_requested_max_{metric}", origin="controller")
+    return result_from_output(identity, rec.status, rec.data, rec.view, d.registry, rec.call_id, rec.blocked_reason)
+
+
+def rederive(identity: ResultIdentity, store: Store, selection: Selection) -> AnalyticalResult:
+    """The same result computed again from the pinned store, with the same tool code, outside any investigation (its
+    in-run references are this computation's own). Used by the verifier (``results``)."""
+    from ..evidence import EvidenceRegistry as _Registry
+    from ..tools import CONTROLLER_TOOLS, TOOLS
+    from ..tools.impl import ToolContext
+
+    tool = MEASURES[identity.measure][0]
+    if identity.window_utc is None or identity.region is None:
+        return _unavailable(identity, "the window is not pinned down", None)
+    spec = TOOLS.get(tool) or CONTROLLER_TOOLS[tool]
+    reg = _Registry()
+    cutoff = parse_iso(identity.cutoff_utc) if identity.cutoff_utc else None
+    args = spec.args_model.model_validate({"region": identity.region, "start_utc": identity.window_utc[0],
+                                           "end_utc": identity.window_utc[1], "as_of_utc": identity.cutoff_utc})
+    out = spec.handler(ToolContext(store=store, selection=selection, registry=reg, call_id="rederive",
+                                   request_as_of=cutoff), args)
+    return result_from_output(identity, out.status, out.data, out.view, reg, "rederive")
+
+
+def not_rederivable(r: AnalyticalResult) -> str | None:
+    """Why a result cannot be re-derived from the store at all: an unavailable result caused by a run-time call status
+    (a policy block, a tool error) that a tool alone never returns."""
+    if r.status == "unavailable" and any(re.search(rf"call returned {s}\b", r.reason or "") for s in _RUNTIME_ONLY):
+        return "a run-time call status (a policy block or a tool error) cannot be re-derived from the store"
+    return None
+
+
+def binding_from_result(r: AnalyticalResult) -> dict[str, Any]:
+    """Today's binding dict (I-17), exactly as the validator, the controller's sentence and the fallback read it: the
+    compatibility adapter. An incomplete window's highest value held is the binding's ``value``, with ``complete``
+    false, as before."""
+    _, _, _, metric, minutes, _ = MEASURES[r.identity.measure]
+    out: dict[str, Any] = {"measure": r.identity.measure, "metric": metric, "interval_minutes": minutes,
+                           "window_kind": r.identity.window_kind,
+                           "window_utc": list(r.identity.window_utc) if r.identity.window_utc else None}
+    if r.transient.tool_call_id is None:
+        return out | {"unavailable": r.reason}
+    out["call_id"] = r.transient.tool_call_id
+    if r.status == "unavailable":
+        return out | {"unavailable": r.reason}
+    assert r.coverage is not None
+    established = r.status == "established"
+    return out | {"value": r.maximum if established else r.highest_held,
+                  "evidence_ids": list(r.transient.evidence_ids),
+                  "interval_ends_utc": list(r.interval_ends_utc if established else r.highest_held_interval_ends_utc),
+                  "intervals_held": r.coverage.intervals_held, "intervals_in_window": r.coverage.intervals_in_window,
+                  "complete": r.coverage.complete, "excluded_by_as_of": r.coverage.excluded_by_as_of}
+
+
+def compute(d: Dispatcher, res: Resolution, measure: str) -> dict[str, Any]:
+    """The measure's maximum over the requested window: the typed result, submitted to the investigation's
+    verified-result registry (``Dispatcher.results``, D24), and returned as today's binding (``binding_from_result``),
+    so everything that reads the binding is unchanged."""
+    r = compute_result(d, res, measure)
+    d.results.submit_in_run(r, store=d.store, selection=d.selection, evidence=d.registry, trace=d.trace)
+    return binding_from_result(r)
 
 
 def sentence(b: dict[str, Any], region: str, num: Callable[[str], str], as_of: datetime | None) -> str:

@@ -16,6 +16,7 @@ from pydantic import ValidationError
 
 from .. import config
 from ..evidence import EvidenceRegistry
+from ..results import ResultRegistry
 from ..selection import Selection
 from ..store import Store
 from ..timeutil import iso_utc, parse_iso
@@ -53,6 +54,7 @@ class Dispatcher:
     def __init__(self, store: Store, selection: Selection, trace: Trace, registry: EvidenceRegistry, intent: str,
                  request_as_of: datetime | None = None) -> None:
         self.store, self.selection, self.trace, self.registry = store, selection, trace, registry
+        self.results = ResultRegistry()  # typed results computed by code, admitted only by verification (D24)
         self.playbook = PLAYBOOKS[intent]
         self.request_as_of = request_as_of
         self.records: list[ToolCallRecord] = []
