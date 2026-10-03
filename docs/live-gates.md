@@ -3449,3 +3449,40 @@ were no fallbacks.
 - **The one difference:** K05's H4. The decision takes the stricter reading.
 - **A disclosure by the independent reviewer:** the tool layer saved one oversized shell output outside its kit. The
   reviewer did not open that copy.
+
+## Development comparison of gpt-5-mini and gpt-6.1-sol: frozen, not run (awaiting the owner's budget approval)
+
+Prepared with the owner's approval for **unpaid preparation only**: no Live call has been made, and no model is
+switched. Files are in `eval/model_comparison_dev/`; the pre-registered plan is `PROTOCOL.md`.
+- **What it is:** one bounded development comparison of the current model with one stronger model the existing API
+  workflow supports, on the same code, prompts, token caps, validators, data and cases.
+  - Its result can only support **proposing** a frozen switch evaluation on fresh cases (criteria S1–S6).
+  - It is not an L3 evaluation, not evidence of generalisation, and not a switch.
+- **The code under test:** commit `3d6ac1d` (`src/` tree `bc74428`), which is `main` `7e1a2e7` plus the call
+  diagnostics of PR #61, and prompts v12. The runner refuses any other `src/` tree.
+- **Settings:**
+  - **reasoning effort:** not sent, so each provider default applies (medium for both, as documented);
+  - **output caps:** routing 2,000, tools 8,000, synthesis 16,000, repair 16,000;
+  - **recorded per call:** requested and reported model, effort and cap.
+- **Cases** (existing questions with verified gold):
+  - **routing:** K04, Z04, Q01, Q05 (cut off in the v12 check), and Q02, Q16, Q17, Q21 (controls), three repeats per
+    model;
+  - **end to end:** K05, K07, K09 (answer consistency), and K06, K11 (controls), one execution per model.
+  - **Slots:** 58, the models alternating.
+- **Measures, separately:** routing correctness, truncation (cause "unknown" unless the text establishes it), usable
+  answers without fallback, safety, latency, and cost. Cost carries three labels: ledger accounting (conservative),
+  documented list-price estimate, and billed (not observed).
+- **Caps** (exact; computed and checked by `freeze.py`):
+
+  | Run | Slots | Case cap | Run cap |
+  |---|---|---|---|
+  | R-mini | 24 | 0.006 | 0.144 |
+  | R-sol | 24 | 0.031 | 0.744 |
+  | E-mini | 5 | 0.15 | 0.75 |
+  | E-sol | 5 | 0.75 | 3.75 |
+
+  - **Total:** USD 5.388.
+  - **Required approved task cap:** **USD 13.051248**, from the frozen ledger of USD 7.663248, 2,722 lines,
+    `af50fc2b531be324`.
+  - **Expected spend:** about USD 1.41 under ledger accounting.
+- **Status:** frozen, not run. The runner's dry run passes its checks with the required cap and starts nothing.
