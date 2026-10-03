@@ -1,0 +1,765 @@
+{
+ "protocol": "Development comparison of gpt-5-mini and gpt-6.1-sol (eval/model_comparison_dev/PROTOCOL.md)",
+ "frozen_at": "2026-10-03T07:56:13Z",
+ "code_commit": "205974b26fcb91988ff11d99ac72c9345f2759ba",
+ "code_tree": "71152d9cb484d7c7a14b214341031b4c4f265ecb",
+ "src_tree": "bc7442814251fdc71b1d5eb89a134f7932095bcf",
+ "prompts_tree": "7a1fe6a53e2f5d39e3cce3aeacade4bc6c5e455a",
+ "prompt_version": "prompts/v12",
+ "changes_before_any_run": [
+  "2026-10-03, at the owner's request: S1 made absolute (zero H1-H5 violations for gpt-6.1-sol, automatic and both reviews); comparative safety reported separately; re-frozen against main 205974b (src/ tree unchanged)"
+ ],
+ "max_output_tokens": {
+  "route": 2000,
+  "tools": 8000,
+  "synthesis": 16000,
+  "repair": 16000
+ },
+ "max_model_calls": 8,
+ "reasoning_effort_sent": "not sent (each provider default applies)",
+ "models": {
+  "mini": {
+   "id": "gpt-5-mini",
+   "accounting_prices": [
+    0.25,
+    0.025,
+    2.0
+   ],
+   "documented_prices": {
+    "input": 0.25,
+    "cached_input": 0.025,
+    "cache_write": null,
+    "output": 2.0
+   },
+   "default_reasoning_effort": "medium (GPT-5 cookbook: 'If no reasoning effort is supplied, the default value is medium')",
+   "identifier": "alias of gpt-5-mini-2025-08-07"
+  },
+  "sol": {
+   "id": "gpt-6.1-sol",
+   "accounting_prices": [
+    2.5,
+    0.1,
+    10.0
+   ],
+   "documented_prices": {
+    "input": 2.0,
+    "cached_input": 0.1,
+    "cache_write": 2.5,
+    "output": 10.0
+   },
+   "default_reasoning_effort": "medium (model page: 'defaults to medium'; none and minimal unsupported)",
+   "identifier": "alias gpt-6.1-sol (no dated snapshot listed)"
+  }
+ },
+ "price_sources": [
+  "https://developers.openai.com/api/docs/pricing",
+  "https://developers.openai.com/api/docs/models/gpt-6.1-sol",
+  "https://developers.openai.com/api/docs/models/gpt-5-mini",
+  "https://developers.openai.com/api/docs/guides/reasoning",
+  "https://developers.openai.com/cookbook/examples/gpt-5/gpt-5_new_params_and_tools"
+ ],
+ "docs_read": "2026-10-03",
+ "cost_labels": {
+  "ledger": "ledger accounting at the accounting prices (conservative; not the billed amount)",
+  "documented": "documented list-price estimate from reported usage, cache writes included",
+  "billed": "actual billed cost: not observed (the API response does not carry it)"
+ },
+ "ledger_start_usd": 7.663248,
+ "ledger_lines": 2722,
+ "ledger_sha256_prefix": "af50fc2b531be324",
+ "runs": {
+  "R-mini": {
+   "kind": "route",
+   "model": "mini",
+   "slots": 24,
+   "case_cap_usd": 0.006,
+   "run_cap_usd": 0.144,
+   "case_cap_must_hold_usd": 0.005087
+  },
+  "R-sol": {
+   "kind": "route",
+   "model": "sol",
+   "slots": 24,
+   "case_cap_usd": 0.031,
+   "run_cap_usd": 0.744,
+   "case_cap_must_hold_usd": 0.030869
+  },
+  "E-mini": {
+   "kind": "e2e",
+   "model": "mini",
+   "slots": 5,
+   "case_cap_usd": 0.15,
+   "run_cap_usd": 0.75,
+   "case_cap_must_hold_usd": 0.113536
+  },
+  "E-sol": {
+   "kind": "e2e",
+   "model": "sol",
+   "slots": 5,
+   "case_cap_usd": 0.75,
+   "run_cap_usd": 3.75,
+   "case_cap_must_hold_usd": 0.727485
+  }
+ },
+ "required_task_cap_usd": 13.051248,
+ "routing_reservations_usd": {
+  "mini": {
+   "K04": 0.005087,
+   "Z04": 0.005078,
+   "Q01": 0.005082,
+   "Q05": 0.005079,
+   "Q02": 0.005076,
+   "Q16": 0.005071,
+   "Q17": 0.005077,
+   "Q21": 0.00507,
+   "K05": 0.005083,
+   "K07": 0.005078,
+   "K09": 0.005071,
+   "K06": 0.005084,
+   "K11": 0.005068
+  },
+  "sol": {
+   "K04": 0.030869,
+   "Z04": 0.030775,
+   "Q01": 0.03082,
+   "Q05": 0.030789,
+   "Q02": 0.03076,
+   "Q16": 0.030715,
+   "Q17": 0.030766,
+   "Q21": 0.030697,
+   "K05": 0.030831,
+   "K07": 0.030775,
+   "K09": 0.030715,
+   "K06": 0.030841,
+   "K11": 0.030681
+  }
+ },
+ "e2e_bounds_usd": {
+  "mini": {
+   "reservation_route": 0.004967,
+   "reservation_tools": 0.028216,
+   "reservation_synthesis": 0.044609,
+   "reservation_repair": 0.045364,
+   "spend_before_repair_v12_repriced": 0.034086,
+   "case_cap_required": 0.113536
+  },
+  "sol": {
+   "reservation_route": 0.029675,
+   "reservation_tools": 0.202162,
+   "reservation_synthesis": 0.286094,
+   "reservation_repair": 0.293644,
+   "spend_before_repair_v12_repriced": 0.21692,
+   "case_cap_required": 0.727485
+  }
+ },
+ "slots": [
+  {
+   "run": "R-mini",
+   "kind": "route",
+   "model": "mini",
+   "case": "K04",
+   "cases_file": "eval/livecheck_i15_17/cases.json",
+   "repeat": 1,
+   "label": "MC-dev-route-mini-r1",
+   "slot": 1
+  },
+  {
+   "run": "R-sol",
+   "kind": "route",
+   "model": "sol",
+   "case": "K04",
+   "cases_file": "eval/livecheck_i15_17/cases.json",
+   "repeat": 1,
+   "label": "MC-dev-route-sol-r1",
+   "slot": 2
+  },
+  {
+   "run": "R-sol",
+   "kind": "route",
+   "model": "sol",
+   "case": "K04",
+   "cases_file": "eval/livecheck_i15_17/cases.json",
+   "repeat": 2,
+   "label": "MC-dev-route-sol-r2",
+   "slot": 3
+  },
+  {
+   "run": "R-mini",
+   "kind": "route",
+   "model": "mini",
+   "case": "K04",
+   "cases_file": "eval/livecheck_i15_17/cases.json",
+   "repeat": 2,
+   "label": "MC-dev-route-mini-r2",
+   "slot": 4
+  },
+  {
+   "run": "R-mini",
+   "kind": "route",
+   "model": "mini",
+   "case": "K04",
+   "cases_file": "eval/livecheck_i15_17/cases.json",
+   "repeat": 3,
+   "label": "MC-dev-route-mini-r3",
+   "slot": 5
+  },
+  {
+   "run": "R-sol",
+   "kind": "route",
+   "model": "sol",
+   "case": "K04",
+   "cases_file": "eval/livecheck_i15_17/cases.json",
+   "repeat": 3,
+   "label": "MC-dev-route-sol-r3",
+   "slot": 6
+  },
+  {
+   "run": "R-sol",
+   "kind": "route",
+   "model": "sol",
+   "case": "Z04",
+   "cases_file": "eval/holdout_v6/cases.json",
+   "repeat": 1,
+   "label": "MC-dev-route-sol-r1",
+   "slot": 7
+  },
+  {
+   "run": "R-mini",
+   "kind": "route",
+   "model": "mini",
+   "case": "Z04",
+   "cases_file": "eval/holdout_v6/cases.json",
+   "repeat": 1,
+   "label": "MC-dev-route-mini-r1",
+   "slot": 8
+  },
+  {
+   "run": "R-mini",
+   "kind": "route",
+   "model": "mini",
+   "case": "Z04",
+   "cases_file": "eval/holdout_v6/cases.json",
+   "repeat": 2,
+   "label": "MC-dev-route-mini-r2",
+   "slot": 9
+  },
+  {
+   "run": "R-sol",
+   "kind": "route",
+   "model": "sol",
+   "case": "Z04",
+   "cases_file": "eval/holdout_v6/cases.json",
+   "repeat": 2,
+   "label": "MC-dev-route-sol-r2",
+   "slot": 10
+  },
+  {
+   "run": "R-sol",
+   "kind": "route",
+   "model": "sol",
+   "case": "Z04",
+   "cases_file": "eval/holdout_v6/cases.json",
+   "repeat": 3,
+   "label": "MC-dev-route-sol-r3",
+   "slot": 11
+  },
+  {
+   "run": "R-mini",
+   "kind": "route",
+   "model": "mini",
+   "case": "Z04",
+   "cases_file": "eval/holdout_v6/cases.json",
+   "repeat": 3,
+   "label": "MC-dev-route-mini-r3",
+   "slot": 12
+  },
+  {
+   "run": "R-mini",
+   "kind": "route",
+   "model": "mini",
+   "case": "Q01",
+   "cases_file": "eval/livecheck_routing_v12/cases.json",
+   "repeat": 1,
+   "label": "MC-dev-route-mini-r1",
+   "slot": 13
+  },
+  {
+   "run": "R-sol",
+   "kind": "route",
+   "model": "sol",
+   "case": "Q01",
+   "cases_file": "eval/livecheck_routing_v12/cases.json",
+   "repeat": 1,
+   "label": "MC-dev-route-sol-r1",
+   "slot": 14
+  },
+  {
+   "run": "R-sol",
+   "kind": "route",
+   "model": "sol",
+   "case": "Q01",
+   "cases_file": "eval/livecheck_routing_v12/cases.json",
+   "repeat": 2,
+   "label": "MC-dev-route-sol-r2",
+   "slot": 15
+  },
+  {
+   "run": "R-mini",
+   "kind": "route",
+   "model": "mini",
+   "case": "Q01",
+   "cases_file": "eval/livecheck_routing_v12/cases.json",
+   "repeat": 2,
+   "label": "MC-dev-route-mini-r2",
+   "slot": 16
+  },
+  {
+   "run": "R-mini",
+   "kind": "route",
+   "model": "mini",
+   "case": "Q01",
+   "cases_file": "eval/livecheck_routing_v12/cases.json",
+   "repeat": 3,
+   "label": "MC-dev-route-mini-r3",
+   "slot": 17
+  },
+  {
+   "run": "R-sol",
+   "kind": "route",
+   "model": "sol",
+   "case": "Q01",
+   "cases_file": "eval/livecheck_routing_v12/cases.json",
+   "repeat": 3,
+   "label": "MC-dev-route-sol-r3",
+   "slot": 18
+  },
+  {
+   "run": "R-sol",
+   "kind": "route",
+   "model": "sol",
+   "case": "Q05",
+   "cases_file": "eval/livecheck_routing_v12/cases.json",
+   "repeat": 1,
+   "label": "MC-dev-route-sol-r1",
+   "slot": 19
+  },
+  {
+   "run": "R-mini",
+   "kind": "route",
+   "model": "mini",
+   "case": "Q05",
+   "cases_file": "eval/livecheck_routing_v12/cases.json",
+   "repeat": 1,
+   "label": "MC-dev-route-mini-r1",
+   "slot": 20
+  },
+  {
+   "run": "R-mini",
+   "kind": "route",
+   "model": "mini",
+   "case": "Q05",
+   "cases_file": "eval/livecheck_routing_v12/cases.json",
+   "repeat": 2,
+   "label": "MC-dev-route-mini-r2",
+   "slot": 21
+  },
+  {
+   "run": "R-sol",
+   "kind": "route",
+   "model": "sol",
+   "case": "Q05",
+   "cases_file": "eval/livecheck_routing_v12/cases.json",
+   "repeat": 2,
+   "label": "MC-dev-route-sol-r2",
+   "slot": 22
+  },
+  {
+   "run": "R-sol",
+   "kind": "route",
+   "model": "sol",
+   "case": "Q05",
+   "cases_file": "eval/livecheck_routing_v12/cases.json",
+   "repeat": 3,
+   "label": "MC-dev-route-sol-r3",
+   "slot": 23
+  },
+  {
+   "run": "R-mini",
+   "kind": "route",
+   "model": "mini",
+   "case": "Q05",
+   "cases_file": "eval/livecheck_routing_v12/cases.json",
+   "repeat": 3,
+   "label": "MC-dev-route-mini-r3",
+   "slot": 24
+  },
+  {
+   "run": "R-mini",
+   "kind": "route",
+   "model": "mini",
+   "case": "Q02",
+   "cases_file": "eval/livecheck_routing_v12/cases.json",
+   "repeat": 1,
+   "label": "MC-dev-route-mini-r1",
+   "slot": 25
+  },
+  {
+   "run": "R-sol",
+   "kind": "route",
+   "model": "sol",
+   "case": "Q02",
+   "cases_file": "eval/livecheck_routing_v12/cases.json",
+   "repeat": 1,
+   "label": "MC-dev-route-sol-r1",
+   "slot": 26
+  },
+  {
+   "run": "R-sol",
+   "kind": "route",
+   "model": "sol",
+   "case": "Q02",
+   "cases_file": "eval/livecheck_routing_v12/cases.json",
+   "repeat": 2,
+   "label": "MC-dev-route-sol-r2",
+   "slot": 27
+  },
+  {
+   "run": "R-mini",
+   "kind": "route",
+   "model": "mini",
+   "case": "Q02",
+   "cases_file": "eval/livecheck_routing_v12/cases.json",
+   "repeat": 2,
+   "label": "MC-dev-route-mini-r2",
+   "slot": 28
+  },
+  {
+   "run": "R-mini",
+   "kind": "route",
+   "model": "mini",
+   "case": "Q02",
+   "cases_file": "eval/livecheck_routing_v12/cases.json",
+   "repeat": 3,
+   "label": "MC-dev-route-mini-r3",
+   "slot": 29
+  },
+  {
+   "run": "R-sol",
+   "kind": "route",
+   "model": "sol",
+   "case": "Q02",
+   "cases_file": "eval/livecheck_routing_v12/cases.json",
+   "repeat": 3,
+   "label": "MC-dev-route-sol-r3",
+   "slot": 30
+  },
+  {
+   "run": "R-sol",
+   "kind": "route",
+   "model": "sol",
+   "case": "Q16",
+   "cases_file": "eval/livecheck_routing_v12/cases.json",
+   "repeat": 1,
+   "label": "MC-dev-route-sol-r1",
+   "slot": 31
+  },
+  {
+   "run": "R-mini",
+   "kind": "route",
+   "model": "mini",
+   "case": "Q16",
+   "cases_file": "eval/livecheck_routing_v12/cases.json",
+   "repeat": 1,
+   "label": "MC-dev-route-mini-r1",
+   "slot": 32
+  },
+  {
+   "run": "R-mini",
+   "kind": "route",
+   "model": "mini",
+   "case": "Q16",
+   "cases_file": "eval/livecheck_routing_v12/cases.json",
+   "repeat": 2,
+   "label": "MC-dev-route-mini-r2",
+   "slot": 33
+  },
+  {
+   "run": "R-sol",
+   "kind": "route",
+   "model": "sol",
+   "case": "Q16",
+   "cases_file": "eval/livecheck_routing_v12/cases.json",
+   "repeat": 2,
+   "label": "MC-dev-route-sol-r2",
+   "slot": 34
+  },
+  {
+   "run": "R-sol",
+   "kind": "route",
+   "model": "sol",
+   "case": "Q16",
+   "cases_file": "eval/livecheck_routing_v12/cases.json",
+   "repeat": 3,
+   "label": "MC-dev-route-sol-r3",
+   "slot": 35
+  },
+  {
+   "run": "R-mini",
+   "kind": "route",
+   "model": "mini",
+   "case": "Q16",
+   "cases_file": "eval/livecheck_routing_v12/cases.json",
+   "repeat": 3,
+   "label": "MC-dev-route-mini-r3",
+   "slot": 36
+  },
+  {
+   "run": "R-mini",
+   "kind": "route",
+   "model": "mini",
+   "case": "Q17",
+   "cases_file": "eval/livecheck_routing_v12/cases.json",
+   "repeat": 1,
+   "label": "MC-dev-route-mini-r1",
+   "slot": 37
+  },
+  {
+   "run": "R-sol",
+   "kind": "route",
+   "model": "sol",
+   "case": "Q17",
+   "cases_file": "eval/livecheck_routing_v12/cases.json",
+   "repeat": 1,
+   "label": "MC-dev-route-sol-r1",
+   "slot": 38
+  },
+  {
+   "run": "R-sol",
+   "kind": "route",
+   "model": "sol",
+   "case": "Q17",
+   "cases_file": "eval/livecheck_routing_v12/cases.json",
+   "repeat": 2,
+   "label": "MC-dev-route-sol-r2",
+   "slot": 39
+  },
+  {
+   "run": "R-mini",
+   "kind": "route",
+   "model": "mini",
+   "case": "Q17",
+   "cases_file": "eval/livecheck_routing_v12/cases.json",
+   "repeat": 2,
+   "label": "MC-dev-route-mini-r2",
+   "slot": 40
+  },
+  {
+   "run": "R-mini",
+   "kind": "route",
+   "model": "mini",
+   "case": "Q17",
+   "cases_file": "eval/livecheck_routing_v12/cases.json",
+   "repeat": 3,
+   "label": "MC-dev-route-mini-r3",
+   "slot": 41
+  },
+  {
+   "run": "R-sol",
+   "kind": "route",
+   "model": "sol",
+   "case": "Q17",
+   "cases_file": "eval/livecheck_routing_v12/cases.json",
+   "repeat": 3,
+   "label": "MC-dev-route-sol-r3",
+   "slot": 42
+  },
+  {
+   "run": "R-sol",
+   "kind": "route",
+   "model": "sol",
+   "case": "Q21",
+   "cases_file": "eval/livecheck_routing_v12/cases.json",
+   "repeat": 1,
+   "label": "MC-dev-route-sol-r1",
+   "slot": 43
+  },
+  {
+   "run": "R-mini",
+   "kind": "route",
+   "model": "mini",
+   "case": "Q21",
+   "cases_file": "eval/livecheck_routing_v12/cases.json",
+   "repeat": 1,
+   "label": "MC-dev-route-mini-r1",
+   "slot": 44
+  },
+  {
+   "run": "R-mini",
+   "kind": "route",
+   "model": "mini",
+   "case": "Q21",
+   "cases_file": "eval/livecheck_routing_v12/cases.json",
+   "repeat": 2,
+   "label": "MC-dev-route-mini-r2",
+   "slot": 45
+  },
+  {
+   "run": "R-sol",
+   "kind": "route",
+   "model": "sol",
+   "case": "Q21",
+   "cases_file": "eval/livecheck_routing_v12/cases.json",
+   "repeat": 2,
+   "label": "MC-dev-route-sol-r2",
+   "slot": 46
+  },
+  {
+   "run": "R-sol",
+   "kind": "route",
+   "model": "sol",
+   "case": "Q21",
+   "cases_file": "eval/livecheck_routing_v12/cases.json",
+   "repeat": 3,
+   "label": "MC-dev-route-sol-r3",
+   "slot": 47
+  },
+  {
+   "run": "R-mini",
+   "kind": "route",
+   "model": "mini",
+   "case": "Q21",
+   "cases_file": "eval/livecheck_routing_v12/cases.json",
+   "repeat": 3,
+   "label": "MC-dev-route-mini-r3",
+   "slot": 48
+  },
+  {
+   "run": "E-mini",
+   "kind": "e2e",
+   "model": "mini",
+   "case": "K05",
+   "cases_file": "eval/livecheck_i15_17/cases.json",
+   "repeat": 1,
+   "label": "MC-dev-e2e-mini",
+   "slot": 49
+  },
+  {
+   "run": "E-sol",
+   "kind": "e2e",
+   "model": "sol",
+   "case": "K05",
+   "cases_file": "eval/livecheck_i15_17/cases.json",
+   "repeat": 1,
+   "label": "MC-dev-e2e-sol",
+   "slot": 50
+  },
+  {
+   "run": "E-sol",
+   "kind": "e2e",
+   "model": "sol",
+   "case": "K07",
+   "cases_file": "eval/livecheck_i15_17/cases.json",
+   "repeat": 1,
+   "label": "MC-dev-e2e-sol",
+   "slot": 51
+  },
+  {
+   "run": "E-mini",
+   "kind": "e2e",
+   "model": "mini",
+   "case": "K07",
+   "cases_file": "eval/livecheck_i15_17/cases.json",
+   "repeat": 1,
+   "label": "MC-dev-e2e-mini",
+   "slot": 52
+  },
+  {
+   "run": "E-mini",
+   "kind": "e2e",
+   "model": "mini",
+   "case": "K09",
+   "cases_file": "eval/livecheck_i15_17/cases.json",
+   "repeat": 1,
+   "label": "MC-dev-e2e-mini",
+   "slot": 53
+  },
+  {
+   "run": "E-sol",
+   "kind": "e2e",
+   "model": "sol",
+   "case": "K09",
+   "cases_file": "eval/livecheck_i15_17/cases.json",
+   "repeat": 1,
+   "label": "MC-dev-e2e-sol",
+   "slot": 54
+  },
+  {
+   "run": "E-sol",
+   "kind": "e2e",
+   "model": "sol",
+   "case": "K06",
+   "cases_file": "eval/livecheck_i15_17/cases.json",
+   "repeat": 1,
+   "label": "MC-dev-e2e-sol",
+   "slot": 55
+  },
+  {
+   "run": "E-mini",
+   "kind": "e2e",
+   "model": "mini",
+   "case": "K06",
+   "cases_file": "eval/livecheck_i15_17/cases.json",
+   "repeat": 1,
+   "label": "MC-dev-e2e-mini",
+   "slot": 56
+  },
+  {
+   "run": "E-mini",
+   "kind": "e2e",
+   "model": "mini",
+   "case": "K11",
+   "cases_file": "eval/livecheck_i15_17/cases.json",
+   "repeat": 1,
+   "label": "MC-dev-e2e-mini",
+   "slot": 57
+  },
+  {
+   "run": "E-sol",
+   "kind": "e2e",
+   "model": "sol",
+   "case": "K11",
+   "cases_file": "eval/livecheck_i15_17/cases.json",
+   "repeat": 1,
+   "label": "MC-dev-e2e-sol",
+   "slot": 58
+  }
+ ],
+ "review_blind_order": {
+  "A01": 50,
+  "A02": 58,
+  "A03": 53,
+  "A04": 51,
+  "A05": 54,
+  "A06": 52,
+  "A07": 49,
+  "A08": 56,
+  "A09": 57,
+  "A10": 55
+ },
+ "files_sha256": {
+  "eval/model_comparison_dev/PROTOCOL.md": "8a991c1ba5d5d38968b9585f15f952c4078ad28c1dadf5d4eb02ba4562ee3f91",
+  "eval/model_comparison_dev/freeze.py": "fdd9581e8dc5ce4411037d0f890e6d149401c7d1e3faf0ef3a3e9974b3830f07",
+  "eval/model_comparison_dev/run_eval.py": "004270b09422b3b591455cb8c461d42d9c661144e9ab5882d4c4d17dc09c2a4b",
+  "eval/model_comparison_dev/score.py": "8fb784ea0ceea47e36a13b5f186d08d7d578cb63b0b023ccdac484ecc476cb3e",
+  "eval/livecheck_i15_17/cases.json": "9f0da7bf3f4fa6b79abf258604611bec61ce173e48dd209cf0b99d51a8e04ed9",
+  "eval/holdout_v6/cases.json": "1c3467b478df7ad7a6e87104c30276a030a2de49252e75af04723fd2a9283da2",
+  "eval/livecheck_routing_v12/cases.json": "ea09ac11f4494a4143feb1f7630d07dbd55f734788ae6e7927e4f686c0e54b1e",
+  "eval/livecheck_routing_v12/DEV_GOLD.json": "27ecb592aeaba930c5cbe3534bd8e978a1574d0d13d51eb4f800fb2b16431a3f",
+  "eval/livecheck_i15_17/GOLD.json": "2092cb414dec0776382dc93554d3e3f1d4979befeb4143c8d178996ef7949570",
+  "eval/livecheck_routing_v12/run_route.py": "54930428a7cc9c3f9589163383af12d36254436f4733b5c41bbbc3a84ddb4b85",
+  "eval/livecheck_routing_v12/score.py": "1dbf30f62820b65328661d392e0ebef6df3e2f1e4197c6caa929dd2853dcecbf",
+  "eval/livecheck_i15_17/run_case.py": "cb341afebd897e2f234bd110201e736c624eb17388e33f752267b9a977e6c1b1",
+  "eval/livecheck_i15_17/score.py": "c50889d460c711cc7884d02f7d82d443798c0fe21b13dab1c0bc5c29bf2ef13f",
+  "scripts/live_diagnose.py": "7913920a04c8fb9c96ed9adac34cd8ada25c24432ea111b468ae55e6bfafed88"
+ }
+}
