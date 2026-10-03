@@ -1,0 +1,167 @@
+{
+  "trace_id": "tr-42369d8abe80",
+  "started_at": "2026-10-03T21:16:39.663659Z",
+  "events": [
+    {
+      "seq": 1,
+      "t_ms": 12299.3,
+      "kind": "model",
+      "name": "route",
+      "model": "gpt-5-mini",
+      "response_id": "resp_02f4bf3f61836384016ac170b890b087d0991e78f801ddd1f0",
+      "function_calls": [],
+      "usage": {
+        "input_tokens": 1521,
+        "input_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 1408
+        },
+        "output_tokens": 1555,
+        "output_tokens_details": {
+          "reasoning_tokens": 1344
+        },
+        "total_tokens": 3076
+      },
+      "cost_usd": 0.003173,
+      "cost_basis": "ledger accounting at the configured list prices (cached input at the cached rate); not the billed amount",
+      "max_output_tokens": 2000,
+      "status": "completed",
+      "incomplete": null,
+      "duration_ms": 11690.9,
+      "requested": {
+        "model": "gpt-5-mini",
+        "max_output_tokens": 2000,
+        "reasoning_effort": "not sent (the provider's default applies)"
+      },
+      "reported": {
+        "model": "gpt-5-mini-2025-08-07",
+        "max_output_tokens": 2000,
+        "reasoning_effort": "medium"
+      }
+    },
+    {
+      "seq": 2,
+      "t_ms": 12300.7,
+      "kind": "route",
+      "name": "model_decision",
+      "decision": {
+        "intent": "market_event_review",
+        "region": "QLD1",
+        "event_date": "2025-10-05",
+        "as_of_utc": "2025-10-05T02:00:00Z",
+        "needs_clarification": false,
+        "clarification_reason": null,
+        "clarification": null,
+        "out_of_scope": false,
+        "requested": {
+          "forecast_run": {
+            "selection": "none",
+            "selection_text": null,
+            "half_hour_text": null,
+            "target_half_hour_end_utc": null,
+            "issued_at_utc": null
+          },
+          "maximum": {
+            "kind": "maximum",
+            "measure": "operational_demand",
+            "measure_text": "highest operational demand",
+            "window": "whole_local_day",
+            "window_text": "that entire local day",
+            "window_start_utc": null,
+            "window_end_utc": null
+          }
+        }
+      },
+      "policy_notes": []
+    },
+    {
+      "seq": 3,
+      "t_ms": 12301.8,
+      "kind": "route",
+      "name": "market_event_review",
+      "status": "needs_clarification",
+      "routing": {
+        "router": "explicit",
+        "regions_found": [
+          "QLD1"
+        ],
+        "dates_found": [
+          "2025-10-05"
+        ],
+        "region_tz": "Australia/Brisbane",
+        "requests": {
+          "routed": "reported",
+          "forecast_run": {
+            "status": "absent",
+            "selection": null,
+            "half_hour_utc": null,
+            "issued_at_utc": null,
+            "provenance": {},
+            "detected_by": [],
+            "missing": [],
+            "conflicts": []
+          },
+          "maximum": {
+            "status": "unresolved",
+            "measures": [
+              "operational demand"
+            ],
+            "window_kind": null,
+            "window_utc": null,
+            "provenance": {
+              "measure": {
+                "source": "question",
+                "text": "Based only on data published by noon Brisbane time on Sunday 5 October 2025, what was the highest operational demand in Queensland over that entire local day, and at what time?",
+                "conversion": "question parser"
+              }
+            },
+            "detected_by": [
+              "question",
+              "route_model",
+              "cue"
+            ],
+            "missing": [
+              "window"
+            ],
+            "conflicts": []
+          },
+          "notes": []
+        }
+      },
+      "reasons": [
+        "Over which window is the demand peak asked: the whole local day of the date given, the price event's window, or an explicit start and end with their time zone? The question does not pin it down, so no maximum is given in place of the one asked for."
+      ],
+      "region": "QLD1",
+      "as_of": "2025-10-05T02:00:00+00:00",
+      "window": [
+        "2025-10-04T14:00:00+00:00",
+        "2025-10-05T14:00:00+00:00"
+      ]
+    },
+    {
+      "seq": 4,
+      "t_ms": 12340.4,
+      "kind": "validate",
+      "name": "report",
+      "passed": true,
+      "n_critical": 0,
+      "codes": [],
+      "fallback": false
+    },
+    {
+      "seq": 5,
+      "t_ms": 12349.9,
+      "kind": "done",
+      "name": "needs_clarification",
+      "latency_ms": 12368.5,
+      "usage": {
+        "model_calls": 1,
+        "input_tokens": 1521,
+        "output_tokens": 1555,
+        "cost_usd": 0.003173,
+        "cost_note": "list-price estimate (cached input at the cached rate)",
+        "elapsed_s": 11.72
+      }
+    }
+  ]
+}
