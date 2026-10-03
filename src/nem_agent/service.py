@@ -88,31 +88,7 @@ def investigate(req: InvestigateRequest, *, store: Store | None = None, selectio
                                                        prompt=config.PROMPT_VERSION, model=None, controller="live"),
                               client=live_client)
         decision = live.route(req.question, trace)
-        override: str | None = None
-        if decision is None:
-            req_eff = req
-        else:
-            upd, override, notes = route_policy(req, decision)
-            try:  # re-validate: the model's values must pass the same schema as user input
-                req_eff = InvestigateRequest.model_validate({**req.model_dump(), **upd})
-            except ValueError:
-                req_eff, decision, override = req, None, None
-            if decision is not None:
-                trace.add("route", "model_decision", decision=decision.model_dump(), policy_notes=notes)
-        res = resolve(req_eff, selection)
-        if decision is not None and override == "refused" and res.status != "refused":
-            # Scope comes before missing details, as in resolve(): a question the model judged out of scope is refused
-            # even when it also lacks a region or date (held-out v5 Y17 asked for a price prediction and bidding
-            # advice, and was asked for a date). A clarification text that came with it asks about those details, so
-            # it is no refusal reason.
-            res.status = "refused"
-            res.reasons = [decision.clarification if decision.clarification and not decision.needs_clarification
-                           else "The model judged the question out of scope or ambiguous."]
-        elif decision is not None and override and res.status == "ok":
-            res.status = override  # type: ignore[assignment]
-            res.reasons = [decision.clarification or "The model judged the question out of scope or ambiguous."]
-        if decision is None:
-            res.status, res.reasons = "needs_clarification", ["The routing model returned invalid output."]
+        res = resolve_routed(req, decision, selection, trace)
     else:
         res = resolve(req, selection)
     trace.add("route", res.intent or "none", status=res.status, routing=res.routing, reasons=res.reasons,
@@ -138,11 +114,45 @@ def investigate(req: InvestigateRequest, *, store: Store | None = None, selectio
         usage = live.usage.as_dict()
     from .validation import validate_and_finalize
     report = validate_and_finalize(report, registry, records, res, trace)
+    notes = res.requests.notes if res.requests is not None and res.status == "ok" else []
+    if notes:  # question wording that conflicts with a request field, which is applied: said with the answer (I-18)
+        report = report.model_copy(update={"uncertainties": [*notes, *report.uncertainties]})
     latency = round((time.monotonic() - t0) * 1000, 1)
     trace.add("done", report.status, latency_ms=latency, usage=usage)
     if write_trace:
         trace.write()
     return InvestigationResult(report, trace, records, registry, res, latency, usage)
+
+
+def resolve_routed(req: InvestigateRequest, decision: Any, selection: Selection, trace: Trace | None = None) -> Resolution:
+    """The resolution of a Live question from the routing model's decision (``None``: the model returned invalid
+    output), under ``route_policy``; the decision's structured reading of the request goes to ``resolve`` (I-18)."""
+    override: str | None = None
+    if decision is None:
+        req_eff = req
+    else:
+        upd, override, notes = route_policy(req, decision)
+        try:  # re-validate: the model's values must pass the same schema as user input
+            req_eff = InvestigateRequest.model_validate({**req.model_dump(), **upd})
+        except ValueError:
+            req_eff, decision, override = req, None, None
+        if decision is not None and trace is not None:
+            trace.add("route", "model_decision", decision=decision.model_dump(), policy_notes=notes)
+    res = resolve(req_eff, selection, decision.requested if decision is not None else None)
+    if decision is not None and override == "refused" and res.status != "refused":
+        # Scope comes before missing details, as in resolve(): a question the model judged out of scope is refused
+        # even when it also lacks a region or date (held-out v5 Y17 asked for a price prediction and bidding
+        # advice, and was asked for a date). A clarification text that came with it asks about those details, so
+        # it is no refusal reason.
+        res.status = "refused"
+        res.reasons = [decision.clarification if decision.clarification and not decision.needs_clarification
+                       else "The model judged the question out of scope or ambiguous."]
+    elif decision is not None and override and res.status == "ok":
+        res.status = override  # type: ignore[assignment]
+        res.reasons = [decision.clarification or "The model judged the question out of scope or ambiguous."]
+    if decision is None:
+        res.status, res.reasons = "needs_clarification", ["The routing model returned invalid output."]
+    return res
 
 
 def route_policy(req: InvestigateRequest, decision: Any) -> tuple[dict[str, Any], str | None, list[str]]:

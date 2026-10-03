@@ -27,7 +27,7 @@ from ..report import (
 from ..timeutil import NEM_TZ, half_hour_end_for, iso_utc, local_str, parse_iso
 from . import demand_max
 from .dispatcher import Dispatcher, ToolCallRecord
-from .request import Resolution, requested_maxima
+from .request import Resolution
 
 CONTROLLER_VERSION = "scripted-replay-controller/1"
 WEATHER_WORDS = re.compile(r"\b(weather|temperature|hot|cold|wind|windy|solar|irradiance|heat)\b", re.I)
@@ -453,7 +453,7 @@ class ReplayController:
     def _maximum_lines(self, res: Resolution, comp: Composer) -> list[str]:
         """Each demand measure's maximum the question asks for, computed by code over the requested window from the
         controller's own call, as sentences (``demand_max``; I-17: held-out v6 Z04). Recorded for the validator."""
-        measures = [m for m in requested_maxima(res.request.question) if m in demand_max.MEASURES]
+        measures = demand_max.requested_measures(res)
         if not measures or not res.region:
             return []
         res.demand_max = [demand_max.compute(self.d, res, m) for m in measures]

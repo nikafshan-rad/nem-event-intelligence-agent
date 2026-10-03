@@ -808,6 +808,65 @@ def requested_max_violations(report: InvestigationReport, registry: EvidenceRegi
     return out
 
 
+def backstop_violations(report: InvestigationReport, registry: EvidenceRegistry, records: list[Any] | None,
+                        bindings: list[dict[str, Any]] | None, forecast_run: dict[str, Any] | None,
+                        sentences: list[tuple[str, str]], numbers: Any,
+                        already: set[tuple[str, float]]) -> list[Violation]:
+    """Two answer-side backstops for requests whose wording was not recognised (I-18). Both are lexical
+    (``structured.demand_extreme_clause``, ``structured.run_selection_clause``) and bounded: they do not catch every
+    paraphrase.
+
+    - ``DEMAND_EXTREME_UNVERIFIED``: a clause stating a demand maximum or minimum gives, as that extreme, a traced
+      actual-demand value (dispatch TOTALDEMAND or actual operational demand) that no code computed as an extreme:
+      neither a bound maximum nor a ``get_actual_demand`` view's ``max`` (an equal value of the same measure and region,
+      such as a tied interval, counts). The value stated as the extreme is the first number after the peak or minimum
+      word, else the last one before it. ``already`` holds (item, value) pairs that ``REQUESTED_MAXIMUM_MISMATCH``
+      flagged, which are not flagged twice.
+    - ``RUN_SELECTION_UNVERIFIED``: when no forecast run is bound and the answer has no as-of cutoff, a clause presents
+      a run as the final, last or latest one issued before something. Wording about availability is exempt (the as-of
+      selection, I-10)."""
+    from .agent.structured import clauses, demand_extreme_words, run_selection_clause
+
+    extremes = {e for b in bindings or [] for e in b.get("evidence_ids") or []}
+    for r in records or []:
+        if getattr(r, "name", None) == "get_actual_demand" and r.status == "ok" and \
+                (eid := ((r.view or {}).get("max") or {}).get("evidence_id")):
+            extremes.add(eid)
+    # the extremes code computed, by measure and region; a stated value is checked against them within its rounding
+    verified: dict[tuple[str, str | None], list[float]] = {}
+    for e in extremes:
+        if (ev := registry.get(e)) is not None and ev.value is not None:
+            verified.setdefault((ev.metric, ev.region), []).append(float(ev.value))
+    out: list[Violation] = []
+    for where, sentence in sentences:
+        for clause in clauses(sentence):
+            spans = numbers(clause)
+            stated = []
+            for p in demand_extreme_words(clause, sentence):
+                after = [x for x in spans if x[1] >= p]
+                before = [x for x in spans if x[2] <= p]
+                if after or before:
+                    stated.append((after[0] if after else before[-1])[0])
+            for v in dict.fromkeys(stated):
+                if (where, v) in already:
+                    continue
+                hits = [(c, ev) for c in report.numeric_claims if abs(v - c.value) <= c.rounding + 1e-9
+                        and (ev := registry.get(c.evidence_id)) is not None
+                        and ev.metric in ("dispatch_totaldemand", "opdemand_actual")]
+                evs = [ev for _, ev in hits]
+                if evs and not any(abs(v - x) <= c.rounding + 1e-9 for c, ev in hits
+                                   for x in verified.get((ev.metric, ev.region), [])):
+                    out.append(Violation("DEMAND_EXTREME_UNVERIFIED", "critical",
+                                         f"{where}: {v:g} is stated as a demand peak, maximum or minimum, but it is "
+                                         f"{evs[0].metric} for the interval ending {evs[0].valid_at_utc} "
+                                         f"({evs[0].evidence_id}), which no tool or controller computed as an extreme"))
+            if not forecast_run and not report.as_of and run_selection_clause(clause):
+                out.append(Violation("RUN_SELECTION_UNVERIFIED", "critical",
+                                     f"{where}: presents a forecast run as the final, last or latest one issued "
+                                     "before a half-hour, but no such run was looked up for this question"))
+    return out
+
+
 NOTICE_WORD_RE = re.compile(r"\bnotices?\b", re.I)
 # timing statements are read to the end of the sentence: "…: first interval ending A; last interval ending B; and
 # before the price extreme …" is one statement (v3 V18 was cut at ';')
@@ -1755,12 +1814,22 @@ def validate(report: InvestigationReport, registry: EvidenceRegistry, *, as_of: 
     # -- a demand measure's maximum the question asks for (I-17): the answer gives the maximum the controller computed
     #    over the requested window, and a sentence stating the measure's maximum uses no other value (held-out v6 Z04
     #    answered "when did total demand peak" with TOTALDEMAND at the price peak and operational demand's maximum)
+    texts = [(where, s) for where, text in _narratives(report) + _hypothesis_tests(report)
+             for s in SENTENCE_RE.split(QUOTED_RE.sub(" ", text))]
+    mismatched: set[tuple[str, float]] = set()
     if demand_max:
         res.checks_run.append("requested_maximum")
-        texts = [(where, s) for where, text in _narratives(report) + _hypothesis_tests(report)
-                 for s in SENTENCE_RE.split(QUOTED_RE.sub(" ", text))]
-        V.extend(requested_max_violations(report, registry, demand_max, texts,
-                                          lambda s: number_spans(s, chunk_ids, titles(s))))
+        found = requested_max_violations(report, registry, demand_max, texts,
+                                         lambda s: number_spans(s, chunk_ids, titles(s)))
+        V.extend(found)
+        mismatched = {(hit.group(1), float(hit.group(2))) for v in found if v.code == "REQUESTED_MAXIMUM_MISMATCH"
+                      and (hit := re.match(r"([^:]+): (-?[\d.]+) is stated", v.detail))}
+    # -- bounded answer-side backstops for requests whose wording was not recognised (I-18)
+    if report.intent in ("market_event_review", "forecast_review") and \
+            report.status not in ("needs_clarification", "refused"):
+        res.checks_run.append("request_backstops")
+        V.extend(backstop_violations(report, registry, records, demand_max, forecast_run, texts,
+                                     lambda s: number_spans(s, chunk_ids, titles(s)), mismatched))
 
     # -- published findings: event-specific, same region/window, verbatim quote
     res.checks_run.append("published_findings")
