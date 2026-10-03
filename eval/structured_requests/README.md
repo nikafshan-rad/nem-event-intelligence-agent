@@ -52,6 +52,10 @@ from `fields.json`, in three ways:
 | RUN1 (`d5c7f81`) | FAILS: 13 unbound, 2 wrong; 6 of 33 supplied | FAILS: 22 of 33 supplied, 2 wrong, 1 unbound, 1 note missing | FAILS: 9 wrong, 4 unbound, 1 note missing |
 | RUN2 (final) | 1 unbound (P20, a departure, below); 6 of 33 supplied, the rest sent back | passes: 33 of 33 supplied | passes: no wrong binding |
 
+**Supply in (b) is with scripted fields.** The 33 of 33 were supplied with *correct scripted* routing fields, written by
+an independent agent (`fields.json`). They were not produced by the real routing model. Whether gpt-5-mini under
+prompts v12 extracts these fields correctly is **Live-unverified**.
+
 In (c), a request the mutation invents for a question that makes none is still a detection: it is sent back, never
 bound (24 over-clarifications).
 
@@ -79,9 +83,47 @@ bound (24 over-clarifications).
 
 **Departures from the registered criteria.**
 - **P20 in (a):** "What was the operational demand forecast for NSW1's half-hour ending 19:00 AEST on 30 July
-  2026?" The matrix expects a clarification (no run rule). Without model fields it is not detected: it singles out no
-  run. It keeps the documented default (the latest run available before the half-hour, named as such). Sending
-  every such question back would change many evaluated forecast questions outside this scope. With the routing
-  model's reading (`unclear`), it is sent back.
-- **P56 and P59, over-clarified in (a) and (b):** the routing decision itself asks for a region or a date, a
-  choice of the field writer. It is not the resolver.
+  2026?" The matrix expects a clarification naming the run rule. Without model fields, it is answered under the
+  default selection. This is deliberate:
+  - **No run is singled out.** The question has no ordinal ("last", "final"), no issue time, no "issued before" and no
+    as-of cutoff. The run binding exists so that another run cannot stand in for one a question names. Here none is
+    named, so no specific-run request is left unresolved.
+  - **The default is the documented one, and it is named.** It is the latest run available before the half-hour
+    (I-10). In Replay the answer says so: "the latest AEMO POE50 run available before each half-hour".
+  - **It cannot pass as a specific run.** With no run bound, `RUN_SELECTION_UNVERIFIED` rejects an answer that
+    presents a run as the final, last or latest one issued before the half-hour. Availability wording is allowed.
+  - **The other reading is honoured when it is detected.** When the routing model reads the question as `unclear`
+    (run b), it is sent back.
+
+  An earlier version of this note also said that sending such questions back "would change many evaluated forecast
+  questions". That was not checked, and it is withdrawn. In the repository, no other question asks for "the
+  forecast" of one specific half-hour. Of the 20 forecast questions that name no run, 8 ask about a whole day's
+  forecasts and 12 about documents.
+
+  The matrix's reading is a fair one: "the forecast" is singular, and 105 runs in the store forecast that half-hour.
+  Sending this form back without the model's reading would need a wider cue; that is a separate decision. - **P56 and
+  P59, over-clarified in (a) and (b):** the routing decision itself asks for a region or a date, a choice of the field
+  writer. It is not the resolver.
+
+## Review before merging: the demand-extreme backstop's window
+
+`backstop_window_controls.py` runs nine SYNTHETIC controls through `validation.validate`; `BACKSTOP_WINDOW_REVIEW.json`
+records them on both revisions.
+- **Before** (`5816e5c`), 4 of 9 agreed. A stated value was certified if it equalled the maximum or minimum of *any*
+  series a tool returned for the measure and region. So each of these passed:
+  - a two-hour subset's maximum or minimum, claimed as the whole day's;
+  - an event window's maximum, claimed as the day's;
+  - a subset's maximum, claimed as the event window's;
+  - the highest value public before an as-of cutoff, claimed as the day's.
+- **After** (`caffaf6`), 9 of 9 agree. An extreme is certified only when code computed it over the window the
+  statement names, from tool series that hold every interval of that window:
+  - **the window named:** the requested maximum's window, the investigation's window, or the local day of the
+    value's interval;
+  - **the measure and region:** the same as the stated value's.
+
+  Also:
+  - a complete requested maximum counts for its own window;
+  - "the highest value held" is checked against the held intervals;
+  - a window narrowed in words that cannot be read is not certified.
+- **Unchanged:** the 262 saved Live records replayed both ways (no outcome changes), the Replay evaluation (identical
+  to `main`) and the safety suite.

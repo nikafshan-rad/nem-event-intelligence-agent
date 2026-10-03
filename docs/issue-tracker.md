@@ -2914,7 +2914,8 @@ checks are met. The three outcomes are reported separately:
      in the README; none is specific to a case.
    - **Final run** (`RUN2.json`):
      - **(a):** containment holds except P20; 6 of 33 supplied, the rest sent back;
-     - **(b):** 33 of 33 supplied;
+     - **(b):** 33 of 33 supplied, with *correct scripted* routing fields written by an independent agent. Whether
+       the real routing model extracts these fields correctly is Live-unverified;
      - **(c):** no wrong binding. A request invented for a question that makes none is still a detection, so it is
        sent back (24 over-clarifications), never bound.
    - **The matrix is now seen material**, not a held-out result.
@@ -2977,7 +2978,12 @@ checks are met. The three outcomes are reported separately:
    - **Prompts v12:** the frozen v5, v6, dev2 and targeted-check runners refuse prompts v12, as intended. Their
      refusal tests now assert that refusal, then pin the frozen version to test the other checks.
 7. **Departures from the acceptance check.**
-   - **P20 in (a):** "the forecast for a half-hour" names no run, and keeps the documented default selection (README).
+   - **P20 in (a):** "the forecast for a half-hour" singles out no run: no ordinal, issue time, "issued before" or
+     as-of. So no specific-run request is left unresolved. It keeps the documented default selection (the latest run
+     available before the half-hour), and the answer names it. With no run bound, `RUN_SELECTION_UNVERIFIED` stops it
+     being presented as the final run issued before the half-hour. With the model's `unclear`, it is sent back.
+     - **A claim withdrawn:** an earlier claim, that sending such questions back would change many evaluated questions,
+       was not checked. No other repository question has this form. The full reasoning is in the README.
    - **P56 and P59** are over-clarified by the routing decision itself, not by the resolver.
    - **K05 is supplied only with the routing model's reading.**
 8. **Limitations.**
@@ -2986,9 +2992,23 @@ checks are met. The three outcomes are reported separately:
    - **The routing model's reading helps only when it is right:** it must quote the question verbatim and convert
      times correctly. That is untested Live.
    - **The routing output is larger,** with the same 2,000-token cap (K02 truncated in routing).
-   - **An extreme is verified against the series a tool returned for its call's window,** which can be narrower than
-     the window a sentence names.
-9. **No paid call was made. The real ledger is unchanged** (USD 7.424670, 2,598 lines). v1.0 is unchanged.
+   - **The window an extreme statement names is read lexically.** A window narrowed in words that cannot be read is
+     not certified, so a true statement worded that way is rejected.
+9. **Review before merging: the demand-extreme backstop's window.**
+   - **The bypass:** at `5816e5c`, a stated extreme was certified if it equalled the maximum or minimum of any series
+     a tool returned. Five SYNTHETIC controls passed that should not have:
+     - a subset's maximum, and a subset's minimum, claimed as the whole day's;
+     - another window's maximum, claimed for a different window (twice);
+     - the highest value public before an as-of cutoff, claimed as the day's.
+   - **The fix** (`caffaf6`): an extreme is certified only when code computed it over the window the statement names
+     (the requested, investigation or local-day window), for the same measure and region, from series that hold
+     every interval of it. "The highest value held" is checked against what is held.
+   - **Evidence** (`eval/structured_requests/BACKSTOP_WINDOW_REVIEW.json`):
+     - the controls: 4 of 9 before, 9 of 9 after;
+     - no saved-replay outcome changes;
+     - the Replay evaluation is identical to `main`;
+     - the safety suite passes.
+10. **No paid call was made. The real ledger is unchanged** (USD 7.424670, 2,598 lines). v1.0 is unchanged.
 
 ### I-3a: F03, a notice time shown without its zone
 
