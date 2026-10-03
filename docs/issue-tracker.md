@@ -33,6 +33,7 @@ One list of known defects, so that each fix is weighed against the whole. Eviden
 | I-18 | **Forecast-run and demand-maximum requests that silently skip their binding** | Targeted Live check 2026-10-02 (`docs/live-gates.md`): wording outside the fixed patterns ("issued ahead of it", "issued before it", am/pm half-hours, "total demand highest", "hit its highest point") left K05–K07, K09 and K10 unbound; K06, K07, K09 and K10 then showed another run or a wrong maximum, and nothing checked them | P1 | **merged as `f2455ca`; verified offline; Live unverified** (PR `#56`; below). Requests are resolved from the request, the question parsers and the routing model's grounded reading (prompts v12), with provenance; a detected request that is not bound is sent back; two bounded answer backstops (the demand-extreme backstop window- and coverage-checked before merging). With saved routes K06, K07, K09 and K10 are sent back; with *scripted* correct routing fields K05, K06, K09 and K10 are supplied and K07 is answered unavailable; extraction by the real routing model is unverified. **Live check of the routing extraction, 2026-10-03 (PR #57's frozen protocol): FAIL.** No wrong routing binding was observed in this sample of 42 (18 correct, 14 of them using the model's reading; containment 6 of 6), but 4 of 42 routing calls were cut off at the 2,000-token cap; K09 shows an incorrect maximum (X: its headline contradicts the controller's correct maximum); K05 has an H4 finding (its MAE window is misdescribed); and requests were over-clarified (Q11, Q12, Q14, Q15, Q22, Q23, and K10 end to end). The earlier check's FAIL verdict and all historical scores are unchanged |
 | I-19 | **Answer text that contradicts the requested result the controller holds** | Live check of the v12 routing extraction (E-dev, 2026-10-03): K09's controller line gives the correct maximum (10954.2 MW, ending 19:05 AEST), but its headline gives 10,890.3 MW at 19:35 AEST as the answer, an explanation calls 19:35 the maximum, and two caveats deny the maximum is established. K07's correct "unavailable" answer names the requested half-hour (17:00–17:30 AEST) as "ending 17:00" in four items. Nothing checked either | P1 | **verified offline; Live unverified** (branch `fix/requested-result-text`, validator only; below). K09's and K07's saved drafts are rejected at exactly the contradicting items and fall back, with the rejected caveats not shown; faithful text, comparisons, neighbouring half-hours and data-quality caveats pass; only K09 and K07 change among the 267 saved replays. The checks are lexical (limits below). K05's aggregation coverage, routing truncation and over-clarification are queued separately. **Development model comparison, 2026-10-03 (PR #62's frozen protocol; development cases, one run each; not a verification):** the checks fired on K07, K09 and K11. Both models' K09 answers fell back, and each fallback kept a caveat denying the maximum in wording the check does not read ("rather than a proven global maximum"; "cannot be verified", 11 tokens after the maximum wording). The validator flagged neither; the independent reviewer read gpt-5-mini's as X with H4 = 1. Recorded, not fixed |
 | I-20 | **An aggregate described as covering more than it was computed from** | Live check of the v12 routing extraction (E-dev, 2026-10-03): K05 says "the run's MAE for the 24-hour target window as 10.0 MW". The MAE (`ev0554`) is the mean over one paired half-hour (ending 08:00Z) of a 12-hour comparison window holding 24 target half-hours. The answer passed validation and was shown; the independent reviewer read H4 = 1 | P1 | **verified offline; Live unverified** (branch `fix/aggregate-coverage`; below). Aggregates over a window (`mae_mw`, `mean_error_mw`, `n_aligned_half_hours`, `mean_dispatch_rrp`) carry their coverage from their own inputs, and stated durations, counts and completeness are checked against it. K05's "24-hour target window" is rejected and a faithful description passes; among the 267 saved replays only K05 changes outcome (Z05 gains one true finding in a draft that already fell back). The check is lexical (limits below). Routing truncation and over-clarification are queued separately. **Development model comparison, 2026-10-03 (development cases, one run each; not a verification):** it fired on gpt-5-mini's K05 and K06 drafts, and both repairs passed (S) |
+| I-21 | **A facts-only fallback that drops the computed requested result and keeps model notes that disown it** | Development model comparison (2026-10-03), K09 slots 53 and 54; the v12 check's K09 replayed on `main`: the fallback states no maximum (the controller's 10954.2 MW, ending 19:05 AEST, is only listed among other values) and keeps model notes that deny or replace it ("rather than a proven global maximum"; "cannot be verified"; "not used as tool-backed evidence"). The fallback passed its own validation; the independent reviewer read slot 53 as X with H4 = 1 | P1 | **verified offline; Live unverified** (branch `fix/fallback-requested-result`; below). In a fallback holding a complete, validated requested demand maximum, the controller's line stating it is kept (provenance recorded when the line is written, never found by its wording) and every model note is withheld, recorded verbatim in diagnostics; the answer stays a fallback. `REQUESTED_MAXIMUM_MISSING` now needs the maximum stated, not merely listed. Among 215 replayable saved records only the three K09 fallbacks change; no answer that is not a fallback changes. Slot 53's X (H4 = 1) and all historical scores are unchanged |
 | I-5 | **Known safety-language limitations** | See the list below. Each is recorded with its risk. None is being worked on, to avoid an open-ended wording cycle | P3 | recorded; revisit only with a new concrete failure |
 
 ### I-1a: F04, the causal question not answered directly
@@ -3478,6 +3479,147 @@ hours before", an MAE stated with no coverage, a 24-hour horizon stated for a fo
 - **Supply:** a contradicting description now falls back (F), or is repaired, instead of being shown.
 - **Live is unverified;** no paid run was made. The earlier checks' FAIL verdicts and all historical scores are
   unchanged.
+
+### I-21: K09, a facts-only fallback that drops the computed maximum and keeps model notes that disown it
+
+**What happened** (development model comparison, 2026-10-03, code `205974b`, prompts v12; records
+`artifacts/live/MC-dev-e2e-{mini,sol}/K09.json`, slots 53 and 54). The question asked at which five-minute interval
+NSW dispatch total demand was highest over 29 July 2026 (Sydney time). The controller computed the maximum over all 288
+intervals: **10954.2 MW, interval ending 09:05Z = 19:05 AEST**. Both answers fell back to facts only:
+- **Slot 53 (gpt-5-mini):** the draft and its repair gave 10,890.3 MW (19:35 AEST) as the answer
+  (`REQUESTED_MAXIMUM_MISMATCH`). The shown fallback listed 10890.3 first and 10954.2 last, with no statement of the
+  maximum, and kept four model notes about it: "… I report the highest 5-minute TOTALDEMAND value present in the
+  returned fields rather than a proven global maximum …", "The controller-provided computed maximum (value 10954.2 …)
+  … is not used as tool-backed evidence in this report", and a request for the series "to prove the global maximum".
+  **The independent reviewer read X with H4 = 1;** the developer read F.
+- **Slot 54 (gpt-6.1-sol):** the draft and its repair denied the maximum in the headline (`REQUESTED_MAXIMUM_DENIED`).
+  The shown fallback kept "The highest dispatch TOTALDEMAND level … across the requested day cannot be verified …" and
+  a request for "a tool-returned whole-day … maximum". Both reviews read F.
+- **The same on `main` for the v12 check's K09** (`artifacts/live/LC-route-v12-e2e/K09.json`, replayed): it falls back
+  with no statement of the maximum; the notes it keeps there are faithful.
+- **Both fallbacks passed their own validation** (0 critical after the fallback; `final_passed` true). Saved-record
+  replays through the fake transport reproduce both shown answers exactly.
+
+**Root cause.**
+1. **The fallback drops the controller's computed result** (`validation.facts_only`). It clears `summary` and
+   `numeric_claims` wholesale, so the controller's line stating the maximum, and its claim, go with the model's
+   narrative. The report does not record which lines the controller wrote, so the fallback cannot keep them apart. What
+   remains is the observations, in the model's order.
+2. **The fallback keeps model notes by a negative screen.** Every model-written uncertainty and missing-evidence item
+   is kept unless a critical violation names it. Its coverage is therefore exactly that of the validator's lexical
+   rules, under a headline that says "Validated facts only".
+3. **The denial rule is lexical** (`_denials`, I-19): three phrase families with token windows; the item must name the
+   measure; missing evidence is read only for "to confirm / establish / …". Missed: an 11-word gap ("highest … cannot
+   be verified"); "rather than a proven global maximum"; a disowning note that names the value but not the measure; "to
+   prove"; and a request for the maximum the controller holds. Adding phrases cannot close this: a note can state the
+   right value and still disown it.
+4. **The fallback's own check cannot see the omission.** `REQUESTED_MAXIMUM_MISSING` counts the maximum as given when
+   its observation is merely listed. In a fallback there are no numeric claims, so the number-based mismatch check
+   cannot fire on its notes either.
+- **Contributing, not addressed here:** the model distrusted the controller's value ("not produced by the required
+  tools … not used") and believed the series incomplete (context or prompt; no prompt change).
+
+**Fix approved** (one bounded offline PR; only fallbacks with a complete, validated requested demand maximum; no change
+to prompts, routing, the model, scoring, or other fallbacks):
+1. **P1, fallback construction.**
+   - **Provenance at construction time:** the Live and Replay controllers record, when they build the report, which
+     summary lines and claims they wrote for which maximum binding, and which notes are deterministic (written by
+     code). It is private, never serialised, never taken from model output, and never inferred from wording.
+   - **The result is retained** only when its evidence, measure, region, requested window, coverage and as-of
+     eligibility pass validation, and no critical violation names the line or its claims, before and after the
+     fallback is built.
+   - **Model notes are withheld** in that fallback, all of them, and recorded verbatim in diagnostics (the validation
+     record and the trace), outside the displayed answer. Deterministic data limitations and safety disclosures are
+     kept, and a deterministic line says that withholding the notes does not mean the data is free of limitations.
+   - **Unchanged:** drafts and repairs pass through every existing check first; the answer stays a fallback (headline,
+     `fallback_applied`, status), never supplied.
+2. **P2, a structural guard.** `REQUESTED_MAXIMUM_MISSING` counts a bound maximum as given only when the shown headline
+   or a summary sentence states it with a claim on its evidence; a listed observation alone does not. If this changes
+   any answer that is not a fallback, the conflict is reported before going further, not dropped or weakened.
+
+**Acceptance check** (offline, written before the code change).
+1. **Slots 53 and 54, and the v12 check's K09,** from their saved drafts and saved repairs:
+   - the draft and repair violations are identical to `main` (codes and details), and the answer falls back;
+   - the shown fallback states the controller's maximum first (10954.2 MW, interval ending 09:05Z = 19:05 AEST) with
+     its claim, shows no model-written note, keeps the deterministic notes, and adds the limitation line;
+   - each withheld note is recorded verbatim with where it was; none is in the displayed answer;
+   - the fallback passes its own validation; the headline, `fallback_applied` and status are those of a fallback.
+2. **Provenance:** a model draft whose summary repeats the controller's sentence word for word gets no provenance; no
+   model output can set it; a line the provenance names but whose text or position no longer matches is not retained.
+3. **Eligibility,** each failing alone, so the result is not retained (and the record says why): evidence missing or
+   with another value; another measure; another region; another window; incomplete coverage; evidence not available
+   at the as-of cutoff; the line or its claim named by a critical violation, before or after the fallback is built.
+4. **Faithful controls:** K11 (slots 57 and 58) and a faithful K09 pass, unchanged; fallbacks without a requested
+   maximum keep their notes exactly as on `main`; an incomplete maximum keeps today's behaviour; two maxima bound are
+   both retained; Replay answers' deterministic notes are kept.
+5. **Adversarial controls** (scripted variants of slots 53 and 54, labelled): paraphrased denials; disowning without
+   the measure or "maximum"; another value given as the highest; a request for the held result; the measure and the
+   denial in different items; typos; the right value with a denial; instruction-like text; the substitute value
+   listed first. In each: no model note shown, every one recorded, the controller's line first.
+6. **P2:** a maximum only listed as an observation is missing; stated with its claim in the summary or the shown
+   headline, it is given; a hidden model headline does not give it.
+7. **Regression:** replay every saved Live record both ways (`main` against the change; identifiers masked). Only
+   fallbacks holding a complete maximum change, and only as above; no answer that is not a fallback changes. Every
+   record that cannot be replayed is listed with the reason. The Replay evaluation and the safety suite are identical
+   (0 critical violations after the pipeline); all tests, ruff and mypy pass.
+8. **Unchanged:** historical verdicts and scores (slot 53 stays X with H4 = 1), frozen material, prompts, routing,
+   scoring, the ledger and v1.0. Verified offline; Live unverified.
+
+**Result** (offline; branch `fix/fallback-requested-result`; acceptance check above, unchanged).
+1. **Slots 53 and 54, and the v12 check's K09** (saved drafts and saved repairs, fake transport):
+   - the draft and repair violations are identical to the saved Live run (slots 53 and 54, item for item) and to `main`
+     (the v12 K09), and each answer falls back;
+   - the shown fallback's summary is the controller's line alone ("NSW1 dispatch total demand (TOTALDEMAND) was highest
+     at 10954.2 MW in the 5-minute interval ending 2026-07-29T09:05:00Z = 2026-07-29 19:05 AEST, over all of 2026-07-29
+     (AEST)."), with its claim `controller_max_ev1605`;
+   - no model note is part of the answer (slot 53: four withheld; slot 54: two; the v12 K09: four, two of them
+     faithful); each is recorded verbatim in `validation.fallback_withheld` and the trace, labelled `source: model`,
+     "rejected model text: withheld with the narrative that failed validation; not validated; not part of the answer",
+     with the codes of any violation that named it (`named_by`); the answer's notes are "Narrative withheld …" and the
+     limitation line, which says where the withheld notes are;
+   - the fallback passes its own validation; headline, `fallback_applied` and status are unchanged.
+2. **Controls** (`tests/provider/test_fallback_requested_result.py`, 38 tests): provenance recorded at construction,
+   a model copy of the controller's sentence given none, model output unable to set it (`extra="forbid"`), never
+   serialised, and a moved line not kept; each eligibility failure alone (evidence, value, measure, window, coverage,
+   region, as-of, a line or claim named before or after the fallback is built) keeps nothing and leaves the notes as
+   before; faithful K11 and K09, fallbacks without a requested maximum (K07, W18, K05, Y18), two maxima, the code's
+   own notes (Live and Replay); nine adversarial notes in slots 53 and 54, none shown and all recorded; P2.
+3. **P2 alone** (before P1) changed only the three K09 fallbacks, whose own validation then reported
+   `REQUESTED_MAXIMUM_MISSING`: no answer that is not a fallback changed, so there was no conflict to report.
+4. **Saved replays, both ways** (`main` `f20ecfc` against this branch; trace and fake-transport IDs and the code version
+   masked): 215 records replayed, 3 changed (the K09 fallbacks above), only in summary, claims, notes, validation
+   (`after_fallback`, `fallback_result`, `fallback_withheld`, `display_rewrites`) and trace; draft and repair
+   violations, status, observations and `final_passed` unchanged. **Not replayed, each accounted for:** 64 files that
+   are not case records (run summaries, review sheets); 90 routing-only records (no answer); 1 record with no route,
+   tools or drafts (L4); 28 records where no answer was drafted (sent back, abstained or stopped); 34 records whose
+   repair response was not saved (holdout v2 to v4, the regression runs, the 2026-09-29 check), so a replay stops at
+   the repair. None of these 153 case records holds a computed maximum (no requested-maximum check, controller claim
+   or `max_answer` event in the record or its trace), so none is in scope.
+5. **Replay evaluation and safety suite:** identical to `main` (timestamps and latencies masked); 0 critical
+   violations after the pipeline. Full suite: 1731 passed; ruff and mypy clean.
+6. **One existing expectation changed:** I-19's `test_3` asserted that the v12 K09 fallback shows the faithful note
+   "Operational demand (half-hour average) is a different measure …"; it is now withheld and recorded, and the test
+   asserts that and the controller's line.
+
+**Limitations.**
+- **Scope:** only fallbacks holding a complete, validated requested demand maximum (three saved records). The fallback
+  still drops the controller's timing, regional and cancellation lines (six saved fallbacks: H13, V03, W19, Y18, H01,
+  W18); queued separately.
+- **Answers that are not fallbacks** still show a model note that disowns the controller's maximum in words the lexical
+  checks miss (held-out v6 Z04 replayed: "A tool-returned single-value maximum … over the entire window"); queued.
+- **Cost:** in those fallbacks every model note is withheld, faithful ones too (the v12 K09's two, one of slot 53's),
+  recorded and disclosed.
+- **Excluded from the validated answer, not displayed nowhere.** The withheld notes are not in the answer (headline,
+  summary, notes, observations) or in a case note built from it. They stay accessible as diagnostics: the app's
+  collapsed "Validation details" panel (the whole validation record as JSON, as it already shows violation details
+  quoting model text), the API response's `validation` record, and the trace. Each is labelled there as rejected,
+  unvalidated model text, never as a fact; the answer's own line says they are kept, unvalidated, in the validation
+  details (PR #64 review correction: it first said "not shown").
+- **The safety suite's fixtures** call the fallback without bindings, so they do not exercise this change (evaluation
+  code unchanged).
+- **A report read back from JSON** carries no provenance, so its fallback keeps nothing (fails closed).
+- **The I-19 denial rules remain lexical.** Offline evidence only; Live unverified. Slot 53's X (H4 = 1) and all
+  historical verdicts are unchanged.
 
 ### I-3a: F03, a notice time shown without its zone
 

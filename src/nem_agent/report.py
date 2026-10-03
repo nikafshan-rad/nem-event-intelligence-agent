@@ -137,6 +137,12 @@ class InvestigationReport(_M):
     # The model's own headline when the controller shows another (Live, I-3c): validated like the shown headline, so
     # replacing it hides nothing the validator would act on, and never serialised or shown.
     _model_headline: str | None = PrivateAttr(default=None)
+    # What the controller wrote, recorded by the controller itself while it builds the report (I-21), never serialised
+    # and never taken from model output: ``result_lines``, each summary line stating a requested demand maximum with its
+    # binding (index into the resolution's ``demand_max``), position, text and the controller's own claims; and
+    # ``controller_notes``, the positions of the uncertainties and missing-evidence items the code wrote. The facts-only
+    # fallback reads it (``validation.facts_only``); nothing else does.
+    _provenance: dict[str, Any] = PrivateAttr(default_factory=dict)
 
 
 def report_json_schema() -> dict[str, Any]:

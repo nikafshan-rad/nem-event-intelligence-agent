@@ -1403,8 +1403,10 @@ class LiveController:
                               "measure's maximum, is not this maximum. If you mention it, claim it with these evidence "
                               "IDs."} for b in res.demand_max]
 
-    def _max_answer(self, res: Resolution) -> tuple[list[str], list[NumericClaim], list[Observation]] | None:
-        """The computed maxima as sentences (``demand_max.sentence``), with a claim and an observation for each value."""
+    def _max_answer(self, res: Resolution) -> tuple[list[str], list[NumericClaim], list[Observation],
+                                                    list[list[NumericClaim]]] | None:
+        """The computed maxima as sentences (``demand_max.sentence``), with a claim and an observation for each value,
+        and each sentence's own claims (one list per binding, in order)."""
         if not res.demand_max or not res.region:
             return None
         claims: list[NumericClaim] = []
@@ -1421,8 +1423,13 @@ class LiveController:
                                    source_row_ids=ev.source_row_ids[:12],
                                    evidence_class=ev.evidence_class, label=(ev.label or ev.metric)[:300]))
             return f"{ev.value:.4f}".rstrip("0").rstrip(".") + f" {ev.unit}"
-        lines = [demand_max.sentence(b, res.region, num, res.as_of) for b in res.demand_max]
-        return lines, claims, obs
+        lines: list[str] = []
+        own: list[list[NumericClaim]] = []
+        for b in res.demand_max:
+            k = len(claims)
+            lines.append(demand_max.sentence(b, res.region, num, res.as_of))
+            own.append(claims[k:])
+        return lines, claims, obs, own
 
     def _cancellation_answer(self, res: Resolution, cited: list[str]) -> str | None:
         """For an event review citing market notices that a later retrieved notice cancelled before the price extreme,
@@ -1537,6 +1544,7 @@ class LiveController:
         summary: list[str] = []
         headline = m.headline if m else "Abstained: the live model did not produce a valid report."
         extra_claims: list[NumericClaim] = []
+        result_lines: list[dict[str, Any]] = []
         self._summary_origin = []
         not_verbatim: list[str] = []
         resolved: list[dict[str, Any]] = []
@@ -1592,9 +1600,13 @@ class LiveController:
                     self.d.trace.add("model", "cancellation_answer", text=status)
             maxima = self._max_answer(res)
             if maxima is not None:  # written by the controller from the maximum it computed (I-17)
-                lines, max_claims, max_obs = maxima
+                lines, max_claims, max_obs, line_claims = maxima
                 summary[0:0] = lines
                 self._summary_origin[0:0] = [("controller", 0)] * len(lines)
+                # provenance, recorded here as the lines are written (I-21): later lines are only put before these,
+                # so each one's distance from the end of the summary is fixed from now on
+                result_lines = [{"binding": j, "from_end": len(summary) - j, "text": line,
+                                 "claims": [c.model_copy() for c in line_claims[j]]} for j, line in enumerate(lines)]
                 claimed = {(c.evidence_id, c.value) for c in m.numeric_claims}
                 extra_claims += [c for c in max_claims if (c.evidence_id, c.value) not in claimed]
                 obs += [o for o in max_obs if o.evidence_id not in {x.evidence_id for x in obs}]
@@ -1668,6 +1680,16 @@ class LiveController:
                              start_local=local_str(res.window[0], res.region), end_local=local_str(res.window[1], res.region),
                              timezone=str(res.routing.get("region_tz") or ""))
         status = m.status if m else "abstained"
+        # missing evidence: the model's items, then the code's (``missing``), each shown once in that order; an item is
+        # the code's when the code wrote it, whatever the model wrote (I-21: the code's notes are deterministic)
+        missing_evidence: list[str] = []
+        by_code: list[bool] = []
+        for text, code in [(x, False) for x in (m.missing_evidence if m else [])] + [(x, True) for x in missing]:
+            if text in missing_evidence:
+                by_code[missing_evidence.index(text)] |= code
+            else:
+                missing_evidence.append(text)
+                by_code.append(code)
         report = InvestigationReport(
             question=res.request.question, mode="live", intent=res.intent, region=res.region,
             as_of=iso_utc(res.as_of) if res.as_of else None, event_window=ew,
@@ -1678,11 +1700,16 @@ class LiveController:
                                               what_would_test_it=h.what_would_test_it) for h in m.possible_explanations] if m else [],
             published_findings=findings,
             citations=cites, uncertainties=m.uncertainties if m else [], forecast_comparison=fcomp,
-            missing_evidence=list(dict.fromkeys((m.missing_evidence if m else []) + missing)),
+            missing_evidence=missing_evidence,
             source_manifest={"data_version": self.versions.data, "corpus_version": self.versions.corpus,
                              "model": self.model, "usage": self.usage.as_dict(), "transcript": self.transcript},
             status=status if status != "needs_clarification" else "needs_clarification",
             trace_id=self.d.trace.trace_id if self.d else "n/a", versions=self.versions,
             generator=f"live-model:{self.model}")
         report._model_headline = m.headline if m is not None and m.headline != headline else None
+        report._provenance = {
+            "result_lines": [{"binding": r["binding"], "summary_index": len(summary) - r["from_end"], "text": r["text"],
+                              "claims": r["claims"]} for r in result_lines],
+            # every uncertainty here is the model's; the code writes only missing-evidence items
+            "controller_notes": {"uncertainties": [], "missing_evidence": [i for i, c in enumerate(by_code) if c]}}
         return report
