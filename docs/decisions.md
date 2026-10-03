@@ -787,3 +787,40 @@ Acceptance check recorded before implementation. One bounded offline PR; demand 
     "midday" or "noon" are not converted (Q14, Q15), so the question is sent back.
   - A cutoff detected only by the question parser, with no time it can read, is not sent back (v12 behaviour).
   - A cutoff's own date counts as an event date, so two dates still ask which one.
+- **Further amendments** (2026-10-03, before merge, at the owner's review of PR #69):
+  5. **A detected cutoff is never dropped** (a general invariant):
+     - a cutoff detected by the parser (its as-of words), by the model's quoted words, or by a v12 timestamp, that
+       cannot be pinned down, is sent back with the cutoff clarification, for every intent, before any tool runs;
+     - a parser-detected cutoff with no time it can read is now included (it was the v12 behaviour to pass it over).
+
+     Tested over every evaluation question and saved Live decision, and through the fake transport.
+  6. **Cutoff words without availability wording** (supersedes amendment 2's "used and noted"):
+     - **Applied** when code can read their time, because applying a cutoff can only narrow the evidence.
+     - **Noted.**
+     - **Hold no time of the question,** so a narrowing time quoted as a cutoff ("after 6 pm") still blocks a window.
+     - **Not readable:** the question is sent back.
+  7. **Temporal coverage, generalised.** Every clock time and ISO time in the question must lie inside a located span
+     of a role. The roles that count:
+     - the cutoff's verified words, or the parser's as-of words up to the first comma, colon, semicolon, dash, bracket
+       or question mark;
+     - a **bound** forecast run's selection or half-hour words;
+     - the window's own words, which for an event include the words that identify it.
+
+     Otherwise no whole-day or event window is bound. A time is held only by location, never because its instant
+     matches something resolved: "after 02:35" must not pass as an event's 02:35 peak.
+     - **"after 6 pm":** not in the narrowing vocabulary, and no phrase rule was added. The general rule sends the
+       question back in Replay and under every scripted v13 misreading tested, and no whole-day maximum is computed in
+       its place.
+     - **The precise remaining limitation:** narrowing written without a time code reads, and outside the narrowing
+       vocabulary ("late in the day", "once the evening ramp began"), is not detected.
+  8. **Span offsets:** they are computed by code, never given by the model (counting characters is formatting
+     overhead for a model). Offsets cannot disambiguate a repeated phrase: each occurrence is a valid offset, and
+     nothing says which one the model meant. A repeated phrase is read but holds nothing; where that matters, the
+     question is sent back. Prompt v13 asks for quotes that occur once.
+  9. **Results, updated** (records in `eval/route_v13/`):
+     - **Saved decisions:** 6 of 218 changed. D01, F06, K10 and Q11 are now bound to gold. Q13 goes from bound to sent
+       back: its v12 reading did not quote the event's identifying time, the cost of the guarantee. Q23 is unchanged.
+     - **The matrix:** the same 43 verdicts, in two categories (38 timestamp mutations now supplied, P22's 5 rows now
+       contained); its v12 scoring reproduces `RUN2.json` exactly from the v12 code.
+     - **F07 end to end:** matches gold, with the cutoff from the request override.
+     - **Unchanged:** the Replay evaluation and the safety suite.

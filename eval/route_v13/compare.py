@@ -66,11 +66,16 @@ def routes(a: dict[str, Any], b: dict[str, Any]) -> dict[str, Any]:
         if _key(a[k]) == _key(b[k]):
             continue
         g = gold.get(k)
-        mx = b[k]["maximum"]
-        check = None
-        if g and g.get("window_utc") and mx["status"] == "bound":
-            check = ("matches gold" if mx["measures"] == [g["measure"]] and mx["window_utc"] == g["window_utc"]
-                     and (g["window_kind"] is None or mx["window_kind"] == g["window_kind"]) else "DIFFERS FROM GOLD")
+
+        def gold_check(mx: dict[str, Any], g: dict[str, Any] | None = g) -> str | None:
+            if not (g and g.get("window_utc")) or mx["status"] != "bound":
+                return None
+            return ("matches gold" if mx["measures"] == [g["measure"]] and mx["window_utc"] == g["window_utc"]
+                    and (g["window_kind"] is None or mx["window_kind"] == g["window_kind"]) else "DIFFERS FROM GOLD")
+        check = gold_check(b[k]["maximum"])
+        before = gold_check(a[k]["maximum"])
+        if check is None and before == "matches gold":
+            check = "was bound to gold under v12; now sent back"
         changed.append({"key": k, "v12": {f: a[k][f] for f in ("status", "as_of", "maximum", "forecast_run", "reasons")},
                         "v13": {f: b[k][f] for f in ("status", "as_of", "maximum", "forecast_run", "cutoff", "reasons")},
                         "gold": g, "gold_check": check})
@@ -80,9 +85,16 @@ def routes(a: dict[str, Any], b: dict[str, Any]) -> dict[str, Any]:
 def matrix(a: dict[str, Any], b: dict[str, Any]) -> dict[str, Any]:
     ra = {(r["id"], r["mode"]): r for r in a["rows"]}
     rb = {(r["id"], r["mode"]): r for r in b["rows"]}
+    changed = [{"id": k[0], "mode": k[1], "v12": ra[k]["verdict"], "v13": rb[k]["verdict"],
+                "v13_detail": rb[k]["detail"]} for k in sorted(ra) if ra[k]["verdict"] != rb[k]["verdict"]]
+    cats: dict[str, dict[str, Any]] = {}
+    for c in changed:
+        key = f"{c['mode']}: {c['v12']} -> {c['v13']}"
+        cats.setdefault(key, {"mode": c["mode"], "v12": c["v12"], "v13": c["v13"], "count": 0, "ids": []})
+        cats[key]["count"] += 1
+        cats[key]["ids"].append(c["id"])
     return {"summary_v12": a["summary"], "summary_v13": b["summary"], "rows": len(ra),
-            "changed": [{"id": k[0], "mode": k[1], "v12": ra[k]["verdict"], "v13": rb[k]["verdict"],
-                         "v13_detail": rb[k]["detail"]} for k in sorted(ra) if ra[k]["verdict"] != rb[k]["verdict"]]}
+            "categories": sorted(cats.values(), key=lambda x: (x["v12"], x["mode"])), "changed": changed}
 
 
 def main() -> int:

@@ -42,8 +42,9 @@ Requested values (`requested`, filled for every question; source_explanation que
   - measure: dispatch_total_demand (TOTALDEMAND) or operational_demand; unspecified when it says only "demand".
   - window: whole_local_day, event (a price event's window), explicit (a stated start and end), or unspecified.
   `measure_text` copies the question's own words naming the measure; `peak_text` its words asking for the highest
-  level or time (for example "highest", "peak", "how high"); `window_text` its words naming the window.
-- Each copied text is one continuous piece of the question, copied exactly; the words for different things are
-  copied separately. Leave a value null when the question does not state it: never guess a date, a time zone, or
+  level or time (for example "highest", "peak", "how high"); `window_text` its words naming the window (for an
+  event's window, with the words that identify the event, such as its date or peak time).
+- Each copied text is one continuous piece of the question, copied exactly, with enough words that it occurs only
+  once in the question; the words for different things are copied separately. Leave a value null when the question does not state it: never guess a date, a time zone, or
   whether a time is the start or the end of a half-hour.
 - Do not convert dates or times: code reads them from the copied words.

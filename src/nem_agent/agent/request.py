@@ -613,10 +613,12 @@ def resolve(req: InvestigateRequest, sel: Selection, routed: Any = None,
             reasons.append("Which date is the half-hour (or period) asked about? The as-of cutoff says what was public "
                            "by then, not which day the forecast is for.")
     if data_intent:
-        # the cutoff's and the forecast run's located words are other roles: they never narrow the maximum's window
+        # the cutoff's and a bound forecast run's located words are other roles: they never narrow the maximum's
+        # window. A run's words count only when the run is bound: words given for a run nobody asked for hold nothing
+        run_spans = requests.forecast_run.spans if requests.forecast_run.status == "bound" else []
         requests.maximum = resolve_maximum(q, req, region, day, event, model_requests,
-                                           requests.cutoff.spans + requests.forecast_run.spans)
-        requests.notes = request_field_notes(q, given or req, region, day, requests.maximum)
+                                           requests.cutoff.spans + run_spans)
+        requests.notes = request_field_notes(q, given or req, region, day, requests.maximum, requests.cutoff)
     # a run named relative to a half-hour that is not pinned down (held-out v6 Z05, I-16), a demand peak without its
     # measure, or over a window that is not given (I-17), any other detected request that is not bound (I-18), and a
     # cutoff the model detected that cannot be pinned down (D26): sent back, naming what is missing, rather than guessed
@@ -631,6 +633,10 @@ def resolve(req: InvestigateRequest, sel: Selection, routed: Any = None,
     status: Literal["ok", "needs_clarification", "refused"] = "needs_clarification" if reasons else "ok"
     if intent == "source_explanation" and len(regions) <= 1 and len(dates) <= 1:
         status, reasons = "ok", []
+    if requests.cutoff.status in ("unresolved", "conflict") and status == "ok":
+        # a cutoff that is detected but not pinned down is sent back for every intent, before any tool runs: never
+        # dropped (D26)
+        status, reasons = "needs_clarification", clarifications(RequestResolution(cutoff=requests.cutoff))
     return Resolution(req, intent, region, event, window, as_of, kind=kind, status=status, reasons=reasons,
                       routing={**diag, "regions_found": regions, "dates_found": [str(d) for d in dates],
                                "region_tz": REGION_TZ.get(region or "", None), "requests": requests.as_dict()},

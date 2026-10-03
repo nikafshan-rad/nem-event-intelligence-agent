@@ -222,6 +222,8 @@ class CutoffRequest:
     conflicts: list[str] = field(default_factory=list)
     spans: list[Span] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    stated: datetime | None = None  # with a request field: what the question's own quoted cutoff words read as
+    stated_words: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {"status": self.status, "as_of_utc": iso_utc(self.as_of) if self.as_of else None,
@@ -866,6 +868,20 @@ def _day_span_ok(text: str) -> bool:
         not _RELATIVE_NARROW_RE.search(t) and not _SUB_WINDOW_RE.search(t)
 
 
+def _time_expressions(q: str) -> list[tuple[int, int]]:
+    """Every clock time and ISO time code reads in the question, as offsets (dates alone are not times)."""
+    return sorted({(m.start(), m.end()) for m in _ISO_RE.finditer(q)} | {(a, b) for a, b, *_ in _clocks(q)})
+
+
+def unaccounted_times(q: str, spans: list[Span]) -> list[str]:
+    """The times in the question that no located role span holds (the cutoff's, a bound forecast run's, the window's
+    own words, an event's identifying words among them): each may narrow a window, so none may be passed over (D26).
+    A time is held only where it is written inside such words, never because its instant matches something resolved:
+    "after 02:35" would otherwise pass as the event's 02:35 peak. A repeated span locates nothing, so it holds none."""
+    located = [sp.located for sp in spans if sp.located is not None]
+    return [q[a:b] for a, b in _time_expressions(q) if not any(x <= a and b <= y for x, y in located)]
+
+
 def _narrows(scope: str) -> bool:
     """Wording in ``scope`` that narrows a window ("between … and", parts of the day, "around the peak" …)."""
     return bool(_SUB_WINDOW_RE.search(_MIDNIGHT_TO_MIDNIGHT_RE.sub(" ", scope)))
@@ -1020,7 +1036,17 @@ def resolve_maximum(q: str, req: InvestigateRequest, region: str | None, day: da
         out.status = "unresolved"
         out.missing = ["event"] if "event" in kinds else ["date"] if "day" in kinds else ["window"]
         return out
+    # every time the question names must be held by a role's words: the cutoff's, a forecast run's, or this window's
+    # own; a time that none holds may narrow the window ("after 6 pm"), so no whole-day or event window is bound
+    # in its place (D26). Its words are the model's window span, when that is what the window was read from.
     kind, (w, src) = next(iter(windows.items()))
+    own = [x for x in out.spans if x.role == "window" and src.source == "route_model" and x.text == src.text]
+    loose = unaccounted_times(q, other + own)
+    if loose:
+        out.status, out.missing = "unresolved", ["window"]
+        out.unused.append(f"window: the question names {', '.join(repr(t) for t in loose)}, which no role's words hold; "
+                          "it may narrow the window")
+        return out
     out.window_kind, out.window, out.provenance["window"], out.status = kind, w, src, "bound"
     return out
 
@@ -1040,8 +1066,8 @@ def resolve_cutoff(q: str, given_as_of: str | None, region: str | None, day: dat
 
     out = CutoffRequest()
     m = AS_OF_Q_RE.search(q)
-    if m:  # the parser's as-of clause: from the as-of words to the end of the clause
-        end = m.end() + len(re.split(r"[?;]", q[m.end():])[0][:80])
+    if m:  # the parser's as-of words, up to the first comma, colon, semicolon, dash, bracket or question mark
+        end = m.end() + len(re.split(r"[,?;:(—–]| - ", q[m.end():])[0][:80])
         out.spans.append(Span("cutoff", q[m.start():end], ((m.start(), end),), "question"))
     model_t: datetime | None = None
     model_src: Source | None = None
@@ -1052,15 +1078,19 @@ def resolve_cutoff(q: str, given_as_of: str | None, region: str | None, day: dat
         elif _ISSUE_WORD_RE.search(sp.text):  # an issue time names a forecast run, never a cutoff
             out.notes.append(f"cutoff: '{sp.text}' names a forecast's issue time, not an as-of cutoff; not used")
         else:
-            # a cutoff the model quoted is never dropped for its wording ("as at 9 pm"): dropping one would let later
-            # data in; words without availability wording are noted
-            if not (_AVAILABILITY_RE.search(sp.text) or AS_OF_Q_RE.search(sp.text)):
-                out.notes.append(f"cutoff: '{sp.text}' has no wording about what was public or known; read as the "
-                                 "cutoff the routing model quoted")
-            out.spans.append(sp)
+            # a cutoff the model quoted is never dropped: a dropped cutoff lets later data in. Words with no wording about
+            # what was public or known ("As at 9:00 pm", "Put yourself at 16:30") cannot have that role verified: they
+            # are still applied when code can read their time (applying a cutoff can only narrow the evidence), but they
+            # hold no time of the question, so a narrowing time quoted as a cutoff ("after 6 pm") still blocks a window
+            verified = bool(_AVAILABILITY_RE.search(sp.text) or AS_OF_Q_RE.search(sp.text))
+            if verified:
+                out.spans.append(sp)
+            else:
+                out.notes.append(f"cutoff: '{sp.text}' has no wording about what was public or known; applied as the "
+                                 "cutoff, but it holds no other time of the question")
             model_t, conv = _first_instant(sp.text, q, region)
             model_src = Source("route_model", sp.text, conv)
-            out.detected_by.append("route_model")
+            out.detected_by.append("route_model" if verified else "route_model_unverified")
     legacy = routed is not None and routed.legacy_cutoff
     if legacy and forecast_issue_time(q) is not None:
         legacy = False
@@ -1072,6 +1102,9 @@ def resolve_cutoff(q: str, given_as_of: str | None, region: str | None, day: dat
         out.detected_by.insert(0, "request")
         out.status, out.as_of = "bound", parse_iso(given_as_of)
         out.provenance["as_of"] = Source("request", "as_of_utc")
+        if model_src is not None:  # the question's own cutoff words, as the model quoted them: compared, never applied
+            out.stated = model_t
+            out.stated_words = model_src.text
         return out
     parser_t = extract_as_of(q, region, day) or question_as_of(q, region)[0]
     if m is not None:
@@ -1086,23 +1119,27 @@ def resolve_cutoff(q: str, given_as_of: str | None, region: str | None, day: dat
     elif model_t is not None and model_src is not None:
         out.status, out.as_of = "bound", model_t
         out.provenance["as_of"] = model_src
-    elif model_src is not None or legacy:  # detected by the model, not pinned down: sent back, never ignored
+    elif m is not None or model_src is not None or legacy:
+        # detected (the parser's as-of words, the model's quoted words, or a v12 timestamp) but not pinned down: sent
+        # back before any tool runs, never ignored (D26; dropping a cutoff would let later data in)
         out.status, out.missing = "unresolved", ["cutoff"]
     return out
 
 
 def request_field_notes(q: str, req: InvestigateRequest, region: str | None, day: date | None,
-                        maximum: MaxRequest) -> list[str]:
+                        maximum: MaxRequest, cutoff: CutoffRequest | None = None) -> list[str]:
     """Question wording that conflicts with an authoritative request field (an as-of cutoff, an explicit window): the
     request field is used, and this is said with the answer."""
     notes: list[str] = []
     if req.as_of_utc:
         given = parse_iso(req.as_of_utc)
         stated, words = question_as_of(q, region)
+        if not words and cutoff is not None and cutoff.stated_words:  # the cutoff words the routing model quoted
+            stated, words = cutoff.stated, cutoff.stated_words
         if stated is not None and abs(stated - given) > timedelta(seconds=59):
             notes.append(f"The as-of cutoff given with the request, {iso_utc(given)}, is applied. The question's own "
                          f"wording ('{words}') names {iso_utc(stated)}, which differs.")
-        elif stated is None and words and _clocks(words):
+        elif stated is None and words and (_clocks(words) or _PART_OF_DAY_RE.search(words)):
             notes.append(f"The as-of cutoff given with the request, {iso_utc(given)}, is applied. The question's own "
                          f"wording ('{words}') also names an as-of time, which could not be compared with it.")
     if req.window_start_utc and req.window_end_utc and maximum.status == "bound" and maximum.stated is not None:
