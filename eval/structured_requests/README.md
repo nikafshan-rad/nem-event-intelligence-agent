@@ -101,9 +101,9 @@ bound (24 over-clarifications).
   forecasts and 12 about documents.
 
   The matrix's reading is a fair one: "the forecast" is singular, and 105 runs in the store forecast that half-hour.
-  Sending this form back without the model's reading would need a wider cue; that is a separate decision. - **P56 and
-  P59, over-clarified in (a) and (b):** the routing decision itself asks for a region or a date, a choice of the field
-  writer. It is not the resolver.
+  Sending this form back without the model's reading would need a wider cue; that is a separate decision.
+- **P56 and P59, over-clarified in (a) and (b):** the routing decision itself asks for a region or a date, a
+  choice of the field writer. It is not the resolver.
 
 ## Review before merging: the demand-extreme backstop's window
 
