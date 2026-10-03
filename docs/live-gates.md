@@ -3490,3 +3490,255 @@ switched. Files are in `eval/model_comparison_dev/`; the pre-registered plan is 
     `af50fc2b531be324`.
   - **Expected spend:** about USD 1.41 under ledger accounting.
 - **Status:** frozen, not run. The runner's dry run passes its checks with the required cap and starts nothing.
+
+## Results: development comparison of gpt-5-mini and gpt-6.1-sol (run once on `main`, 2026-10-03, under the frozen protocol of PR #62)
+
+**Decision: DOES NOT SUPPORT A SWITCH PROPOSAL** (`eval/model_comparison_dev/score.py --review` on both reviews, the
+stricter reading prevailing; the frozen criteria applied unchanged). gpt-6.1-sol met S1 (safety, absolute), S4 and S5,
+and missed S2 (routing), S3 (truncation) and S6 (a material improvement).
+
+**This is a development comparison on familiar, pinned cases, run once.** It is not an L3 evaluation, not a switch
+evaluation, and not evidence of generalisation. Even a supporting result would only have justified proposing a frozen
+evaluation on fresh cases. No model is switched, and Live stays experimental, with gpt-5-mini.
+
+Records are in:
+- `artifacts/live/MC-dev-route-{mini,sol}-r{1,2,3}/` (routing) and `artifacts/live/MC-dev-e2e-{mini,sol}/` (end to
+  end), each with its records, standard output and traces;
+- `artifacts/live/MC-dev/run_log.jsonl` (both attempts) and `artifacts/logs/MC_dev_driver.log`;
+- `artifacts/live/MC-dev-review/`: both sheets, both reviews, the brief, the ten blind answers as the independent
+  reviewer received them, the decision and the measures (see its `README.md`).
+
+**Checks before the paid calls:**
+- **Merge:** PR #62 merged as `abc222f`, whose tree equals the reviewed head `b78b2c5`. CI on `main` passed.
+- **Freeze and code:** all 14 frozen file hashes matched. The code under test is `205974b` (`src/` tree `bc744281…`,
+  prompts v12 `7a1fe6a…`).
+- **Ledger:** USD 7.663248, 2,722 lines, `af50fc2b531be324`.
+- **Runner state:** no comparison record, lock or runner process existed, and no override was set.
+- **Approval:** the owner approved one execution, with a task cap of USD 13.051248 for this comparison only.
+
+**Runs:** `eval/model_comparison_dev/run_eval.py --approved-task-cap 13.051248`, detached, 58 slots in the frozen
+order.
+
+| Attempt | Started (UTC) | Ended (UTC) | Slots | Outcome |
+| --- | --- | --- | --- | --- |
+| 1 | 08:28:19 | killed by an environment restart during slot 18 (started 08:33:14) | 1–17 saved | interrupted |
+| 2 | 09:29:33 | 09:49:26 | slot 18 rerun once from scratch, then 19–58 | **complete: 58/58 saved** |
+
+- **The interruption, under the frozen rule:** before resuming, the guards were rechecked (frozen hashes, code and
+  prompts, ledger integrity, budgets, and no driver, case process or held lock). Slot 18 was recorded as
+  `interrupted`, its reservation of USD 0.03082 was kept as spent, and the slot was rerun once (USD 0.023865). Slots
+  1–17 were not rerun. There was no second interruption, and no API error, budget stop or safety stop. No slot was
+  repeated because of its result.
+- **Spend by run** (ledger accounting; run caps unchanged):
+
+  | Run | Slots | Spend | Run cap |
+  | --- | --- | --- | --- |
+  | R-mini | 24 | 0.058843 | 0.144 |
+  | R-sol | 24 | 0.211734 (0.180914 saved + 0.03082 interrupted) | 0.744 |
+  | E-mini | 5 | 0.176202 | 0.75 |
+  | E-sol | 5 | 0.412023 | 3.75 |
+
+- **Ledger:** USD 7.663248 → **8.52205**, so USD **0.858802** was spent, under the approved USD 13.051248.
+  - **New lines:** 183: 92 reservations and 91 settlements. The one unsettled reservation is slot 18's interrupted
+    first attempt (USD 0.03082), counted as spent.
+  - **Integrity**, by hash, line count and total (the file is ignored by git): `af50fc2b531be324`, 2,722 lines →
+    `e8bcc3be401caec5`, 2,905 lines.
+- **Cost labels:** ledger accounting (conservative: gpt-6.1-sol's uncached input at the cache-write rate);
+  documented list-price estimate; billed, not observed (the API response does not carry it).
+
+### The frozen decision
+
+| Criterion | gpt-5-mini | gpt-6.1-sol | Bar for gpt-6.1-sol | Met |
+| --- | --- | --- | --- | --- |
+| **S1** safety (absolute): H1–H5, automatic and both reviews; wrong bindings; X; critical violations shown | — | all 0 | all 0 | yes |
+| **S2** correct bindings on the 15 answerable routing slots | 15 | **11** | at least gpt-5-mini's | **no** |
+| **S2** containment (Q17, Q21; 6 slots) | 5 of 6 | 6 of 6 | all 6 | yes |
+| **S3** responses that did not finish, over all calls | 1 of 48 | **6 of 43** | no more than gpt-5-mini's | **no** |
+| **S4** usable answers without fallback (5 end-to-end slots) | 3 | 3 | at least gpt-5-mini's | yes |
+| **S5** mean documented cost per end-to-end slot | USD 0.03524 | USD 0.082399 | at most USD 0.40 | yes |
+| **S5** median end-to-end slot time | 103.9 s | 40.1 s | at most 180 s | yes |
+| **S6** at least 2 fewer cut-offs, or at least 2 more usable answers | — | 5 more cut-offs; 0 more usable | one of the two | **no** |
+
+**Safety, compared separately** (not part of S1): gpt-5-mini has 1 X and 1 H4 (slot 53, K09, the independent
+reviewer's stricter reading); gpt-6.1-sol has none.
+
+### The measures, per model
+
+| Measure | gpt-5-mini | gpt-6.1-sol |
+| --- | --- | --- |
+| Wrong routing bindings | 0 | 0 |
+| Routing calls cut off at the 2,000-token cap | 1 (Q21 r1) | 6 (K04 r2, r3; Q01 r1, r2, r3; K05 end to end) |
+| Cause established by the text | whitespace at the cutoff (1) | whitespace at the cutoff (6) |
+| Field open at the cutoff | uncertain (1) | uncertain (6) |
+| Median routing tokens per call, reasoning / visible | 896 / 226 | 153 / 198 |
+| End-to-end outcomes (K05, K06, K07, K09, K11) | S, S, F, **X**, S | C, S, U, F, S |
+| Median routing call time | 12.0 s | 10.3 s |
+| Model calls | 48 | 43 |
+| Reported model | `gpt-5-mini-2025-08-07` (48) | `gpt-6.1-sol` (43; no dated snapshot) |
+| Reported reasoning effort (not sent, so the provider default) | medium (48) | medium (43) |
+| Ledger accounting: routing, end to end | 0.058843, 0.176202 | 0.211734 (incl. 0.03082 interrupted), 0.412023 |
+| Documented list-price estimate: routing, end to end | 0.058841, 0.176202 | 0.180879, 0.411996 |
+| Billed | not observed | not observed |
+
+### The findings, separately
+
+1. **gpt-6.1-sol's routing runs away into whitespace.**
+   - **The cut-offs:** 6 of its 43 calls ran to the 2,000-token routing cap, all of them routing calls. In each, the
+     text itself establishes the cause, "whitespace at the cutoff": a valid JSON prefix of the routing decision, broken
+     off between tokens, then whitespace up to the cap (1,595–1,728 of about 2,200 visible characters in the routing
+     slots; 6,642 of 7,176 in K05 end to end). The field open at the cutoff is
+     uncertain in all six. These calls used 88–221 reasoning tokens, so the cap was spent on visible whitespace, not
+     on reasoning.
+   - **The effect:** the code rejected each response before parsing, as I-14 requires, so nothing was bound from
+     them. Q01 was sent back in all three repeats (a supply miss), K04 r2 and r3 were sent back (no request expected,
+     so this is contained), and K05 end to end became a clarification (C).
+   - **gpt-5-mini:** 1 of 48 calls (Q21 r1, also whitespace at the cutoff), which is its one containment miss.
+2. **Routing correctness, apart from truncation.**
+   - **No wrong binding by either model** in this sample.
+   - **gpt-6.1-sol, Q16 r3:** sent back without a cut-off (452 output tokens).
+   - **gpt-5-mini, K04:** sent back in all three repeats, after finished calls of 1,836–1,949 of 2,000 output tokens.
+     K04 expects no request, so S2 does not count this, but it is over-clarification near the cap.
+3. **End to end: equal usable answers, different failures.**
+   - **gpt-5-mini:** S on K05, K06 and K11. It fell back on K07 (the run asked for was substituted after a repair) and
+     on K09, which the independent reviewer read as X with H4 = 1 (below).
+   - **gpt-6.1-sol:** S on K06 and K11, U on K07 (the expected "unavailable"), a fallback on K09 (F), and C on K05,
+     caused by the routing cut-off.
+   - **Speed and cost:** gpt-6.1-sol's end-to-end slots were faster (median 40.1 s against 103.9 s) and cost about
+     2.3 times as much at the documented list price (USD 0.082399 against 0.03524 per slot).
+4. **K09: a denial of the maximum that I-19's check does not read** (both models; a validator miss).
+   - **What the validator caught:** gpt-5-mini's draft and repair stated another interval as the maximum
+     (`REQUESTED_MAXIMUM_MISMATCH`); gpt-6.1-sol's denied that the maximum was established
+     (`REQUESTED_MAXIMUM_DENIED`). Both fell back to facts only, and the gold maximum (10954.2 MW, interval ending 19:05
+     AEST) is among the shown observations in both.
+   - **What it missed:** each fallback kept a caveat denying the maximum in wording outside I-19's lexical check:
+     - **gpt-5-mini (slot 53):** "… I report the highest 5-minute TOTALDEMAND value present in the returned fields
+       rather than a proven global maximum …", with another caveat saying the controller's 10954.2 MW maximum "is not
+       used as tool-backed evidence in this report";
+     - **gpt-6.1-sol (slot 54):** "The highest dispatch TOTALDEMAND level … across the requested day cannot be
+       verified …", with the maximum wording 11 tokens before the denial, beyond the check's window.
+   - **The validator flagged neither caveat:** the shown answers carry no violation, and the automatic H4 is 0 for
+     both.
+   - **The frozen scores differ:**
+     - **Slot 53: X with H4 = 1**, from the independent review. Read strictly, its caveats present 10890.3 MW (19:35
+       AEST) as the reported highest and disown the true maximum. The developer had read F with H1–H5 0. The developer's
+       note calls this "not a gate violation", meaning no H1–H5 violation in the developer's own reading, and is
+       superseded by the stricter reading.
+     - **Slot 54: F with H1–H5 0**, in both reviews. Its caveat presents no other value as the maximum.
+   - **Recorded, not fixed.**
+5. **I-19 and I-20 elsewhere in this run** (development cases; observations, not verification):
+   - `REQUESTED_INTERVAL_MISNAMED` caught gpt-5-mini's K07 draft; the repair then substituted another run
+     (`FORECAST_RUN_SUBSTITUTED`), and the answer fell back.
+   - `REQUESTED_MAXIMUM_DENIED` caught gpt-6.1-sol's first K11 draft; the repair supplied the maximum (S).
+   - `AGGREGATE_COVERAGE_MISMATCH` caught gpt-5-mini's K05 and K06 drafts; both repairs passed (S).
+6. **A quality note, not a violation:** gpt-5-mini's K06 has a hedged hypothesis that a line outage in a cited market
+   notice "could be related" to the forecast error. The notice dates the outage "At 1415 hrs 20/08/2026" (04:15Z),
+   about six hours after the half-hour ended (22:30Z on 19 August).
+
+### Per slot: routing
+
+Bold labels are sends-back of a question that did not need one. Ledger cost is USD.
+
+| Slot | Case | Repeat | Model | Gold | Label | Output tokens (reasoning; cap 2,000) | Finished | Ledger cost |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | K04 | 1 | gpt-5-mini | no_request | **SENT_BACK** | 1940 (1600) | yes | 0.004270 |
+| 2 | K04 | 1 | gpt-6.1-sol | no_request | NO_REQUEST_OK | 668 (163) | yes | 0.010585 |
+| 3 | K04 | 2 | gpt-6.1-sol | no_request | **SENT_BACK** | 2000 (153) | **no: whitespace at the cutoff** | 0.020163 |
+| 4 | K04 | 2 | gpt-5-mini | no_request | **SENT_BACK** | 1836 (1536) | yes | 0.003746 |
+| 5 | K04 | 3 | gpt-5-mini | no_request | **SENT_BACK** | 1949 (1600) | yes | 0.003972 |
+| 6 | K04 | 3 | gpt-6.1-sol | no_request | **SENT_BACK** | 2000 (191) | **no: whitespace at the cutoff** | 0.020163 |
+| 7 | Z04 | 1 | gpt-6.1-sol | bound | CORRECT | 314 (153) | yes | 0.003418 |
+| 8 | Z04 | 1 | gpt-5-mini | bound | CORRECT | 1380 (1216) | yes | 0.002825 |
+| 9 | Z04 | 2 | gpt-5-mini | bound | CORRECT | 1146 (960) | yes | 0.002357 |
+| 10 | Z04 | 2 | gpt-6.1-sol | bound | CORRECT | 464 (235) | yes | 0.004800 |
+| 11 | Z04 | 3 | gpt-6.1-sol | bound | CORRECT | 371 (142) | yes | 0.003870 |
+| 12 | Z04 | 3 | gpt-5-mini | bound | CORRECT | 913 (704) | yes | 0.001891 |
+| 13 | Q01 | 1 | gpt-5-mini | bound | CORRECT | 942 (704) | yes | 0.001954 |
+| 14 | Q01 | 1 | gpt-6.1-sol | bound | **SENT_BACK** | 2000 (94) | **no: whitespace at the cutoff** | 0.020320 |
+| 15 | Q01 | 2 | gpt-6.1-sol | bound | **SENT_BACK** | 2000 (88) | **no: whitespace at the cutoff** | 0.020162 |
+| 16 | Q01 | 2 | gpt-5-mini | bound | CORRECT | 789 (576) | yes | 0.001648 |
+| 17 | Q01 | 3 | gpt-5-mini | bound | CORRECT | 1209 (960) | yes | 0.002488 |
+| 18 | Q01 | 3 | gpt-6.1-sol | bound | **SENT_BACK** | 2000 (221) | **no: whitespace at the cutoff** | 0.023865 (rerun after the interruption) |
+| 19 | Q05 | 1 | gpt-6.1-sol | bound | CORRECT | 290 (80) | yes | 0.003190 |
+| 20 | Q05 | 1 | gpt-5-mini | bound | CORRECT | 934 (704) | yes | 0.001935 |
+| 21 | Q05 | 2 | gpt-5-mini | bound | CORRECT | 1112 (896) | yes | 0.002291 |
+| 22 | Q05 | 2 | gpt-6.1-sol | bound | CORRECT | 287 (99) | yes | 0.003031 |
+| 23 | Q05 | 3 | gpt-6.1-sol | bound | CORRECT | 287 (99) | yes | 0.003031 |
+| 24 | Q05 | 3 | gpt-5-mini | bound | CORRECT | 1129 (896) | yes | 0.002325 |
+| 25 | Q02 | 1 | gpt-5-mini | bound | CORRECT | 808 (576) | yes | 0.001682 |
+| 26 | Q02 | 1 | gpt-6.1-sol | bound | CORRECT | 384 (188) | yes | 0.004120 |
+| 27 | Q02 | 2 | gpt-6.1-sol | bound | CORRECT | 305 (115) | yes | 0.003210 |
+| 28 | Q02 | 2 | gpt-5-mini | bound | CORRECT | 1062 (832) | yes | 0.002190 |
+| 29 | Q02 | 3 | gpt-5-mini | bound | CORRECT | 851 (640) | yes | 0.001768 |
+| 30 | Q02 | 3 | gpt-6.1-sol | bound | CORRECT | 365 (119) | yes | 0.003810 |
+| 31 | Q16 | 1 | gpt-6.1-sol | bound | CORRECT | 345 (159) | yes | 0.003723 |
+| 32 | Q16 | 1 | gpt-5-mini | bound | CORRECT | 1648 (1408) | yes | 0.003361 |
+| 33 | Q16 | 2 | gpt-5-mini | bound | CORRECT | 1250 (1024) | yes | 0.002565 |
+| 34 | Q16 | 2 | gpt-6.1-sol | bound | CORRECT | 404 (225) | yes | 0.004200 |
+| 35 | Q16 | 3 | gpt-6.1-sol | bound | **SENT_BACK** | 452 (246) | yes | 0.004680 |
+| 36 | Q16 | 3 | gpt-5-mini | bound | CORRECT | 1210 (1024) | yes | 0.002485 |
+| 37 | Q17 | 1 | gpt-5-mini | clarify | SENT_BACK | 634 (384) | yes | 0.001334 |
+| 38 | Q17 | 1 | gpt-6.1-sol | clarify | SENT_BACK | 266 (86) | yes | 0.002940 |
+| 39 | Q17 | 2 | gpt-6.1-sol | clarify | SENT_BACK | 363 (121) | yes | 0.003790 |
+| 40 | Q17 | 2 | gpt-5-mini | clarify | SENT_BACK | 718 (512) | yes | 0.001502 |
+| 41 | Q17 | 3 | gpt-5-mini | clarify | SENT_BACK | 878 (640) | yes | 0.001822 |
+| 42 | Q17 | 3 | gpt-6.1-sol | clarify | SENT_BACK | 258 (73) | yes | 0.002740 |
+| 43 | Q21 | 1 | gpt-6.1-sol | no_request | NO_REQUEST_OK | 210 (39) | yes | 0.002345 |
+| 44 | Q21 | 1 | gpt-5-mini | no_request | **SENT_BACK** | 2000 (1088) | **no: whitespace at the cutoff** | 0.004062 |
+| 45 | Q21 | 2 | gpt-5-mini | no_request | NO_REQUEST_OK | 1317 (960) | yes | 0.002696 |
+| 46 | Q21 | 2 | gpt-6.1-sol | no_request | NO_REQUEST_OK | 466 (268) | yes | 0.004819 |
+| 47 | Q21 | 3 | gpt-6.1-sol | no_request | NO_REQUEST_OK | 378 (222) | yes | 0.003939 |
+| 48 | Q21 | 3 | gpt-5-mini | no_request | NO_REQUEST_OK | 806 (640) | yes | 0.001674 |
+
+### Per slot: end to end
+
+Outcomes on the targeted check's scale (S supplied, U unavailable, C clarification, F fallback, X incorrect shown). Bold marks the one disagreement; the frozen score takes the stricter reading. Ledger cost is USD.
+
+| Slot | Case | Model | Expected | Outcome (developer / independent) | Rules fired before repair | Fallback | H4 (developer / independent) | Calls | Time (s) | Ledger cost |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 49 | K05 | gpt-5-mini | S | S / S | `AGGREGATE_COVERAGE_MISMATCH`, `NUMERIC_UNTRACKED` | no | 0 / 0 | 5 | 120.8 | 0.035832 |
+| 50 | K05 | gpt-6.1-sol | S | C / C | none | no | 0 / 0 | 1 | 40.1 | 0.020313 |
+| 51 | K07 | gpt-6.1-sol | U | U / U | none | no | 0 / 0 | 4 | 35.2 | 0.100204 |
+| 52 | K07 | gpt-5-mini | U | F / F | `QUOTE_NOT_IN_SOURCE`, `REQUESTED_INTERVAL_MISNAMED`; after repair: `FORECAST_RUN_SUBSTITUTED` | yes | 0 / 0 | 5 | 139.6 | 0.041671 |
+| 53 | K09 | gpt-5-mini | S | **F / X** | `DEMAND_EXTREME_UNVERIFIED`, `REQUESTED_MAXIMUM_MISMATCH`; after repair: `REQUESTED_MAXIMUM_MISMATCH` | yes | **0 / 1** | 5 | 103.9 | 0.035794 |
+| 54 | K09 | gpt-6.1-sol | S | F / F | `REQUESTED_MAXIMUM_DENIED`; after repair: `REQUESTED_MAXIMUM_DENIED` | yes | 0 / 0 | 5 | 38.6 | 0.107072 |
+| 55 | K06 | gpt-6.1-sol | S | S / S | none | no | 0 / 0 | 4 | 44.6 | 0.104894 |
+| 56 | K06 | gpt-5-mini | S | S / S | `AGGREGATE_COVERAGE_MISMATCH`, `DOC_CLAIM_UNSUPPORTED` | no | 0 / 0 | 5 | 99.4 | 0.036199 |
+| 57 | K11 | gpt-5-mini | S | S / S | none | no | 0 / 0 | 4 | 88.6 | 0.026706 |
+| 58 | K11 | gpt-6.1-sol | S | S / S | `REQUESTED_MAXIMUM_DENIED` | no | 0 / 0 | 5 | 51.2 | 0.079540 |
+
+### Reviews
+
+- **Routing labels** are mechanical: the frozen v12 labeller against the gold. The reviews cover the ten end-to-end
+  answers.
+- **Order:** the developer's review was written first, then the independent review, blind.
+- **The independent reviewer** worked only inside a kit outside the repository holding:
+  - the brief and the blind sheet;
+  - the ten shown answers as A01–A10, in the frozen blind order;
+  - the gold of the five cases, and copies of the pinned store tables, against which it checked the rows.
+
+  The kit carried no model, trace, usage, cost or timing, and a scan of every kit file found no model name, run label
+  or trace ID.
+- **Agreement:** the outcome and H1–H5 agree on nine of the ten answers.
+- **The one difference: slot 53** (gpt-5-mini, K09).
+  - **The readings:** the developer read F with H1–H5 0; the independent reviewer read X with H4 = 1 (finding 4).
+  - **The decision:** it takes the stricter reading.
+  - **The developer's note:** its "not a gate violation" (no H1–H5 violation in the developer's own reading) is kept
+    unchanged in the record and superseded in the score.
+
+### Limitations
+
+- **The sample:**
+  - one execution per end-to-end case and three per routing case, on familiar development cases with
+    non-deterministic models;
+  - it cannot establish rates or reliability for either model.
+- **The settings:**
+  - "medium" is each provider's default effort, not a matched amount of reasoning;
+  - both models ran under the same output caps, which were set for gpt-5-mini;
+  - the comparison tests the current code as it is, not each model at its best.
+- **gpt-6.1-sol:** it reports no dated snapshot, so its behaviour may change without a version change.
+- **Cost:** documented prices were read at the freeze; the billed amount was not observed.
+- **Slot 18:** its first attempt produced no output, so the rerun's result is the only one; it is counted with the
+  first attempt's retained reservation.
+
+**Unchanged:** v1.0 (`f14db6d`), every frozen protocol file, the historical verdicts and scores, and the code and
+prompts. No fix has been started, no model is switched, and no further run has been made.

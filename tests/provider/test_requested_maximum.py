@@ -86,9 +86,10 @@ def test_no_other_question_in_the_repository_asks_for_a_maximum():
     found = []
     for f in sorted(ROOT.glob("eval/**/*.json")) + sorted(ROOT.glob("artifacts/live/**/*.json")):
         # the Live check of this fix asks for maxima by design: its case file and its run and review records; so do
-        # the I-18 paraphrase matrix and its records, and the Live check of the v12 routing extraction
+        # the I-18 paraphrase matrix and its records, the Live check of the v12 routing extraction, and the development
+        # model comparison's run and review records (it reran that check's cases)
         if "traces" in f.parts or any(part.startswith(("livecheck_i15_17", "LC-i15-17", "structured_requests",
-                                                       "livecheck_routing_v12", "LC-route-v12"))
+                                                       "livecheck_routing_v12", "LC-route-v12", "MC-dev"))
                                       for part in f.parts):
             continue
         try:
