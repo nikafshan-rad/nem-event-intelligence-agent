@@ -638,3 +638,112 @@ Acceptance check recorded before implementation. One bounded offline PR; demand 
   - **Not semantic containment.** Not matched: an untraced rounding or paraphrase of the value ("about 7,500 MW"),
     a statement that gives no number, and an observation listing the row as a tool value. These are recorded
     limitations, not to be closed with phrase rules.
+
+## D26. Request resolution from role spans: route contract v13 (2026-10-03)
+- **Context:** in the Live acceptance check of computed demand maxima (records in `artifacts/live/LC-maxima-review/`),
+  5 of the 11 answerable maximum cases stopped at routing. Its frozen FAIL verdict, and the disputed R03/R04 findings,
+  are unchanged by this decision and are not addressed by it. This entry was written before any code of the change.
+- **Root causes** (observed in the saved requests, responses, diagnostics and resolution traces unless marked):
+
+  | Case | Where it enters | Observed | Hypothesis only |
+  | --- | --- | --- | --- |
+  | D02, F02 | The routing response, `incomplete` at 2,000 output tokens, rejected before parsing | 832 reasoning tokens each; about 525–560 characters of valid JSON, then 1,007 and 960 characters of `\r`/space up to the cutoff, near `requested.maximum.window_text` (position uncertain) | why the output degenerates; that a smaller output makes it rarer |
+  | D01 | `structured.resolve_maximum`, measure grounding | the model's correct, verbatim `measure_text` "NSW dispatch total demand" was dropped because the rule needed a peak word inside the same quote; the question parser has no pattern for "total demand highest" | — |
+  | F06 | the same check | the verbatim quote "VIC1 dispatch total demand (TOTALDEMAND) go over that event's full window" holds no word of the peak vocabulary; the question's peak wording is "how high did … go", and "top" is further than the parser looks; the code's own cue did fire | — |
+  | F07 | `_day_grounded` and `request.maximum_window_kind` | the narrowing scan runs over the whole question and matched "noon" in the cutoff wording "published by noon Brisbane time", rejecting the parser's day reading and the model's correct one ("that entire local day") | — |
+
+  - **Truncation is not one mechanism.** All 9 diagnosed incomplete route responses are whitespace degeneration: 3
+    gpt-5-mini, at `requested.maximum.window_text`; 6 gpt-6.1-sol, at `requested.forecast_run`. Of the older,
+    undiagnosed ones, two show reasoning exhaustion (1,984 of 1,984 and 1,920 of 2,000 output tokens), and three are
+    consistent with degeneration (unconfirmed). A larger cap does not help degeneration, which fills whatever remains
+    (6,642 characters in one gpt-6.1-sol case).
+  - **The common resolution cause:** the resolver accepts a correct, verbatim reading only if the quote also passes
+    the bounded vocabularies that failed as parsers, and it scans for narrowing words without knowing which words
+    belong to which role. Across 218 saved route decisions with a structured reading, 14 of 43 maximum readings were
+    not bound. 7 of the 8 rejected for a missing measure quoted the measure without a peak word. Whether each
+    rejection was wrong needs per-case gold.
+- **Decision:** one routing call, a slimmer contract of verbatim role spans, and deterministic resolution by code.
+  - **The contract (prompts v13):**
+    - **Unchanged:** `intent`, `region`, `event_date`, the clarification fields and `out_of_scope`.
+    - **Spans:** `as_of_text` (the cutoff's words); `requested.forecast_run`: `selection`, `selection_text`,
+      `half_hour_text`; `requested.maximum`: `kind`, `measure`, `measure_text` (the measure's words), `peak_text` (the
+      words asking for its highest level or time), `window`, `window_text`.
+    - **Removed:** every model-computed timestamp (`as_of_utc`, `target_half_hour_end_utc`, `issued_at_utc`,
+      `window_start_utc`, `window_end_utc`). Code converts every date and time from the quoted words and the request
+      fields.
+  - **Spans are located, not only matched** (correction 1). For each span, code records the character offsets of
+    every occurrence in the question (ignoring case, spacing and dash and apostrophe styles), and verifies that each
+    offset identifies exactly the quoted text.
+    - **One occurrence:** the span is located.
+    - **Repeated occurrences:** its content can still be read (identical words read identically), but it locates
+      nothing, so it attributes no temporal expression to its role.
+    - **None:** the span is not used.
+  - **A verbatim span proves the words exist, not their role** (correction 1). Each span is checked for consistency
+    with its role, and a span that fails is not used:
+    - **the measure:** names exactly one measure, the one the enum gives;
+    - **the peak:** an extreme word, outside a price-extreme or value-at-the-peak context;
+    - **a whole-day window:** day or date words, with no clock, event, part of the day or narrowing;
+    - **an event window:** an event word;
+    - **an explicit window:** converts to a start and an end;
+    - **the cutoff:** availability or as-of wording, and no issue word (an issue time names a run, not a cutoff).
+
+    **Conflict detection is preserved:**
+    - two roles' located spans overlap;
+    - the question parser and the model's span read differently;
+    - the measure enum and its span disagree.
+
+    In every case the request is sent back, naming the field.
+  - **Times are converted only by code** (correction 2). Historical model timestamps are not ground truth: in the
+    adapter they are ignored for values. Deterministic conversion is validated against the questions and the
+    independently checked gold. Every historical binding that changes is listed with its cause, and is not required to
+    reproduce a model timestamp.
+  - **The unresolved-request gate is kept** (correction 3). Detection is by the question parser, the model's reading
+    (`kind` not none, a selection not none, a cutoff span) or the bounded cue. A detected request ends **bound** or in
+    **clarification**, never on an unchecked path. That includes a cutoff that is detected but cannot be converted.
+    - **Peak evidence:** a consistent `peak_text`, the parser, or the cue.
+    - **The model's `maximum` alone binds nothing.**
+  - **Temporal coverage is role-aware** (correction 4). A narrowing expression (the existing narrowing vocabulary)
+    blocks a window only when it is not inside a located span of another temporal role:
+    - the cutoff: the model's `as_of_text`, or the as-of clause the parser finds;
+    - the forecast run's `selection_text` or `half_hour_text`.
+
+    A cutoff never narrows the analysis window. Narrowing inside the window's own span fails that span's role check.
+  - **The historical adapter:** `RouteDecision` also parses a v12 decision, marked as v12.
+    - **Its spans:** the v12 `measure_text` serves as both the measure and the peak span.
+    - **Its timestamps:** ignored.
+    - **A v12 `as_of_utc`:** detection only. If no cutoff is pinned down by the request, the question's words or the
+      parser, the question is sent back.
+
+    The API receives the v13 strict schema only.
+  - **Unchanged:**
+    - incomplete responses are rejected before parsing, with no salvage, retry or cap increase;
+    - one routing call, the same model and output caps;
+    - the D24 result registry and verifier, and the D25 renderer;
+    - the validator and the answer-side backstops;
+    - frozen material and historical verdicts.
+- **Offline acceptance criteria** (before merge; scratch ledger only):
+  1. **Reproductions:**
+     - D01, F06 and F07 bind exactly the gold measure, window kind and window (`eval/livecheck_maxima/GOLD.json`),
+       from their saved v12 decisions through the adapter and from v13 decisions;
+     - through the fake transport, their computed results equal `GOLD.json`;
+     - D02 and F02's incomplete responses are rejected before parsing.
+  2. **Historical bindings:** every saved route decision is resolved with the v12 code and with this code. Every
+     changed binding is listed and reviewed, and each new binding is verified against gold where gold exists.
+  3. **Ambiguity and role controls:** SYNTHETIC tests of:
+     - misplaced, overlapping, omitted and repeated spans;
+     - repeated clock expressions;
+     - mixed run-and-maximum questions;
+     - a cutoff beside a whole day;
+     - genuine ambiguity: no measure, no window, narrowing words, an unconvertible cutoff, a maximum claimed without
+       peak evidence, demand at the price peak.
+  4. **Unchanged suites:** the full test suite, the I-18 paraphrase matrix (`eval/structured_requests`), the Replay
+     evaluation and the safety suite. Any changed outcome is explained.
+- **Known limits:**
+  - The narrowing vocabulary is lexical and bounded. A bare boundary time ("after 6 pm") is not detected as narrowing,
+    as before.
+  - The role checks for the measure, peak and cutoff use closed vocabularies. A paraphrase outside them sends the
+    question back; it is not guessed.
+  - `event_date` is still the model's.
+  - A repeated span locates nothing.
+- **Not claimed:** that truncation becomes rarer. A slimmer output is a hypothesis until separately approved Live
+  verification.
