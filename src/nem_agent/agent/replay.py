@@ -159,6 +159,7 @@ def forecast_focus(res: Resolution) -> tuple[datetime, datetime]:
 class ReplayController:
     def __init__(self, dispatcher: Dispatcher, registry: EvidenceRegistry, versions: Versions) -> None:
         self.d, self.reg, self.versions = dispatcher, registry, versions
+        self._result_lines: list[dict[str, Any]] = []  # provenance of the maximum lines written (I-21)
 
     # ------------------------------------------------------------------ plans
     def run(self, res: Resolution) -> InvestigationReport:
@@ -290,12 +291,21 @@ class ReplayController:
             "sources": [{"url": u, "evidence_ids": sorted(ids)[:10]} for u, ids in sorted(urls.items())],
             "documents": sorted({(c.doc_id, c.url) for c in comp.citations}),
         }
-        return InvestigationReport(
+        out = InvestigationReport(
             question=res.request.question, mode="replay", intent=res.intent, region=res.region,
             as_of=iso_utc(res.as_of) if res.as_of else None, event_window=ew, headline=headline, summary=summary,
             observations=comp.observations, citations=comp.citations, numeric_claims=comp.claims,
             missing_evidence=list(dict.fromkeys(missing)), source_manifest=manifest, trace_id=self.d.trace.trace_id,
             versions=self.versions, generator=CONTROLLER_VERSION, **kw)
+        # provenance (I-21): every note in a Replay answer is written by the code; a maximum line counts only where it
+        # was put in this report's summary
+        out._provenance = {
+            "result_lines": [r for r in self._result_lines
+                             if r["summary_index"] < len(summary) and summary[r["summary_index"]] == r["text"]],
+            "controller_notes": {"uncertainties": list(range(len(out.uncertainties))),
+                                 "missing_evidence": list(range(len(out.missing_evidence)))}}
+        self._result_lines = []
+        return out
 
     def _standard_uncertainties(self, res: Resolution) -> list[str]:
         u = [
@@ -376,7 +386,7 @@ class ReplayController:
                 s += (f" and NETINTERCHANGE ('Net interconnector flow from the regional reference node') was "
                       f"{comp.num(ni['evidence_id'], 'signed_mw')}")
             summary.append(s + ".")
-        summary += self._maximum_lines(res, comp)
+        summary += self._maximum_lines(res, comp, len(summary))
         hyps: list[Hypothesis] = []
         act = ok(recs, "get_actual_demand")
         peak_t = parse_iso(pk["interval_end_utc"])
@@ -450,9 +460,11 @@ class ReplayController:
         return self._base(res, comp, headline, summary, forecast_comparison=fc, possible_explanations=hyps,
                           published_findings=findings, uncertainties=uncertainties, status=status)
 
-    def _maximum_lines(self, res: Resolution, comp: Composer) -> list[str]:
+    def _maximum_lines(self, res: Resolution, comp: Composer, start: int) -> list[str]:
         """Each demand measure's maximum the question asks for, computed by code over the requested window from the
-        controller's own call, as sentences (``demand_max``; I-17: held-out v6 Z04). Recorded for the validator."""
+        controller's own call, as sentences (``demand_max``; I-17: held-out v6 Z04). Recorded for the validator, and
+        their provenance for the facts-only fallback (I-21): ``start`` is where the caller puts them in the summary,
+        which is only appended to afterwards."""
         measures = demand_max.requested_measures(res)
         if not measures or not res.region:
             return []
@@ -461,7 +473,13 @@ class ReplayController:
         def num(eid: str) -> str:
             comp.observe(eid)
             return comp.num(eid, "raw")
-        return [demand_max.sentence(b, res.region, num, res.as_of) for b in res.demand_max]
+        lines: list[str] = []
+        for j, b in enumerate(res.demand_max):
+            k = len(comp.claims)
+            lines.append(demand_max.sentence(b, res.region, num, res.as_of))
+            self._result_lines.append({"binding": j, "summary_index": start + j, "text": lines[-1],
+                                       "claims": [c.model_copy() for c in comp.claims[k:]]})
+        return lines
 
     def _forecast_comparison(self, rec: ToolCallRecord, comp: Composer) -> ForecastComparison:
         v = rec.view
@@ -485,7 +503,7 @@ class ReplayController:
         uncertainties = self._standard_uncertainties(res)[1:]
         uncertainties.insert(0, "POE10/POE90 are AEMO-published values derived from POE50 by scaling factors "
                                 "(SO_OP_3710); they are not calibrated uncertainty intervals.")
-        summary: list[str] = self._maximum_lines(res, comp)
+        summary: list[str] = self._maximum_lines(res, comp, 0)
         hyps: list[Hypothesis] = []
         fc = None
         if res.as_of and runs:
