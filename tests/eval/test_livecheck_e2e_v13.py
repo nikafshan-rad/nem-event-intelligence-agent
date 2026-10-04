@@ -660,9 +660,11 @@ def test_the_freeze_matches_the_protocol():
     assert [s["slot"] for s in FREEZE["slots"]] == list(range(1, 9)) and {s["run"] for s in FREEZE["slots"]} == {"E"}
     assert sorted(FREEZE["review_blind_order"].values()) == sorted(BY_ID)
     assert FREEZE["e2e_bound"]["case_cap_required_usd"] <= 0.15
-    src = subprocess.run(["git", "rev-parse", f"{FREEZE['code_commit']}:src"], cwd=ROOT, capture_output=True,
-                         text=True, check=True).stdout.strip()
-    assert src == FREEZE["src_tree"]
+    if subprocess.run(["git", "cat-file", "-e", f"{FREEZE['code_commit']}^{{commit}}"], cwd=ROOT,
+                      capture_output=True).returncode == 0:  # a shallow checkout (CI) may not hold the code commit
+        src = subprocess.run(["git", "rev-parse", f"{FREEZE['code_commit']}:src"], cwd=ROOT, capture_output=True,
+                             text=True, check=True).stdout.strip()
+        assert src == FREEZE["src_tree"]
     head = subprocess.run(["git", "rev-parse", "HEAD:src"], cwd=ROOT, capture_output=True, text=True,
                           check=True).stdout.strip()
     if head != FREEZE["src_tree"]:  # on any later src/ its runner refuses to start
