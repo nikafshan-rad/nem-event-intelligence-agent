@@ -1,6 +1,6 @@
 # Routing-only Live check of route contract v13 (pre-registered; not run)
 
-Written on 2026-10-04, and committed and pushed before any other file of this check. It is frozen with the
+Written on 2026-10-03, and committed and pushed before any other file of this check. It is frozen with the
 configurations, gold, runner and scorer, and is not edited after any Live result is seen. **This file authorises no
 paid call.** A run needs the owner's separate approval of the frozen protocol and task cap ("Caps").
 
