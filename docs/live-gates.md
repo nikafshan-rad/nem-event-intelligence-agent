@@ -3938,9 +3938,14 @@ no tool ran and nothing was answered. It is not L3, and Live stays experimental.
   - **supply:** 3 of 20;
   - **containment:** 12 of 12.
 
-**The largest observed source of supply loss** was the clause-containment rule: 10 of the 17 supply calls lost. The
-same rule also stopped N03's misreading twice, so this is not a finding that validation is unnecessary. Truncation
-came second, with 5.
+**Where correct readings were lost:** the clause-containment rule rejected **8 of the 10 correct readings** that code
+lost. The other two are N07's "noon" and N04's resolver defect.
+- **By stated reason:** a clause-containment conflict was also the code's stated reason for sending back D05's 2
+  incorrect readings. That makes 10 of the 17 supply calls not supplied, counted by the code's stated reason. D05's 2
+  are errors caught by code, not losses the rule caused.
+- **No reading:** 5 of the 17 had no reading, all cut off.
+
+The same rule also stopped N03's misreading twice, so this is not a finding that validation is unnecessary.
 
 **Unchanged:** v1.0 (`f14db6d`), every frozen hash and historical verdict, and the code and prompts. No fix, rerun,
 model switch or release has been made.

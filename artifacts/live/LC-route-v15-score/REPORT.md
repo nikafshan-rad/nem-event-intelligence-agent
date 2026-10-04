@@ -163,23 +163,35 @@ The FAIL stands on D08 and N04 alone. The bars:
 | no reading | 5 (one with a scored violation surviving) | 1 |
 
 ## 7. Where the supply was lost (the 20 supply calls)
-3 supplied, 17 lost:
+3 were supplied and 17 were not. Each call not supplied is counted once, by the model's reading and the code's stated
+reason:
 
-| Cause | Calls |
-| --- | --- |
-| **D29's clause-containment rule** (the operation's or scope's words outside the model's requested clause) | **10**: 8 correct readings (D01 ×2, D02 ×2, D03 ×2, D07, N07) and 2 incorrect ones (D05 ×2) |
-| Incomplete response at the 2,000-token cap | 5 (D06, D07, D10 ×2, N04) |
-| "noon" not read | 1 (N07) |
-| The N04 resolver defect | 1 |
+| The model's reading | The code's stated reason | Calls |
+| --- | --- | --- |
+| correct | a clause-containment conflict (D29: the operation's or scope's words fall outside the model's requested clause) | 8: D01 ×2, D02 ×2, D03 ×2, D07, N07 |
+| correct | "noon" not read | 1: N07 |
+| correct | the resolver defect: a declined weather forecast noted as unanswered | 1: N04 |
+| incorrect (no date given; the cutoff's words used as the run's) | sent back; the stated reason was also a clause-containment conflict | 2: D05 ×2 |
+| none (cut off at the 2,000-token cap) | sent back fail-closed | 5: D06, D07, D10 ×2, N04 |
 
-**The clause-containment rule is the largest observed source of supply loss in this sample.** That is not a claim
-that validation is unnecessary:
-- the same rule stopped N03's demand misreading in both calls;
-- every request for another kind of forecast was sent back as unsupported (10 of 10 calls; each read correctly by the
-  model);
-- one misreading (D08, slot 23) passed every check.
+**Correct readings lost by code: 10.** The clause-containment rule accounts for **8 of these 10**: the largest
+observed source of correct readings lost by code in this sample. The other two are N07's "noon" and N04's resolver
+defect.
 
-Truncation is the second-largest observed source.
+**A broader count, labelled:** a clause-containment conflict was the code's stated reason for 10 of the 17 supply calls
+not supplied. That is those 8, plus D05's 2.
+- D05's readings were themselves incorrect.
+- They are counted as errors caught by code, not as losses the rule caused.
+
+**The second-largest group:** 5 calls with no reading, all cut off.
+
+**What this does not show:** that validation is unnecessary.
+- The same rule stopped N03's demand misreading in both calls.
+- Every request for another kind of forecast was sent back as unsupported (10 of 10 calls; each read correctly by the
+  model).
+- One misreading (D08, slot 23) passed every check.
+
+These are counts from this sample, not rates.
 
 ## 8. Usage and cost
 - **Tokens:** 78,878 input (71,552 of them cached) and 52,978 output (45,376 of them reasoning).
