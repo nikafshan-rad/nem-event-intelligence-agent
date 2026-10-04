@@ -1,5 +1,10 @@
-"""The routing-only Live check of route contract v15 (eval/livecheck_route_v15/PROTOCOL.md), offline. Covered:
-- its configurations and gold (reproducible from the writer's output, cross-checked with frozen verified sources);
+"""The routing-only Live check of route contract v15 (eval/livecheck_route_v15/PROTOCOL.md, as amended by
+AMENDMENT_1.md), offline. Covered:
+- its configurations and gold (reproducible from the writer's output, cross-checked with frozen verified sources), the
+  original protocol and gold kept unchanged, and the amended and extraction gold (reproducible from both agents'
+  records);
+- the three layers: the model's extraction (read from its decision alone), deterministic resolution and tool
+  eligibility, and the combined criteria; and their attribution;
 - its plan and caps (each configuration's reservation measured on its actual routing request);
 - its per-call runner through the SYNTHETIC fake transport: one routing call, no dispatcher, tool or synthesis, and a
   complete record;
@@ -13,7 +18,8 @@ Nothing here calls a model:
 
 Two outcomes are known before any run, from the deterministic code alone (PROTOCOL.md, "Known before the run"). A
 correct reading of N04 resolves with a weather part wrongly claimed as unanswered, which is a violation; N07 is sent
-back because its period ends at "noon".
+back because its period ends at "noon". The attribution keeps both apart from the model's extraction: N04 is a correct
+reading mis-resolved by code, N07 a correct reading rejected by code.
 """
 
 from __future__ import annotations
@@ -48,7 +54,13 @@ RUN = _load("run_eval")
 SCORE = _load("score")
 FRZ = _load("freeze")
 CASES = {c["config"]: c for c in json.loads((DIR / "cases.json").read_text())["cases"]}
-GOLD = {g["config"]: g for g in json.loads((DIR / "GOLD.json").read_text())["cases"]}
+GOLD_ORIGINAL = {g["config"]: g for g in json.loads((DIR / "GOLD.json").read_text())["cases"]}
+GOLD = {g["config"]: g for g in json.loads((DIR / "GOLD_AMENDED.json").read_text())["cases"]}  # Amendment 1
+XGOLD = {x["config"]: x for x in json.loads((DIR / "EXTRACTION_GOLD.json").read_text())["cases"]}
+ORIGINAL_SHA256 = {"PROTOCOL.md": "66caec235f39f52e6e936cb44ab3a53570e173ee63a6ce80e00d9aca3ccb9abd",  # as in 6077d46
+                   "GOLD.json": "6a3e895d792e25074f4b13821c044ed82637386333d58fd619fb48b3c5810723",
+                   "cases.json": "69c2b3ec0ececd8839fb3b03d62e079a55ad8998d8ea8c2442238d0926edafe9"}
+AMEND = _load("amend")
 FREEZE = json.loads((DIR / "FREEZE.json").read_text()) if (DIR / "FREEZE.json").exists() else None
 NO_RUN = {"selection": "none", "selection_text": None, "half_hour_text": None}
 NO_MAX = {"kind": "none", "measure": None, "measure_text": None, "peak_text": None, "window": None, "window_text": None}
@@ -115,9 +127,7 @@ CAREFUL = {  # SYNTHETIC: how a careful reader following prompts v16 would answe
         run={"selection": "as_of_availability", "selection_text": "AEMO's newest forecast run",
              "half_hour_text": "half-hour closing 2026-07-29T08:00:00Z"}, as_of_text="as of 2026-07-29T05:00:00Z"),
     "D08": _dec("forecast_review", "SA1", "2026-07-31", _fc(
-        "operational_demand", "what did the latest issued forecast say for the SA1 peak half-hour on 2026-07-31",
-        "forecast_value", "what did the latest issued forecast say", "event_peak_half_hour",
-        "the SA1 peak half-hour on 2026-07-31"),
+        "unclear", "what did the latest issued forecast say for the SA1 peak half-hour on 2026-07-31", "unclear"),
         run={"selection": "as_of_availability", "selection_text": "the latest issued forecast", "half_hour_text": None},
         as_of_text="As of 2026-07-30T14:35:00Z"),
     "D09": _dec("forecast_review", "SA1", "2026-07-31", _fc(
@@ -150,8 +160,8 @@ CAREFUL = {  # SYNTHETIC: how a careful reader following prompts v16 would answe
         "between 06:00 and noon AEST on 4 August 2026")),
 }
 RESOLVED, CONTAINED = "correct resolved request", "correct clarification or unsupported handling"
-EXPECTED = {**{c: RESOLVED for c in ("D01", "D02", "D03", "D04", "D05", "D06", "D07", "D08", "D10")},
-            **{c: CONTAINED for c in ("D09", "N01", "N02", "N03", "N05", "N06")},
+EXPECTED = {**{c: RESOLVED for c in ("D01", "D02", "D03", "D04", "D05", "D06", "D07", "D10")},
+            **{c: CONTAINED for c in ("D08", "D09", "N01", "N02", "N03", "N05", "N06")},
             "N04": "violation", "N07": "unnecessary clarification"}  # N04 and N07: known before the run
 
 
@@ -206,10 +216,32 @@ def test_the_gold_is_reproducible_from_the_writer_and_agrees_with_verified_sourc
     assert cases == json.loads((DIR / "cases.json").read_text()) and gold == json.loads((DIR / "GOLD.json").read_text())
     for rel, want in gold["sources_sha256"].items():
         assert hashlib.sha256((ROOT / rel).read_bytes()).hexdigest() == want, rel
-    assert GOLDMOD.cross_check(GOLD) == []
-    assert GOLD["D08"]["resolved_reading"] == "operational_demand_forecast" and GOLD["D08"]["domain"] == "unclear"
-    assert GOLD["D10"]["resolved_reading"] == "demand_maximum"
-    assert all(GOLD[c]["resolved_reading"] is None for c in CFG.CONTAINMENT)
+    assert GOLDMOD.cross_check(GOLD_ORIGINAL) == []
+    assert GOLD_ORIGINAL["D08"]["resolved_reading"] == "operational_demand_forecast"
+    assert GOLD_ORIGINAL["D10"]["resolved_reading"] == "demand_maximum"
+    assert all(GOLD_ORIGINAL[c]["resolved_reading"] is None for c in CFG.CONTAINMENT)
+
+
+def test_the_original_protocol_and_gold_are_kept_unchanged():
+    for name, want in ORIGINAL_SHA256.items():
+        assert hashlib.sha256((DIR / name).read_bytes()).hexdigest() == want, name
+
+
+def test_the_amended_and_extraction_gold_are_reproducible_from_both_agents():
+    amended, extraction, problems = AMEND.build()
+    assert all(p.endswith("(reported)") for p in problems)  # only the recorded intent differences
+    assert sorted(p.split(":")[0] for p in problems) == ["D08", "D09", "N01", "N02", "N03", "N05", "N06"]
+    assert amended == json.loads((DIR / "GOLD_AMENDED.json").read_text())
+    assert extraction == json.loads((DIR / "EXTRACTION_GOLD.json").read_text())
+    for c in GOLD:  # only D08 changed
+        if c != "D08":
+            assert {k: v for k, v in GOLD[c].items()} == GOLD_ORIGINAL[c]
+    d08 = GOLD["D08"]
+    assert (d08["outcome"], d08["acceptable_outcomes"], d08["resolved_reading"], d08["demand_forecast_tools"]) == (
+        "clarify_which_forecast", ["clarify_which_forecast", "event_review_unclear"], None, "not_used")
+    for who in ("writer", "reviewer"):
+        assert "resolved" not in d08["amendment"][who]["acceptable_outcomes"] and d08["amendment"][who]["rationale"]
+    assert [c for c in XGOLD if not XGOLD[c]["intents_agreed"]] == ["D08", "D09", "N01", "N02", "N03", "N05", "N06"]
 
 
 @pytest.mark.parametrize("edit,problem", [
@@ -372,13 +404,36 @@ def test_a_demand_reading_of_the_genuinely_ambiguous_question_fails():
     assert SCORE.classify(caught, GOLD["N03"])["outcome"] == "clarify_which_forecast"
 
 
-def test_d08_accepts_its_two_pre_registered_outcomes_and_nothing_relaxed(careful):
-    assert SCORE.classify(careful["D08"], GOLD["D08"])["class"] == RESOLVED
-    clar = _record("D08", _careful_with("D08", domain="unclear"))
-    assert SCORE.classify(clar, GOLD["D08"])["class"] == CONTAINED
-    wrong = copy.deepcopy(careful["D08"])
-    wrong["resolution"]["requests"]["forecast"]["target_utc"] = ["2026-07-30T17:00:00Z", "2026-07-30T17:30:00Z"]
-    assert any("scope" in v for v in _violations(wrong, "D08"))
+D08_DEMAND = _careful_with("D08", domain="operational_demand", operation="forecast_value",
+                           operation_text="what did the latest issued forecast say", scope="event_peak_half_hour",
+                           scope_text="the SA1 peak half-hour on 2026-07-31")
+
+
+def test_d08_as_re_resolved_accepts_only_what_both_agents_accept(careful):
+    """Amendment 1: the demand reading is no longer acceptable. A clarification, or an event review saying a forecast is
+    mentioned without showing which, is; a demand reading binds a request where the gold has none."""
+    assert SCORE.classify(careful["D08"], GOLD["D08"])["class"] == CONTAINED
+    # an event-review route is sent to a forecast review by the routing policy (an as-of question), and resolved as
+    # which-forecast; the event review's own outcome is shown on a SYNTHETIC record
+    ev = _record("D08", _dec("market_event_review", "SA1", "2026-07-31", _fc(
+        "unclear", "what did the latest issued forecast say for the SA1 peak half-hour on 2026-07-31"),
+        as_of_text="As of 2026-07-30T14:35:00Z"))
+    assert SCORE.classify(ev, GOLD["D08"])["outcome"] == "clarify_which_forecast"
+    unclear = copy.deepcopy(careful["D09"])
+    unclear["question"] = CASES["D08"]["question"]
+    unclear["resolution"].update(status="ok", intent="market_event_review", as_of_utc="2026-07-30T14:35:00Z")
+    unclear["resolution"]["requests"].update(
+        ineligible_tools={t: "SYNTHETIC" for t in DEMAND},
+        notes=["The question also mentions a forecast without showing which, so no AEMO operational demand forecast "
+               "is compared or given for it."])
+    unclear["resolution"]["requests"]["forecast"].update(status="absent", missing=[], domain=None)
+    unclear["tools_offered"] = ["find_market_events", "get_price_timeline"]
+    assert SCORE.classify(unclear, GOLD["D08"])["outcome"] == "event_review_unclear"
+    assert SCORE.classify(unclear, GOLD["D08"])["class"] == CONTAINED
+    demand = _record("D08", D08_DEMAND)
+    assert any("where the gold has none" in v for v in _violations(demand, "D08"))
+    assert SCORE.attribution(SCORE.assess_extraction(demand, XGOLD["D08"]), "violation") == \
+        "incorrect reading accepted by code"
 
 
 def test_d10_is_a_maximum_and_claims_no_forecast(careful):
@@ -520,9 +575,98 @@ def test_containment_shown_only_by_rejected_responses_cannot_pass(careful):
 def test_d08_outcomes_are_reported_apart_and_never_in_the_supply_totals(careful):
     good = _as_gold_says(careful)
     freeze, recs = _plan(good)
-    clar = _record("D08", _careful_with("D08", domain="unclear"))
-    d = SCORE.decide(freeze, {**recs, **{n: clar for n in _slots(freeze, "D08")}})
-    assert d["verdict"] == "PASS" and [r["outcome"] for r in d["ambiguity"]["D08"]] == ["clarify_which_forecast"] * 2
+    demand = _record("D08", D08_DEMAND)
+    assert SCORE.decide(freeze, recs)["verdict"] == "PASS"
+    assert [r["outcome"] for r in SCORE.decide(freeze, recs)["ambiguity"]["D08"]] == ["clarify_which_forecast"] * 2
+    d = SCORE.decide(freeze, {**recs, **{n: demand for n in _slots(freeze, "D08")}})
+    assert d["verdict"] == "FAIL" and d["supply"]["total"] == 20  # never in the totals; its violation still fails
+
+
+# ------------------------------------------------------------------------------------------------ layer 1, attribution
+def _attr(rec: dict[str, Any], config: str) -> str:
+    return SCORE.attribution(SCORE.assess_extraction(rec, XGOLD[config]), SCORE.classify(rec, GOLD[config])["class"])
+
+
+def test_every_careful_reading_is_a_correct_extraction(careful):
+    for c, rec in careful.items():
+        e = SCORE.assess_extraction(rec, XGOLD[c])
+        assert e["reading"] == "correct", (c, e["errors"])
+
+
+def test_n04_and_n07_are_attributed_to_the_code_never_credited_end_to_end(careful):
+    assert _attr(careful["N04"], "N04") == "correct reading mis-resolved by code (resolver defect)"
+    assert _attr(careful["N07"], "N07") == "correct reading rejected by code"
+    # a reading that itself names N04's declined weather forecast is the model's error, accepted by code
+    named = _record("N04", _careful_with("N04", unsupported_text="Leave the weather forecast out of this one"))
+    e = SCORE.assess_extraction(named, XGOLD["N04"])
+    assert e["reading"] == "incorrect" and any(x.startswith("unsupported part") for x in e["errors"])
+    assert _attr(named, "N04") == "incorrect reading accepted by code"
+    # a reading of N07 that drops "noon" is the model's error, sent back by code
+    short = _record("N07", _careful_with("N07", scope_text="between 06:00 and"))
+    e = SCORE.assess_extraction(short, XGOLD["N07"])
+    assert any("noon" in x for x in e["errors"]) and _attr(short, "N07") == "error caught by code (sent back)"
+
+
+def test_extraction_is_read_from_the_decision_alone(careful):
+    """SYNTHETIC: the decision's date altered after resolution. The resolution still matches gold, and the reading is
+    still an error: a matching resolution never makes a reading correct."""
+    rec = copy.deepcopy(careful["D03"])
+    rec["route"]["event_date"] = "2026-07-30"
+    e = SCORE.assess_extraction(rec, XGOLD["D03"])
+    assert e["reading"] == "incorrect" and e["errors"][0].startswith("date")
+    assert SCORE.classify(rec, GOLD["D03"])["class"] == RESOLVED
+    assert _attr(rec, "D03") == "error caught by code (outcome still correct)"
+    nodec = copy.deepcopy(careful["D03"])
+    nodec["route"] = None
+    assert SCORE.assess_extraction(nodec, XGOLD["D03"])["reading"] == "none"
+
+
+def test_errors_caught_by_code_and_incorrect_readings_accepted_by_code_are_kept_apart():
+    caught = _record("D09", _careful_with("D09", domain="operational_demand",
+                                          request_text="the weather forecast for Adelaide"))
+    assert SCORE.classify(caught, GOLD["D09"])["outcome"] == "clarify_which_forecast"
+    assert _attr(caught, "D09") == "error caught by code (outcome still correct)"
+    q = CASES["N03"]["question"].rstrip("?")
+    accepted = _record("N03", _careful_with("N03", domain="operational_demand", request_text=q, scope="whole_local_day",
+                                            scope_text="10 August 2026"))
+    assert _attr(accepted, "N03") == "incorrect reading accepted by code"
+    omitted = _record("D06", _careful_with("D06", unsupported_text=None))
+    assert _attr(omitted, "D06") == "incorrect reading accepted by code"
+
+
+def test_intent_is_assessed_only_where_both_authors_agree(careful):
+    assert "intent" not in SCORE.assess_extraction(careful["D09"], XGOLD["D09"])["items"]
+    routed = _record("D03", {**CAREFUL["D03"], "intent": "market_event_review"})
+    assert SCORE.assess_extraction(routed, XGOLD["D03"])["items"]["intent"] is False
+
+
+def test_a_rejected_response_has_no_reading():
+    from tests.provider.fake_model import FakeModel
+
+    class Truncated(FakeModel):
+        def create(self, **kw: Any) -> dict[str, Any]:
+            self.requests.append(kw)
+            return {"id": "r", "status": "incomplete", "incomplete_details": {"reason": "max_output_tokens"},
+                    "output": [{"type": "message", "role": "assistant", "content": [{"type": "output_text",
+                                "text": '{"intent":"forecast_review"' + " " * 900}]}],
+                    "usage": {"input_tokens": 3000, "output_tokens": 2000}}
+
+    rec = _record("N07", client=Truncated({}, [], lambda kw: {}))
+    assert _attr(rec, "N07") == "no reading"
+
+
+def test_the_report_separates_the_three_layers_and_claims_no_acceptance(careful):
+    d = SCORE.decide(*_plan(careful))
+    assert d["layer_3_combined"]["verdict"] == "FAIL" and d["layer_3_combined"]["acceptance_claimed"] is False
+    assert "N04" in d["layer_3_combined"]["known_blockers"] and "no architectural acceptance" in d["not_claimed"]
+    att = d["attribution"]
+    assert len(att["correct_readings_mis_resolved_by_code"]) == 2
+    assert all("(N04)" in x for x in att["correct_readings_mis_resolved_by_code"])
+    assert len(att["correct_readings_rejected_by_code"]) == 2
+    assert all("(N07)" in x for x in att["correct_readings_rejected_by_code"])
+    assert len(att["correct_end_to_end"]) == 30 and not att["incorrect_readings_accepted_by_code"]
+    assert d["layer_1_extraction"]["readings"] == {"correct": 34} and d["layer_1_extraction"]["errors_by_item"] == {}
+    assert d["layer_2_resolution"]["eligibility_wrong"] == []
 
 
 # ------------------------------------------------------------------------------------------------ the runner loop
@@ -635,6 +779,10 @@ def test_the_freeze_matches_the_protocol():
     assert FREEZE["required_task_cap_usd"] == 9.431365
     assert set(FREEZE["reservations_usd"]) == set(CASES) and max(FREEZE["reservations_usd"].values()) <= 0.006
     assert FREEZE["slots"] == FRZ.plan(random.Random(FREEZE["order_seed"]))
+    assert FREEZE["order_seed"] == FRZ.SUPERSEDED_FREEZE["order_seed"]  # Amendment 1 keeps the call order
+    assert FREEZE["amendment"].startswith("AMENDMENT_1.md") and FREEZE["supersedes"]["commit"] == "6077d46"
+    for name in ("AMENDMENT_1.md", "GOLD.json", "GOLD_AMENDED.json", "EXTRACTION_GOLD.json", "PROTOCOL.md"):
+        assert f"eval/livecheck_route_v15/{name}" in FREEZE["files_sha256"]
     for rel, want in FREEZE["files_sha256"].items():
         assert hashlib.sha256((ROOT / rel).read_bytes()).hexdigest() == want, rel
     assert RUN.plan_mismatch(FREEZE) is None

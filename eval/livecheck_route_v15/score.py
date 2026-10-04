@@ -1,5 +1,22 @@
-"""Score the routing-only Live check of route contract v15 (PROTOCOL.md) from the saved records, offline. It never
-calls a model, and it reports routing and request resolution only: no answer, no H1–H5 review, no rate.
+"""Score the routing-only Live check of route contract v15 (PROTOCOL.md, as amended by AMENDMENT_1.md) from the saved
+records, offline. It never calls a model, and it reports routing and request resolution only: no answer, no H1–H5
+review, no rate. Three layers are reported separately (AMENDMENT_1.md):
+
+1. **The model's extraction** (``assess_extraction``): the routing model's own decision, item by item, against the
+   independently verified extraction gold (`EXTRACTION_GOLD.json`). It is read from the decision alone, never inferred
+   from the resolution. It has no pass threshold.
+2. **Deterministic resolution and tool eligibility:** each call's resolution class and outcome, and whether the tools
+   Live would offer are the gold's.
+3. **The combined acceptance criteria** (PROTOCOL.md, with D08's gold amended): the verdict below, and its known
+   blockers. No acceptance is claimed unless it is PASS.
+
+``attribution`` crosses layer 1 with layer 2 for every call:
+- errors caught by code;
+- correct readings rejected by code;
+- correct readings mis-resolved by code (resolver defects);
+- incorrect readings accepted by code;
+- correct end to end;
+- calls with no reading.
 
 - **The outcome** of each call is read from its resolution (``outcome_of``; PROTOCOL.md, "Outcomes").
 - **The class** (``classify``) is exactly one per call, in the protocol's order:
@@ -37,7 +54,8 @@ MEASURE = {"operational_demand": "operational demand", "dispatch_total_demand": 
 WINDOW = {"whole_local_day": "day", "event": "event", "explicit": "explicit"}
 NOT_CLAIMED = ("This report covers routing and request resolution only. It makes no claim about answers, tools or "
                "synthesis, no H1–H5 answer review, no rate, and no generalisation; it does not say that truncation is "
-               "fixed.")
+               "fixed. It claims no architectural acceptance unless the combined verdict is PASS, which cannot occur as "
+               "frozen.")
 
 
 def _load(name: str) -> Any:
@@ -51,7 +69,12 @@ AMBIGUITY = [c for c, s in _SETS.items() if s == "ambiguity"]
 
 
 def gold_of() -> dict[str, dict[str, Any]]:
-    return {g["config"]: g for g in _load("GOLD.json")["cases"]}
+    """The amended gold (AMENDMENT_1.md: D08 re-resolved; `GOLD.json` is the original, kept unchanged)."""
+    return {g["config"]: g for g in _load("GOLD_AMENDED.json")["cases"]}
+
+
+def extraction_gold_of() -> dict[str, dict[str, Any]]:
+    return {x["config"]: x for x in _load("EXTRACTION_GOLD.json")["cases"]}
 
 
 # ------------------------------------------------------------------------------------------------ reading a record
@@ -300,6 +323,114 @@ def model_reading(rec: dict[str, Any] | None, gold: dict[str, Any]) -> dict[str,
             "as_of_text": dec.get("as_of_text"), "maximum": req.get("maximum")}
 
 
+# ------------------------------------------------------------------------------------------------ layer 1: extraction
+def _has_words(text: str | None, q: str, keys: list[str]) -> tuple[bool, str]:
+    """Words copied from the question that contain every key word (case-insensitive)."""
+    if not text:
+        return False, "no words given"
+    if text not in q:
+        return False, f"the words {text!r} are not copied from the question"
+    missing = [k for k in keys if k.lower() not in text.lower()]
+    return (False, f"the words {text!r} lack the key words {missing}") if missing else (True, "")
+
+
+def assess_extraction(rec: dict[str, Any] | None, x: dict[str, Any]) -> dict[str, Any]:
+    """The routing model's own reading against the extraction gold, item by item (AMENDMENT_1.md, "Layer 1"). Read
+    from the decision alone: a resolution that matches gold says nothing here."""
+    dec = (rec or {}).get("route")
+    if rec is None or not dec:
+        return {"reading": "none", "items": {}, "errors": ["no reading: the response was rejected or not saved"]}
+    q, req = rec["question"], dec.get("requested") or {}
+    fc, run, mx = req.get("forecast"), req.get("forecast_run") or {}, req.get("maximum") or {}
+    items: dict[str, tuple[bool, str]] = {
+        "region": (dec.get("region") == x["region"], f"region {dec.get('region')}, gold {x['region']}"),
+    }
+    if x["intents_agreed"]:  # assessed only where both authors' intent sets agree (AMENDMENT_1.md)
+        items["intent"] = (dec.get("intent") in x["intents"], f"intent {dec.get('intent')}, gold {x['intents']}")
+    if x["local_dates"]:
+        items["date"] = (dec.get("event_date") in x["local_dates"], f"date {dec.get('event_date')}, gold {x['local_dates']}")
+    refused = bool(dec.get("out_of_scope"))
+    if fc is None:
+        items["domain"] = (x["domain"] == "none" or refused, f"no forecast reading given, gold {x['domain']}")
+    else:
+        dom = fc.get("domain")
+        items["domain"] = (dom == x["domain"] or (x["domain"] == "none" and dom in (None, "none")),
+                           f"domain {dom}, gold {x['domain']}")
+        if x["operation"]:
+            items["operation"] = (fc.get("operation") == x["operation"],
+                                  f"operation {fc.get('operation')}, gold {x['operation']}")
+        if x["request_anchors"] and x["domain"] != "none" and not refused:  # a forecast's clause, not a maximum's
+            items["requested clause"] = anchors_ok(fc.get("request_text"), q, x["request_anchors"], x["excluded_anchors"])
+        if x["scope_kinds"]:
+            ok, why = _has_words(fc.get("scope_text"), q, x["scope_key_words"])
+            items["scope"] = (fc.get("scope") in x["scope_kinds"] and ok,
+                              f"scope {fc.get('scope')}, gold {x['scope_kinds']}; {why}".rstrip("; "))
+        words = fc.get("unsupported_text")
+        if x["unsupported_anchors"]:
+            on = bool(words) and words in q and any(_overlaps(o, s) for o in _spans(words, q)
+                                                    for a in x["unsupported_anchors"] for s in _spans(a, q))
+            items["unsupported part"] = (on, f"unsupported words {words!r}, gold {x['unsupported_anchors']}")
+        else:
+            items["unsupported part"] = (not words, f"unsupported words {words!r} where the question asks for none")
+    if x["run_rule"] is not None:  # null: no single demand run applies, and both authors left it unassessed
+        rule = run.get("selection") or "none"
+        ok = rule == x["run_rule"]
+        why = f"run {rule}, gold {x['run_rule']}"
+        if ok and x["run_rule"] != "none":
+            ok_w, why_w = _has_words(run.get("selection_text"), q, x["run_key_words"])
+            ok, why = ok and ok_w, f"{why}; {why_w}" if why_w else why
+            if x["half_hour_key_words"]:
+                ok_h, why_h = _has_words(run.get("half_hour_text"), q, x["half_hour_key_words"])
+                ok, why = ok and ok_h, f"{why}; {why_h}" if why_h else why
+        items["run"] = (ok, why)
+    if x["cutoff_key_words"]:
+        items["cutoff"] = _has_words(dec.get("as_of_text"), q, x["cutoff_key_words"])
+    else:
+        items["cutoff"] = (not dec.get("as_of_text"), f"cutoff words {dec.get('as_of_text')!r} where none is stated")
+    if x["maximum"]:
+        g = x["maximum"]
+        ok = (mx.get("kind"), mx.get("measure"), mx.get("window")) == ("maximum", g["measure"], g["window"])
+        ok_m, why_m = _has_words(mx.get("measure_text"), q, g["measure_key_words"])
+        ok_w, why_w = _has_words(mx.get("window_text"), q, g["window_key_words"])
+        items["maximum"] = (ok and ok_m and ok_w, f"maximum {mx.get('kind')} {mx.get('measure')} {mx.get('window')}, "
+                            f"gold {g['measure']} {g['window']}; {why_m} {why_w}".strip())
+    else:
+        items["maximum"] = (mx.get("kind") in (None, "none"), f"maximum {mx.get('kind')} where none is asked")
+    errors = [f"{k}: {why}" for k, (ok, why) in items.items() if not ok]
+    return {"reading": "incorrect" if errors else "correct", "items": {k: ok for k, (ok, _) in items.items()},
+            "errors": errors}
+
+
+RESOLUTION_OF = {"correct resolved request": "correct", "correct clarification or unsupported handling": "correct",
+                 "unnecessary clarification": "sent back", "contained for another reason": "sent back",
+                 "violation": "wrong", "incomplete or invalid": "no reading", "unassessable": "unassessable"}
+CELLS = {("correct", "correct"): "correct end to end",
+         ("correct", "sent back"): "correct reading rejected by code",
+         ("correct", "wrong"): "correct reading mis-resolved by code (resolver defect)",
+         ("incorrect", "correct"): "error caught by code (outcome still correct)",
+         ("incorrect", "sent back"): "error caught by code (sent back)",
+         ("incorrect", "wrong"): "incorrect reading accepted by code"}
+
+
+def attribution(extraction: dict[str, Any], cls: str) -> str:
+    """Layer 1 crossed with layer 2 (AMENDMENT_1.md, "Attribution")."""
+    res = RESOLUTION_OF[cls]
+    if res == "unassessable":
+        return "unassessable"
+    if extraction["reading"] == "none" or res == "no reading":
+        return "no reading (violation surviving)" if res == "wrong" else "no reading"
+    return CELLS[(extraction["reading"], res)]
+
+
+def eligibility_ok(rec: dict[str, Any] | None, gold: dict[str, Any]) -> bool | None:
+    """Layer 2: whether the demand-forecast tools Live would offer are the gold's (None: not restricted, or no record)."""
+    if rec is None or "tools_offered" not in rec or gold["demand_forecast_tools"] == "not_restricted":
+        return None
+    offered = bool(set(rec["tools_offered"]) & DEMAND_TOOLS)
+    return offered if gold["demand_forecast_tools"] == "eligible" and rec["resolution"]["status"] == "ok" else \
+        (not offered if gold["demand_forecast_tools"] == "not_used" else None)
+
+
 # ------------------------------------------------------------------------------------------------ the verdict
 def records(freeze: dict[str, Any], live: Path = LIVE) -> dict[int, dict[str, Any] | None]:
     """Each slot's saved record (None if the log does not record it as saved)."""
@@ -314,14 +445,19 @@ def records(freeze: dict[str, Any], live: Path = LIVE) -> dict[int, dict[str, An
 
 
 def decide(freeze: dict[str, Any], recs: dict[int, dict[str, Any] | None],
-           gold: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
+           gold: dict[str, dict[str, Any]] | None = None,
+           extraction_gold: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
     gold = gold or gold_of()
+    xgold = extraction_gold or extraction_gold_of()
     rows = []
     for s in freeze["slots"]:
         rec = recs.get(s["slot"])
         c = classify(rec, gold[s["config"]])
+        e = assess_extraction(rec, xgold[s["config"]])
         rc = (rec or {}).get("route_call") or {}
         rows.append({"slot": s["slot"], "config": s["config"], "group": gold[s["config"]]["group"],
+                     "extraction": e, "attribution": attribution(e, c["class"]),
+                     "eligibility_ok": eligibility_ok(rec, gold[s["config"]]),
                      "class": c["class"], "outcome": c["outcome"], "violations": c["violations"], "detail": c["detail"],
                      "resolution_status": ((rec or {}).get("resolution") or {}).get("status"),
                      "tools_offered": (rec or {}).get("tools_offered"),
@@ -353,7 +489,36 @@ def decide(freeze: dict[str, Any], recs: dict[int, dict[str, Any] | None],
                       "classes": dict(Counter(r["class"] for r in by[cfg])),
                       "outcomes": dict(Counter(str(r["outcome"]) for r in by[cfg]))}
                 for cfg in gold if gold[cfg]["group"] == group}
+    cells = Counter(r["attribution"] for r in rows)
+    field_errors = Counter(k for r in rows for k, ok in r["extraction"]["items"].items() if not ok)
+
+    def by_cell(cell: str) -> list[str]:
+        return [f"slot {r['slot']} ({r['config']})" for r in rows if r["attribution"] == cell]
     return {
+        "layer_1_extraction": {
+            "note": "The model's own reading against the independently verified extraction gold, item by item; never "
+                    "inferred from the resolution. No pass threshold.",
+            "readings": dict(Counter(r["extraction"]["reading"] for r in rows)),
+            "errors_by_item": dict(field_errors),
+            "familiar": dict(Counter(r["extraction"]["reading"] for r in rows if r["group"] == "familiar")),
+            "fresh": dict(Counter(r["extraction"]["reading"] for r in rows if r["group"] == "fresh"))},
+        "layer_2_resolution": {
+            "classes": dict(Counter(r["class"] for r in rows)),
+            "eligibility_wrong": [f"slot {r['slot']} ({r['config']})" for r in rows if r["eligibility_ok"] is False]},
+        "attribution": {
+            "counts": dict(cells),
+            "errors_caught_by_code": by_cell(CELLS[("incorrect", "sent back")]) +
+            by_cell(CELLS[("incorrect", "correct")]),
+            "correct_readings_rejected_by_code": by_cell(CELLS[("correct", "sent back")]),
+            "correct_readings_mis_resolved_by_code": by_cell(CELLS[("correct", "wrong")]),
+            "incorrect_readings_accepted_by_code": by_cell(CELLS[("incorrect", "wrong")]),
+            "correct_end_to_end": by_cell(CELLS[("correct", "correct")]),
+            "no_reading": by_cell("no reading") + by_cell("no reading (violation surviving)")},
+        "layer_3_combined": {"verdict": verdict, "verdict_of": VERDICT_NAME,
+                             "known_blockers": "N04 (a declined weather forecast noted as unanswered by the code) and "
+                                               "N07 (the code does not read 'noon'): PASS cannot occur as frozen "
+                                               "(PROTOCOL.md, 'Known before the run')",
+                             "acceptance_claimed": verdict == "PASS"},
         "verdict": verdict, "verdict_of": VERDICT_NAME, "not_claimed": NOT_CLAIMED,
         "coverage": {"assessable": len(rows) - len(unassessable_), "of": len(rows), "unassessable_slots": unassessable_},
         "violations": violations,

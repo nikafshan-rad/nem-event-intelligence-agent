@@ -16,7 +16,9 @@ It records:
 If any reservation exceeds the per-call cap, nothing is written: that is a blocker to report, and the cap is not
 raised.
 
-Usage: python eval/livecheck_route_v15/freeze.py [--code-commit COMMIT]
+Amendment 1 re-freezes with the first freeze's order seed (`--seed`), so the call order is unchanged.
+
+Usage: python eval/livecheck_route_v15/freeze.py [--code-commit COMMIT] [--seed SEED]
 """
 
 from __future__ import annotations
@@ -51,7 +53,11 @@ ROUNDS = [CONFIGS, CONFIGS]
 FILES = ["PROTOCOL.md", "CAPABILITIES.md", "GOLD_FORMAT.md", "WRITER_BRIEF.md", "WRITER_BRIEF_FAMILIAR.md",
          "REVIEW_BRIEF.md", "WRITER_OUTPUT.json", "WRITER_FAMILIAR.json", "WRITER_REPORT.md", "REVIEW.json",
          "REVIEW_D08.json", "REVIEW_REPORT.md", "PROVENANCE.md", "cases.json", "GOLD.json", "configs.py", "build_kit.py", "gold.py",
-         "run_route.py", "run_eval.py", "score.py", "freeze.py"]
+         "run_route.py", "run_eval.py", "score.py", "freeze.py",
+         # Amendment 1 (AMENDMENT_1.md): the diagnostic layers, D08 re-resolved, and the extraction gold
+         "AMENDMENT_1.md", "EXTRACTION_FORMAT.md", "amend.py", "D08_WRITER.json", "D08_REVIEWER.json",
+         "EXTRACTION_WRITER.json", "EXTRACTION_REVIEWER.json", "GOLD_AMENDED.json", "EXTRACTION_GOLD.json"]
+SUPERSEDED_FREEZE = {"commit": "6077d46", "order_seed": 13631972528671672165}  # the first freeze, before Amendment 1
 
 
 def git(*args: str) -> str:
@@ -136,6 +142,7 @@ def ledger_fingerprint() -> dict[str, Any]:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--code-commit", default=CODE_COMMIT)
+    ap.add_argument("--seed", type=int, default=None, help="reuse a recorded order seed (Amendment 1 keeps the order)")
     args = ap.parse_args()
     if any(os.environ.get(k) for k in ("NEM_AGENT_BUDGET_LEDGER", "NEM_AGENT_MODEL", "NEM_AGENT_PRICE_INPUT_PER_MTOK",
                                        "NEM_AGENT_PRICE_OUTPUT_PER_MTOK", "NEM_AGENT_PRICE_CACHED_INPUT_PER_MTOK")):
@@ -164,7 +171,7 @@ def main() -> int:
     got = (ledger["ledger_start_usd"], ledger["ledger_lines"], ledger["ledger_sha256_prefix"])
     if got != LEDGER_START:
         raise SystemExit(f"the ledger {got} is not the protocol's starting ledger {LEDGER_START}")
-    seed = int.from_bytes(os.urandom(8), "big")
+    seed = args.seed if args.seed is not None else int.from_bytes(os.urandom(8), "big")
     slots = plan(random.Random(seed))
     gold = json.loads((HERE / "GOLD.json").read_text())
     files = {f"eval/livecheck_route_v15/{f}": hashlib.sha256((HERE / f).read_bytes()).hexdigest() for f in FILES}
@@ -192,6 +199,7 @@ def main() -> int:
         "interruption_note": "an interrupted attempt's cost stays counted against the run cap; no retry allowance is "
                              "added, so interrupted attempts may exhaust it (then INCOMPLETE)",
         "label": LABEL, "order_seed": seed, "slots": slots, "files_sha256": files,
+        "amendment": "AMENDMENT_1.md (before any run)", "supersedes": SUPERSEDED_FREEZE,
     }
     (HERE / "FREEZE.json").write_text(json.dumps(freeze, indent=1) + "\n")
     print(json.dumps({k: freeze[k] for k in ("code_commit", "src_tree", "prompts_tree", "prompt_version",

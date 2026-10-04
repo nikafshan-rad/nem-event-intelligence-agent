@@ -9,10 +9,12 @@
   writer's fresh questions are fixed. It refuses if `out/fresh.json` is missing.
 - **reviewer:** `REVIEW_BRIEF.md`, `CAPABILITIES.md`, `GOLD_FORMAT.md`, the data facts, the same environment, and
   `questions.json`: the 17 questions with their request fields. It holds no gold, no intended reading and no set.
+- **extraction** (Amendment 1): adds `EXTRACTION_FORMAT.md` and the 17 questions to an existing writer or reviewer
+  kit, after that agent's earlier outputs are fixed; it records their SHA-256.
 
 Each kit gets a `MANIFEST.json` with the SHA-256 of every file it holds (the environment aside).
 
-Usage: python eval/livecheck_route_v15/build_kit.py writer|familiar|reviewer KIT_DIR
+Usage: python eval/livecheck_route_v15/build_kit.py writer|familiar|reviewer|extraction KIT_DIR
 """
 
 from __future__ import annotations
@@ -163,6 +165,28 @@ def familiar(kit: Path) -> None:
     print(f"familiar step added to {kit}: {len(qs)} questions; out/fresh.json SHA-256 {fresh_sha}")
 
 
+def extraction(kit: Path) -> None:
+    """Amendment 1: add `EXTRACTION_FORMAT.md` and the 17 questions (`extraction/questions.json`, with their request
+    fields) to an existing writer or reviewer kit, after that agent's earlier outputs are fixed. The manifest records
+    the SHA-256 of those outputs at this moment."""
+    if (kit / "extraction").exists():
+        raise SystemExit("the extraction step was already added")
+    earlier = {str(p.relative_to(kit)): hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted((kit / "out").glob("*"))}
+    if not earlier:
+        raise SystemExit("this kit has no earlier output")
+    cases = json.loads((HERE / "cases.json").read_text())["cases"]
+    (kit / "extraction").mkdir()
+    qs = [{"config": c["config"], "question": c["question"], "request": c["request"]} for c in cases]
+    (kit / "extraction" / "questions.json").write_text(json.dumps({"questions": qs}, indent=1) + "\n")
+    shutil.copy(HERE / "EXTRACTION_FORMAT.md", kit / "EXTRACTION_FORMAT.md")
+    (kit / "EXTRACTION_MANIFEST.json").write_text(json.dumps({
+        "earlier_outputs_sha256": earlier,
+        "extraction/questions.json": hashlib.sha256((kit / "extraction" / "questions.json").read_bytes()).hexdigest(),
+        "EXTRACTION_FORMAT.md": hashlib.sha256((kit / "EXTRACTION_FORMAT.md").read_bytes()).hexdigest()},
+        indent=1) + "\n")
+    print(f"extraction step added to {kit}: {len(qs)} questions; earlier outputs {earlier}")
+
+
 def reviewer(kit: Path) -> None:
     cases = json.loads((HERE / "cases.json").read_text())["cases"]
     qs = [{"config": c["config"], "question": c["question"], "request": c["request"]} for c in cases]
@@ -174,10 +198,10 @@ def reviewer(kit: Path) -> None:
 
 
 def main() -> int:
-    if len(sys.argv) != 3 or sys.argv[1] not in ("writer", "familiar", "reviewer"):
-        raise SystemExit("usage: build_kit.py writer|familiar|reviewer KIT_DIR")
-    kit = Path(sys.argv[2]).resolve()
-    {"writer": writer, "familiar": familiar, "reviewer": reviewer}[sys.argv[1]](kit)
+    modes = {"writer": writer, "familiar": familiar, "reviewer": reviewer, "extraction": extraction}
+    if len(sys.argv) != 3 or sys.argv[1] not in modes:
+        raise SystemExit("usage: build_kit.py writer|familiar|reviewer|extraction KIT_DIR")
+    modes[sys.argv[1]](Path(sys.argv[2]).resolve())
     return 0
 
 

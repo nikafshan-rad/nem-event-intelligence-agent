@@ -100,3 +100,39 @@
 - **`gold.py`:** the gold records each case's resolved reading explicitly (`resolved_reading`), derived mechanically
   from the fields the writer filled. D08's own domain reading is `unclear`, and its pre-registered demand reading is
   `operational_demand_forecast`, so the scorer reads the demand alternative from the fields and not from that label.
+
+## Amendment 1 (before any run; `AMENDMENT_1.md`)
+The owner instructed it on 2026-10-04, after the first freeze (`6077d46`) and before any paid call. `PROTOCOL.md` and
+`GOLD.json` are unchanged.
+
+1. **The extraction step was added to both kits** (`build_kit.py extraction`, 10:29:42Z). Each kit gained
+   `EXTRACTION_FORMAT.md` and `extraction/questions.json`, the same 17 questions with request fields.
+   - Each `EXTRACTION_MANIFEST.json` records the hashes of that agent's earlier outputs at that moment.
+   - The writer's manifest is `7260de42…` and the reviewer's is `d9452bbf…`.
+2. **Both agents, independently and in their own kits** (outputs 10:33:43Z):
+   - **Task A:** D08's final reading, after the owner withdrew the earlier instruction accepting the demand reading.
+     Both give `clarify_which_forecast` and also accept `event_review_unclear`. Both reject `resolved`,
+     `clarify_unsupported`, `event_review_unsupported`, `refusal` and `clarify_mixed`, with reasons. Their records
+     are `D08_WRITER.json` (`3876c9f4…`) and `D08_REVIEWER.json` (`5266e5dc…`).
+   - **Task B:** an extraction record for each question, per `EXTRACTION_FORMAT.md`. These are
+     `EXTRACTION_WRITER.json` (`bb7aa522…`) and `EXTRACTION_REVIEWER.json` (`1af290fb…`).
+   - Each agent's earlier outputs are unchanged by hash. Each reports every file and command, and says it stayed in
+     its kit. Their reports are appended to `WRITER_REPORT.md` and `REVIEW_REPORT.md`.
+3. **`amend.py`** built `GOLD_AMENDED.json` (`8ac78ab6…`) and `EXTRACTION_GOLD.json` (`500225c9…`).
+   - The two authors agree on every label, local date, key word, cutoff and anchor of all 17 questions, and the
+     extraction gold agrees with the amended gold.
+   - Their intent sets differ for seven send-back questions, so intent is recorded there, not assessed
+     (`AMENDMENT_1.md`, "Layer 1").
+4. **Before the rules were fixed,** the developer reviewed the combined extraction gold. Three of the scorer's rules
+   were set so as not to attribute errors to the model that neither author identifies:
+   - intent is assessed only where the authors' intent sets agree;
+   - a null run rule (no single demand run applies) is not assessed;
+   - the forecast-clause item does not apply to D10, which asks no forecast.
+
+   This was before any paid result existed. With them, SYNTHETIC careful readings of every configuration score as
+   expected:
+   - **correct end to end:** 14 configurations;
+   - **N04:** a correct reading mis-resolved by code (a resolver defect);
+   - **N07:** a correct reading rejected by code;
+   - **D08:** a demand reading is an incorrect reading accepted by code.
+5. **The re-freeze** uses the first freeze's order seed, so the call order is unchanged.

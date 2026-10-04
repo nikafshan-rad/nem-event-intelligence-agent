@@ -166,3 +166,59 @@ The script computes every bound with `zoneinfo`. It also checks:
 - that both anchors are copied exactly from the question.
 
 **Confirmation:** I worked only inside the kit, opened, listed, searched and ran nothing outside it, did not use the web, and did not change `out/review.json`.
+
+## Part 3 (Amendment 1): D08's final reading and the extraction gold
+
+Both tasks are done. **Task A:** D08's final reading is `clarify_which_forecast`, and I'd also accept `event_review_unclear`. I no longer accept `resolved`. **Task B:** `out/extraction.json` now holds all 17 extraction records. Every assertion in my script passed: copied words and anchors appear exactly in the questions, and key words sit inside their words. The earlier outputs are unchanged by hash (`review.json` f4c44616…, `d08_demand_reading.json` c4e8c04a…).
+
+### Task A: D08 final reading (`out/d08_final.json`)
+- **Outcome:** `clarify_which_forecast`.
+- **Acceptable:** `clarify_which_forecast`, then `event_review_unclear`.
+- **Why the kind is unclear:** "the latest issued forecast" never says which forecast. For a "peak half-hour" in a price-event context, AEMO's price forecast (predispatch) is at least as plausible as the operational demand forecast, and a weather forecast is possible. CAPABILITIES.md says such a forecast is not assumed to be demand.
+- **`clarify_which_forecast`:** this is what CAPABILITIES prescribes. Nothing is lost, because the cutoff and target can be recovered once the kind is known.
+- **`event_review_unclear`:** genuinely acceptable but second best. "The SA1 peak half-hour on 2026-07-31" points at an SA1 price event, which is what a market event review covers, and CAPABILITIES names this handling as long as no demand forecast is used. But it does not answer the as-of question, and it reports what happened after the cutoff.
+- **Rejected:**
+  - `resolved`, because it assumes demand. I accept it neither as the withdrawn instructed reading nor on my own view.
+  - `clarify_unsupported`, `refusal` and `event_review_unsupported`, because each assumes an unsupported kind the question doesn't show. A refusal could also turn away an in-scope request.
+  - `clarify_mixed`, because there is only one request.
+
+### Judgement calls
+**Task A**
+- My blind reading stands. I did not carry over `resolved` from the withdrawn instruction.
+- I kept `event_review_unclear` on its merits, not because it was suggested earlier. CAPABILITIES names it, and the "peak half-hour" points at a price event.
+
+**Task B**
+- **Half-hour words are null everywhere.** In D01, D02, D05, D06, D07 and N04, the half-hour a run is chosen for is the scope half-hour itself. I read "does not name one separately" as covering that case. A reader who reads "separately" as "apart from the run words" would copy the scope words here instead.
+- **D05 has no date for its half-hour.** The scope words "the 23:00 to 23:30 UTC half-hour" carry no date. The only date in the question is the cutoff's 2026-08-19. That makes local_dates 2026-08-20 (09:00–09:30 Melbourne time), but code must take the half-hour's date from the cutoff words. This is the same judgement call as in my review.
+- **D08 and N03:**
+  - Operation, scope and run are null, because the forecast's kind isn't shown and run rules describe operational demand runs.
+  - D08's cutoff is still recorded, because the question states it.
+  - Request anchors cover the forecast actually requested, of whatever kind.
+- **Intents for questions that are not resolved:** clarification and refusal run no investigation. So I list `market_event_review` only where CAPABILITIES' event-review handling applies.
+  - It is natural for N02, D08 and N03.
+  - It is permitted but weak for D09, N01, N05 and N06, which name no market outcome.
+  - A stricter reader would give `[]` for those four. I kept them consistent with CAPABILITIES and my earlier review.
+- **D10:**
+  - The window key words include "5 October 2025", because "that entire local day" refers back to the date in the cutoff phrase. "Sunday" is redundant, so it is not a key word.
+  - The run is null, because no forecast is involved.
+  - The cutoff comes from the question's own words; the reader never sees the request field.
+  - I kept both intents, as in my review.
+- **"ending" and "closing" as key words:** I added them (D01, D06, D07, N04) because they fix which end of the half-hour the time marks. They are not times, dates, zones or names, so the owner may leave them out.
+- **N07:** my record matches the format's worked example. I derived it independently and added two request anchors.
+- **N02:** "pre-dispatch runs" are price runs, so no run rule applies.
+
+### Report
+**Files opened (all inside the kit):**
+- `EXTRACTION_FORMAT.md`, `extraction/questions.json` and `EXTRACTION_MANIFEST.json`, read in full.
+- `questions.json`, `out/review.json` and `out/d08_demand_reading.json`, only compared or hashed, not re-read.
+- My new script `work/step3_extraction_d08.py` reads only `extraction/questions.json`. It never uses the request fields for the reader's items.
+
+**Commands run (each prefixed with `cd <kit>`):**
+1. `ls -la . extraction out work && cat EXTRACTION_FORMAT.md && cat extraction/questions.json && sha256sum out/review.json out/d08_demand_reading.json`
+2. `cat EXTRACTION_MANIFEST.json && sha256sum EXTRACTION_FORMAT.md extraction/questions.json questions.json && cmp extraction/questions.json questions.json`
+   - All hashes match the manifest, and the two question files are identical.
+3. `venv/bin/python work/step3_extraction_d08.py && sha256sum out/*.json`
+   - Local dates come from zoneinfo checks, and the script confirms 5 October 2025 is a Sunday.
+   - It hashes both fixed outputs before and after writing; both are unchanged.
+
+**Confirmation:** I worked only inside the kit and opened, listed, searched and ran nothing outside it. I did not use the web, and I did not change `out/review.json` or `out/d08_demand_reading.json`.

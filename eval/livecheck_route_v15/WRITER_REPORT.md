@@ -94,3 +94,55 @@ The first 600 bytes of hashes.json also name three repository files under "other
 - **D10:** This is a demand-maximum request, not a forecast request. The `as_of_utc` request field governs and agrees with "noon Brisbane time". The cutoff doesn't shorten the whole-day window. Intents are both investigations, because `CAPABILITIES.md` doesn't tie demand maxima to either one; the forecast-review route is the more natural, since there is no price event that day.
 
 I worked only inside the kit and edited nothing outside it.
+
+## Step 3 (Amendment 1): D08's final reading and the extraction gold
+
+`out/d08_final.json` holds D08's final reading and `out/extraction.json` holds 17 records (D01–D10, N01–N07). `out/fresh.json` and `out/familiar.json` were not touched; their hashes still match `EXTRACTION_MANIFEST.json` (913b0883…80672 and f18aa4ca…1a776).
+
+### Task A: D08's final reading
+- **Outcome:** `clarify_which_forecast`. **Acceptable:** `clarify_which_forecast`, `event_review_unclear`.
+- **Why:** "the latest issued forecast" doesn't say what was forecast.
+  - "The SA1 peak half-hour on 2026-07-31" is the peak half-hour of the SA1 31 July high-price event (02:00–02:30 ACST on 31 July). For it, a predispatch price forecast is at least as natural as a demand forecast, and a weather forecast is possible.
+  - `CAPABILITIES.md` says such a forecast is not assumed to be demand. So the assistant either asks which forecast is meant (the best fit), or, in a market event review, says a forecast is mentioned without showing which and uses no demand forecast. The question points at a specific price event, so an event review is a reasonable route.
+- **Rejected:**
+  - `resolved`: it would assume demand.
+  - `clarify_unsupported` and `event_review_unsupported`: both presume a known unsupported kind, but here the kind is unknown and could be the supported one.
+  - `clarify_mixed`: only one request is made.
+  - `refusal`: the question is in scope.
+
+### Step-3 report
+All paths are inside the kit, `/tmp/claude-1000/-workspaces-nem-event-intelligence-agent/3264e5da-d547-4fd5-b06e-1e395ac826ca/scratchpad/kits/writer`, written `<kit>` here.
+
+**Files opened**
+- **Read:** `EXTRACTION_FORMAT.md`, `EXTRACTION_MANIFEST.json`, `extraction/questions.json`.
+- **Read by my script:** `data/events.json`, `extraction/questions.json`.
+- **Hashed only:** `out/fresh.json`, `out/familiar.json`.
+- **Listed:** `<kit>`, `extraction`, `out`.
+- **Written:** `work/step3.py`, `out/d08_final.json`, `out/extraction.json`.
+
+**Commands run** (each prefixed with `cd <kit> &&`)
+1. `ls -la . extraction out && cat EXTRACTION_FORMAT.md`
+2. `cat EXTRACTION_MANIFEST.json && echo ---- && cat extraction/questions.json && echo ---- && sha256sum out/fresh.json out/familiar.json`
+3. `venv/bin/python work/step3.py && sha256sum out/fresh.json out/familiar.json && venv/bin/python -c "…load extraction.json; print d08_final.json…"`
+
+`step3.py` computes the local dates for D05–D08 from their UTC times and the event data, and renders each cutoff in local time. It also checks:
+- every set of words and every anchor is an exact substring of its question;
+- every key word is inside its words;
+- the scope, run and operation fields are filled exactly when the domain is operational_demand.
+
+**Confirmation:** In this step I opened, listed, searched and ran nothing outside the kit, and did not use the web. All date and time work used `venv/bin/python`. Nothing new was added to my context automatically.
+
+**Judgement calls (Task B)**
+- **Intents:** I list every route that handles the question correctly under `CAPABILITIES.md`.
+  - Resolved demand forecast questions get `forecast_review` only, because a market event review provides no forecasts.
+  - Other-kind and unclear questions also get `market_event_review`, because an event review that flags the forecast as not answered or unclear is acceptable. That route is less natural for N01, N05 and N06, which have no price event.
+  - D10 gets both, since demand maxima aren't tied to one investigation.
+- **Run fields apply only to operational demand.** For D08 the kind is unknown, so the run and scope are null, while its stated cutoff is still extracted. If the kind were confirmed as demand, the run would be `as_of_availability`.
+- **`half_hour_words` is null in every record.** For D01 and D02 the run's half-hour is the scope half-hour, named once, not separately. For `as_of_availability`, `GOLD_FORMAT.md` carries no target half-hour.
+- **Key words go slightly beyond the format's listed categories.** I included "ending" (D01, D06, N04) and "closing" (D07), because they fix the clock time as the half-hour's end. For runs, I used "final" with "ahead of it", "newest", and "latest available".
+- **D05 is the weak point.** The half-hour's words carry no date. The only date is in the cutoff (2026-08-19 UTC), so the half-hour is 2026-08-19T23:00–23:30Z, which is 20 August locally. Code has to take the date from the cutoff words, and a strict reader could say the half-hour's date is not stated.
+- **Local dates are calendar dates in the region's time zone.** That gives 2026-08-20 for D05 and D06, and 2026-07-31 for D08 (in UTC, the D08 peak falls on 30 July).
+- **D10:** the cutoff comes from the question's own words ("published by noon Brisbane time", which is 02:00Z), so the reader needs no request field. The window's date sits inside the cutoff words, so I left it out of `window_key_words`; `local_dates` carries it.
+- **Anchors for other-kind questions:** where a question asks only for another kind of forecast (N01, N02, N05, N06, D09) or an unclear one (N03, D08), the request anchors point at that forecast request, as the format says.
+
+I worked only inside the kit and changed nothing outside it.
