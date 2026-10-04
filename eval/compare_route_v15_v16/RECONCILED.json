@@ -1,0 +1,340 @@
+{
+ "procedure": "RECONCILE_BRIEF.md: step 1 (writer) and step 2 (reviewer), pre-registered texts passed unchanged; no replacement round was needed",
+ "disagreements_before": {
+  "C02": "mention anchors",
+  "H09": "resolved acceptable to one record only",
+  "H10": "resolved acceptable to one record only",
+  "H13": "mention anchors",
+  "H24": "mention anchors"
+ },
+ "step1_writer": [
+  {
+   "config": "C02",
+   "decision": "revise",
+   "change": "the asked mention's anchors only: ['had forecast for operational demand'] -> ['Compare actual operational demand', \"AEMO's run issued 2026-08-15T23:00:00Z\", 'had forecast for operational demand']"
+  },
+  {
+   "config": "H09",
+   "decision": "keep",
+   "why": "The question never says what \"the forecast\" is. The cold snap makes a temperature forecast at least as plausible as a demand forecast, and a price forecast is also live. CAPABILITIES says such a forecast \"is not assumed to be demand: clarify or event_review_without_demand_forecast\". The brief also builds H09 as an incidental-demand question whose forecast kind is not shown, and marks it not answerable. Listing `resolved` as acceptable would reward the assistant for assuming demand, which is exactly what this question tests. The reviewer's own record also chooses clarify and marks the question not answerable. I therefore keep `[\"clarify\", \"event_review_without_demand_forecast\"]`, with no reader and no resolution."
+  },
+  {
+   "config": "H10",
+   "decision": "keep",
+   "why": "I accept that the \"but\" (\"demand was nothing out of the ordinary ... but how close did the forecast come\") leans towards a demand reading. A lean is still not showing the kind, though. The same contrast reads just as naturally as \"demand was ordinary, but how close did the price forecast come\", and the words never name what was forecast. CAPABILITIES sends an unshown kind back (clarify, or an event review that says so) and does not let it be assumed to be demand. The brief designs H10 as not answerable for this reason, and the reviewer's own preferred outcome is clarify. Accepting `resolved` would turn the incidental demand remark into the subject of the forecast, which the incidental family exists to rule out. I keep my record unchanged."
+  },
+  {
+   "config": "H13",
+   "decision": "revise",
+   "change": "the asked mention's anchors only: ['what operational demand was forecast'] -> ['the AEMO run issued 2026-08-17T20:30:00Z', 'what operational demand was forecast']"
+  },
+  {
+   "config": "H24",
+   "decision": "revise",
+   "change": "the asked mention's anchors only: ['POE10, POE50 and POE90', 'the operational demand actually recorded'] -> ['POE10, POE50 and POE90', \"AEMO's operational demand forecast issued at 2026-08-19T03:30:00Z\", 'the operational demand actually recorded']"
+  }
+ ],
+ "step1_writer_file_sha256": "43d0bd7d9604d86f1e7c79f3805d78e529f803a8b2d5d1b98b31d59a2642eb5e",
+ "step2_reviewer": [
+  {
+   "config": "R10",
+   "decision": "accept",
+   "why": "Matches my reading on every field: a single-interval comparison under the named run 2026-08-15T23:00:00Z whose target 'midday AEST' is a time CAPABILITIES lists as not pinnable, so clarify only, unsupported_time 'midday', tools not_used. All three anchors are exact substrings of the question.",
+   "writer_config": "C02"
+  },
+  {
+   "config": "R33",
+   "decision": "accept",
+   "why": "The forecast's kind is not shown, and the cold snap makes a temperature forecast (and the half-hourly framing a price forecast) as plausible as demand. Under CAPABILITIES ('not assumed to be demand: clarify or event_review_without_demand_forecast') the writer's acceptable set is exactly right. My own record also allowed resolved as a lenient alternative; I do not judge leaving it out to be wrong. Anchors are exact; leaving the demand context out of the mentions is right (it is neither a forecast nor a peak).",
+   "writer_config": "H09"
+  },
+  {
+   "config": "R04",
+   "decision": "accept",
+   "why": "The words never name the forecast's kind. 'Demand was ordinary, but how close did the forecast come' reads just as well as a price-forecast question, so the CAPABILITIES rule against assuming demand applies, and clarify with event_review_without_demand_forecast is correct. My record also accepted resolved because the 'but' can tie the forecast to demand; that is an extra leniency on my part, not a defect in the writer's reading. The single-interval comparison kind, the unclear subject and the exact anchor are all right.",
+   "writer_config": "H10"
+  },
+  {
+   "config": "R69",
+   "decision": "accept",
+   "why": "Identical to my reading. Price forecasts are declined, and the request is a forecast value from the run issued 2026-08-17T20:30:00Z (06:30 AEST 18 Aug, before the target) for (07:30, 08:00] AEST on 18 Aug 2026, i.e. 2026-08-17T21:30:00Z to 22:00:00Z. My code confirms the bounds, the local times and half_hour_end_utc. All anchors and key words are exact.",
+   "writer_config": "H13"
+  },
+  {
+   "config": "R45",
+   "decision": "accept",
+   "why": "The core reading (one single-interval comparison under the run issued 2026-08-19T03:30:00Z for 2026-08-19T07:00:00Z to 07:30:00Z) matches mine, and the bounds check out. The writer also lists 'explicit' as a scope kind. The question states both ends of the half-hour, so it is an explicit period, and GOLD_FORMAT allows more than one kind when they are exactly the same half-hours. Leaving '17:00' out of the key words is less strict than my record but still correct, because 'ending 17:30 AEST on 19 August 2026' alone fixes the half-hour. All phrases are exact.",
+   "writer_config": "H24"
+  }
+ ],
+ "step2_reviewer_file_sha256": "9420ab493f742427c2d2e71cfca415eb350faf62e65a235079e6774471dd8de8",
+ "final": [
+  {
+   "config": "C02",
+   "family": "control",
+   "question": "Compare actual operational demand for New South Wales at midday AEST on 16 August 2026 with what AEMO's run issued 2026-08-15T23:00:00Z had forecast for operational demand.",
+   "request": {},
+   "region": "NSW1",
+   "local_dates": [
+    "2026-08-16"
+   ],
+   "answerable": false,
+   "outcome": "clarify",
+   "acceptable_outcomes": [
+    "clarify"
+   ],
+   "intents": [],
+   "cutoff_utc": null,
+   "mentions": [
+    {
+     "stance": "asked",
+     "kind": "single_interval_comparison",
+     "subject": "operational_demand",
+     "primary": false,
+     "anchors": [
+      "Compare actual operational demand",
+      "AEMO's run issued 2026-08-15T23:00:00Z",
+      "had forecast for operational demand"
+     ]
+    }
+   ],
+   "reader": null,
+   "resolution": null,
+   "demand_forecast_tools": "not_used",
+   "unsupported_time": "midday",
+   "notes": "A single-interval comparison under a named run, but 'midday' does not fix a half-hour (ending 12:00, ending 12:30, or a broader midday period), so it is sent back."
+  },
+  {
+   "config": "H09",
+   "family": "incidental",
+   "question": "With the cold snap pushing demand up across New South Wales on 2 August 2026, I want to check the forecast: what was it showing for the 07:00-07:30 AEST half-hour?",
+   "request": {},
+   "region": "NSW1",
+   "local_dates": [
+    "2026-08-02"
+   ],
+   "answerable": false,
+   "outcome": "clarify",
+   "acceptable_outcomes": [
+    "clarify",
+    "event_review_without_demand_forecast"
+   ],
+   "intents": [],
+   "cutoff_utc": null,
+   "mentions": [
+    {
+     "stance": "asked",
+     "kind": "forecast_value",
+     "subject": "unclear",
+     "primary": false,
+     "anchors": [
+      "check the forecast",
+      "what was it showing"
+     ]
+    }
+   ],
+   "reader": null,
+   "resolution": null,
+   "demand_forecast_tools": "not_used",
+   "unsupported_time": null,
+   "notes": "Demand appears only as context (the cold snap pushed demand up); it is not what is forecast or measured, and it is neither a forecast nor a demand peak, so it is not listed as a mention. 'The forecast' itself is unshown: the cold snap makes a temperature forecast just as plausible as a demand or price forecast. The half-hour is dated by the same sentence (2 August 2026)."
+  },
+  {
+   "config": "H10",
+   "family": "incidental",
+   "question": "Tasmanian demand was nothing out of the ordinary on 9 August 2026, but how close did the forecast come for the half-hour ending 17:30 AEST that day?",
+   "request": {},
+   "region": "TAS1",
+   "local_dates": [
+    "2026-08-09"
+   ],
+   "answerable": false,
+   "outcome": "clarify",
+   "acceptable_outcomes": [
+    "clarify",
+    "event_review_without_demand_forecast"
+   ],
+   "intents": [],
+   "cutoff_utc": null,
+   "mentions": [
+    {
+     "stance": "asked",
+     "kind": "single_interval_comparison",
+     "subject": "unclear",
+     "primary": false,
+     "anchors": [
+      "how close did the forecast come"
+     ]
+    }
+   ],
+   "reader": null,
+   "resolution": null,
+   "demand_forecast_tools": "not_used",
+   "unsupported_time": null,
+   "notes": "The demand remark is context (an observation, not a forecast or peak), so it is not a mention. The asked item is how close 'the forecast' came for one half-hour, a single-interval comparison whose kind (demand, price or weather) the question does not show; a reader primed by the demand remark might assume demand, but that is not what the words say."
+  },
+  {
+   "config": "H13",
+   "family": "negation",
+   "question": "Leave the price forecasts out of it. Using the AEMO run issued 2026-08-17T20:30:00Z, what operational demand was forecast for New South Wales in the half-hour closing at 08:00 AEST on 18 August 2026?",
+   "request": {},
+   "region": "NSW1",
+   "local_dates": [
+    "2026-08-18"
+   ],
+   "answerable": true,
+   "outcome": "resolved",
+   "acceptable_outcomes": [
+    "resolved"
+   ],
+   "intents": [
+    "forecast_review"
+   ],
+   "cutoff_utc": null,
+   "mentions": [
+    {
+     "stance": "declined",
+     "kind": "forecast_value",
+     "subject": "price",
+     "primary": false,
+     "anchors": [
+      "the price forecasts"
+     ]
+    },
+    {
+     "stance": "asked",
+     "kind": "forecast_value",
+     "subject": "operational_demand",
+     "primary": true,
+     "anchors": [
+      "the AEMO run issued 2026-08-17T20:30:00Z",
+      "what operational demand was forecast"
+     ]
+    }
+   ],
+   "reader": {
+    "subject_key_words": [
+     "operational demand"
+    ],
+    "scope_kinds": [
+     "half_hour"
+    ],
+    "scope_key_words": [
+     "08:00",
+     "AEST",
+     "18 August 2026"
+    ],
+    "run_rule": "issued_at",
+    "run_key_words": [
+     "2026-08-17T20:30:00Z"
+    ],
+    "cutoff_key_words": [],
+    "maximum": null
+   },
+   "resolution": {
+    "operation": "forecast_value",
+    "scope": {
+     "kinds": [
+      "half_hour"
+     ],
+     "start_utc": "2026-08-17T21:30:00Z",
+     "end_utc": "2026-08-17T22:00:00Z",
+     "start_local": "2026-08-18T07:30:00+10:00",
+     "end_local": "2026-08-18T08:00:00+10:00",
+     "half_hours": 1
+    },
+    "run": {
+     "rule": "issued_at",
+     "half_hour_end_utc": "2026-08-17T22:00:00Z",
+     "issued_at_utc": "2026-08-17T20:30:00Z"
+    },
+    "maximum": null,
+    "not_answered": []
+   },
+   "demand_forecast_tools": "eligible",
+   "unsupported_time": null,
+   "notes": "Price forecasts are declined, so not a request and not a not-answered part. The asked request is the operational demand forecast value for (07:30, 08:00] AEST on 18 August 2026 from the run issued at 2026-08-17T20:30:00Z (06:30 AEST the same local day); the issue timestamp is a time, not a second named date."
+  },
+  {
+   "config": "H24",
+   "family": "mixed_operations",
+   "question": "For Queensland, I want POE10, POE50 and POE90 from AEMO's operational demand forecast issued at 2026-08-19T03:30:00Z for the 17:00-17:30 AEST half-hour on 19 August 2026, together with the operational demand actually recorded in that same half-hour.",
+   "request": {},
+   "region": "QLD1",
+   "local_dates": [
+    "2026-08-19"
+   ],
+   "answerable": true,
+   "outcome": "resolved",
+   "acceptable_outcomes": [
+    "resolved"
+   ],
+   "intents": [
+    "forecast_review"
+   ],
+   "cutoff_utc": null,
+   "mentions": [
+    {
+     "stance": "asked",
+     "kind": "single_interval_comparison",
+     "subject": "operational_demand",
+     "primary": true,
+     "anchors": [
+      "POE10, POE50 and POE90",
+      "AEMO's operational demand forecast issued at 2026-08-19T03:30:00Z",
+      "the operational demand actually recorded"
+     ]
+    }
+   ],
+   "reader": {
+    "subject_key_words": [
+     "operational demand",
+     "POE10",
+     "POE50",
+     "POE90"
+    ],
+    "scope_kinds": [
+     "half_hour",
+     "explicit"
+    ],
+    "scope_key_words": [
+     "17:30",
+     "AEST",
+     "19 August 2026"
+    ],
+    "run_rule": "issued_at",
+    "run_key_words": [
+     "2026-08-19T03:30:00Z"
+    ],
+    "cutoff_key_words": [],
+    "maximum": null
+   },
+   "resolution": {
+    "operation": "single_interval_comparison",
+    "scope": {
+     "kinds": [
+      "half_hour",
+      "explicit"
+     ],
+     "start_utc": "2026-08-19T07:00:00Z",
+     "end_utc": "2026-08-19T07:30:00Z",
+     "start_local": "2026-08-19T17:00:00+10:00",
+     "end_local": "2026-08-19T17:30:00+10:00",
+     "half_hours": 1
+    },
+    "run": {
+     "rule": "issued_at",
+     "half_hour_end_utc": "2026-08-19T07:30:00Z",
+     "issued_at_utc": "2026-08-19T03:30:00Z"
+    },
+    "maximum": null,
+    "not_answered": []
+   },
+   "demand_forecast_tools": "eligible",
+   "unsupported_time": null,
+   "notes": "The one exception: the forecast's POE values and the actual value for the same half-hour, (17:00, 17:30] AEST on 19 August 2026, under the same named run (issued 2026-08-19T03:30:00Z, 13:30 AEST) and no cutoff, is one single-interval comparison carrying both values, not two requests. Both ends of the one half-hour are stated, so half_hour and explicit name exactly the same half-hour."
+  }
+ ],
+ "replaced": [],
+ "dropped": []
+}
