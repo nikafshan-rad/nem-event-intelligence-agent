@@ -319,14 +319,15 @@ class ForecastRequest:
     half_hour: tuple[datetime, datetime] | None
 
 
-def half_hour_asked(question: str) -> tuple[datetime, datetime] | None:
+def half_hour_asked(question: str, words: list[tuple[int, int]] | None = None) -> tuple[datetime, datetime] | None:
     """The one half-hour a question asks about (start, end UTC): a clock range with its zone on one date ("from 21:00
     to 21:30 UTC on 2026-07-30"), a clock that ends it with its zone and date ("the half-hour ending HH:MM <zone> on
     <date>", "finishing at 07:30 on 31 July 2026 in market time"), or an ISO end time ("ends at 2026-07-30T21:30:00Z",
     or in brackets right after the clock it restates). Nothing is guessed: a date without its year, or a clock without
     its zone, only checks the ISO time that restates it. None when it is not pinned down: no zone, no date, not 30
     minutes, several half-hours (also "ending 07:30 or 08:00"), an ending clock that cannot be dated or zoned, or a
-    clock and its restatement that disagree."""
+    clock and its restatement that disagree. ``words``: filled with the offsets of the words it was read from (D28: they
+    hold their times)."""
     issued = ISSUED_AT_RE.search(question)
     text = question if issued is None else question[:issued.start()] + " " * (issued.end() - issued.start()) + \
         question[issued.end():]
@@ -339,15 +340,18 @@ def half_hour_asked(question: str) -> tuple[datetime, datetime] | None:
         tz = timezone(timedelta(minutes=_CLOCK_ZONE_MIN[zone.lower()]))
         return datetime.combine(day, time(int(hh), int(mm)), tzinfo=tz).astimezone(UTC)
 
+    spans: list[tuple[int, int]] = []
     for m in _HALF_HOUR_ENDING_ISO_RE.finditer(text):
         end = parse_iso(m.group(1))
         found.add((end - timedelta(minutes=30), end))
+        spans.append(m.span())
     if len(days) == 1:
         for m in _HALF_HOUR_RANGE_RE.finditer(text):
             zone = m.group(6) or m.group(3)
             if zone:
                 a, b = at(days[0], m.group(1), m.group(2), zone), at(days[0], m.group(4), m.group(5), zone)
                 found.add((a, b if b > a else b + timedelta(days=1)))
+                spans.append(m.span())
     for m in _HALF_HOUR_END_CLOCK_RE.finditer(text):
         hh, mm, quals, iso = int(m.group(1)), int(m.group(2)), m.group(3), m.group(4)
         offsets = {_CLOCK_ZONE_MIN[z.lower()] for z in _ZONE_WORD_RE.findall(quals)}
@@ -359,6 +363,7 @@ def half_hour_asked(question: str) -> tuple[datetime, datetime] | None:
                                   else days[0] if len(days) == 1 else None)
         if not iso and not (offsets and day is not None):
             return None  # a half-hour named by a clock that is not pinned down: not skipped in favour of another
+        spans.append(m.span())
         if offsets and day is not None:
             off = next(iter(offsets))
             end = datetime.combine(day, time(hh, mm), tzinfo=timezone(timedelta(minutes=off))).astimezone(UTC)
@@ -371,17 +376,24 @@ def half_hour_asked(question: str) -> tuple[datetime, datetime] | None:
                 return None  # the restatement is not the clock's instant
             found.add((end - timedelta(minutes=30), end))
     found = {(a, b) for a, b in found if b - a == timedelta(minutes=30) and b.minute in (0, 30) and b.second == 0}
-    return next(iter(found)) if len(found) == 1 else None
+    if len(found) != 1:
+        return None
+    if words is not None:
+        words += spans
+    return next(iter(found))
 
 
-def half_hour_after_cutoff(question: str, as_of: datetime) -> tuple[datetime, datetime] | None:
+def half_hour_after_cutoff(question: str, as_of: datetime, words: list[tuple[int, int]] | None = None
+                           ) -> tuple[datetime, datetime] | None:
     """A clock-only half-hour with its zone ("the 23:00 to 23:30 UTC half-hour"), in a question that names no date,
     dated by an explicit as-of cutoff: its occurrence on the cutoff's own date in that zone, when that starts at or
     after the cutoff (the forecast is of a time still to come). Anything else is not safe to date: None (held-out v5
-    Y07: cutoff 2026-08-19T20:00Z, half-hour 23:00-23:30Z on the 19th)."""
+    Y07: cutoff 2026-08-19T20:00Z, half-hour 23:00-23:30Z on the 19th). ``words``: filled with the offsets of the words
+    it was read from (D28)."""
     if extract_dates(question) or _HALF_HOUR_ENDING_ISO_RE.search(question):
         return None
     found: set[tuple[datetime, datetime]] = set()
+    spans: list[tuple[int, int]] = []
     for m in _HALF_HOUR_RANGE_RE.finditer(question):
         zone = m.group(6) or m.group(3)
         if zone:
@@ -390,16 +402,22 @@ def half_hour_after_cutoff(question: str, as_of: datetime) -> tuple[datetime, da
             a = datetime.combine(day, time(int(m.group(1)), int(m.group(2))), tzinfo=tz).astimezone(UTC)
             b = datetime.combine(day, time(int(m.group(4)), int(m.group(5))), tzinfo=tz).astimezone(UTC)
             found.add((a, b if b > a else b + timedelta(days=1)))
+            spans.append(m.span())
     for m in _HALF_HOUR_ENDING_RE.finditer(question):
         tz = timezone(timedelta(minutes=_CLOCK_ZONE_MIN[m.group(3).lower()]))
         day = as_of.astimezone(tz).date()
         end = datetime.combine(day, time(int(m.group(1)), int(m.group(2))), tzinfo=tz).astimezone(UTC)
         found.add((end - timedelta(minutes=30), end))
+        spans.append(m.span())
     found = {(a, b) for a, b in found if b - a == timedelta(minutes=30)}
     if len(found) != 1:
         return None
     a, b = next(iter(found))
-    return (a, b) if a >= as_of else None
+    if a < as_of:
+        return None
+    if words is not None:
+        words += spans
+    return a, b
 
 
 HALF_HOUR_CLARIFICATION = (
@@ -522,16 +540,18 @@ def resolve(req: InvestigateRequest, sel: Selection, routed: Any = None,
         RequestResolution,
         Routed,
         RoutedRequest,
+        Source,
         clarifications,
         request_field_notes,
         resolve_cutoff,
+        resolve_forecast,
         resolve_maximum,
         resolve_run,
     )
     from .structured import _overlap as spans_overlap
 
     if isinstance(routed, RoutedRequest):
-        routed = Routed(routed)
+        routed = Routed(routed, contract="v14" if routed.forecast is not None else "v13")
 
     q = req.question
     if NON_NEM.search(q):
@@ -592,17 +612,23 @@ def resolve(req: InvestigateRequest, sel: Selection, routed: Any = None,
                                          "target half-hour"]
             as_of = None
     target = None
+    target_words: list[tuple[int, int]] = []
+    target_source = None
     if intent == "forecast_review" and region:
         # the half-hour asked about is the target; an as-of cutoff only says what was public (I-10). An explicit date or
         # ISO time names the target; a clock-only half-hour is dated by the cutoff only when that is safe. A bound
         # forecast-run request names it too (I-18)
-        target = half_hour_asked(q)
+        target = half_hour_asked(q, target_words)
+        target_source = Source("question", q, "question parser") if target is not None else None
         if target is None and requests.forecast_run.status == "bound" and requests.forecast_run.half_hour:
             target = requests.forecast_run.half_hour
-        if target is None and not dates and as_of is not None:
-            target = half_hour_after_cutoff(q, as_of)
+            target_source = requests.forecast_run.provenance.get("half_hour")
+        # (the question's own dates: a date the routing model gives is not the question's words, D26/D28)
+        if target is None and not extract_dates(q) and as_of is not None:
+            target = half_hour_after_cutoff(q, as_of, target_words)
             if target is not None:
                 diag["target_dated_by_cutoff"] = [iso_utc(target[0]), iso_utc(target[1])]
+                target_source = Source("question", q, "a clock-only half-hour dated by the cutoff")
         if target is not None and not (window and window[0] <= target[0] and target[1] <= window[1]):
             # the window reviewed is the target's: its local day, or that day's event window when it contains it
             day = target[0].astimezone(region_zone(region)).date()
@@ -622,6 +648,18 @@ def resolve(req: InvestigateRequest, sel: Selection, routed: Any = None,
         requests.maximum = resolve_maximum(q, req, region, day, event, model_requests,
                                            requests.cutoff.spans + run_spans)
         requests.notes = request_field_notes(q, given or req, region, day, requests.maximum, requests.cutoff)
+    # what a forecast review asks about the forecasts, its operation and its half-hour or period (D28). A demand maximum
+    # asked for is the request (D24-D26), and a run or cutoff request sent back already asks for what is missing
+    if intent == "forecast_review" and region and window is not None and not reasons and \
+            requests.maximum.status == "absent" and \
+            requests.forecast_run.status not in ("unresolved", "conflict") and \
+            requests.cutoff.status not in ("unresolved", "conflict"):
+        requests.forecast = resolve_forecast(q, req, region, event, routed, requests.forecast_run, requests.cutoff,
+                                             target, target_source, target_words)
+        if requests.forecast.status == "bound":
+            target = requests.forecast.target
+            if requests.forecast.window is not None:  # the period asked about is the window investigated
+                window = requests.forecast.window
     # a run named relative to a half-hour that is not pinned down (held-out v6 Z05, I-16), a demand peak without its
     # measure, or over a window that is not given (I-17), any other detected request that is not bound (I-18), and a
     # cutoff the model detected that cannot be pinned down (D26): sent back, naming what is missing, rather than guessed

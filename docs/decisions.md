@@ -1204,3 +1204,40 @@ Acceptance check recorded before implementation. One bounded offline PR; demand 
   - that the routing model reads the operation correctly under prompts v15 (that needs its own Live check);
   - that the question parser covers every phrasing;
   - that the synthetic controls show generalisation.
+- **Implementation record** (2026-10-04, written after the code; the text above is unchanged):
+  - **Refinements made during implementation:**
+    - **Scope of the contract:** the forecast request is resolved only for a forecast review with a known window
+      and no demand maximum asked for. A maximum (D24–D26) and a run or cutoff request already sent back keep
+      precedence. A forecast review asking about no forecast at all (actual demand, a price) has no forecast
+      request and keeps today's handling.
+    - **A bound forecast-run request** is positive evidence that the question asks what that run said (a forecast
+      value, unless comparison words make it a comparison).
+    - **The operation is read** without the cutoff's words and quoted background, but with the run's own words ("what
+      the forecast run issued at 16:57 projected").
+    - **A date written with a target's clock** (before or after it) is the target's.
+    - **A cutoff-dated half-hour** ("23:00 to 23:30 UTC") is dated only when the question's own words give no date. A
+      date the routing model gives is not the question's words (D26).
+    - **Clarification texts** carry no number or time.
+  - **Changed resolutions** (every saved question and routing decision resolved on `main` and on this code):
+    - **211 saved questions; 11 change:**
+      - FC01 and FC03–FC10: from the 12-hour slice to the whole local day;
+      - AMB06: sent back (its event window is 24.5 hours);
+      - V06: sent back (Replay cannot read its "public at …" cutoff, so its time is unread).
+    - **258 saved routing decisions; 2 change:** Z06 and Z07 (v12 decisions with no request reading) are sent back:
+      their "closing <time>" half-hour is not read without the routing model's words.
+    - **Paraphrase matrix:** it passes in every mode, with no wrong binding.
+      - P21 (no model reading) is sent back: it was an as-of window review;
+      - P52 ("across the 20 August 2026 event", 24.5 hours) is sent back.
+  - **Changed answers** (Replay and saved replays):
+    - **Window comparisons** are verified aggregates over the whole local day, each equal to an independent
+      recomputation from the pinned rows.
+    - **Forecast values** (FC02, FC08, ADV03's unnamed run, and as-of target questions) get no computed answer and no
+      `forecast_comparison`.
+    - **K05's saved MAE** over its one pair is no longer stated, because a single half-hour states no aggregate.
+    - **K07's neighbouring half-hour's** own POE50 is no longer stated.
+  - **Replay evaluation** (gates unchanged, all pass):
+    - `gold_forecast`: dev 5/5 → 0/5 and test 5/5 → 1/5 (the frozen gold encodes the 12-hour slice, and FC02's
+      one-pair aggregate);
+    - test answerable accepted 17/18 → 16/18, status 20/21 → 19/21, routing 19 → 18 (AMB06 sent back);
+    - numeric traceability (96/96) and citation validity (55/55) stay at 100%.
+    - The safety suite's output is identical.

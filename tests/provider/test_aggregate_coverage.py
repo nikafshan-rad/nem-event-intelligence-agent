@@ -63,6 +63,14 @@ def _items(found) -> list[str]:
     return sorted(d.split(":", 1)[0] for c, d in found if c == CODE)
 
 
+def _only_the_d28_scope_rule(res) -> None:
+    """I-20 accepts the wording; the only violations left are D28's: K05 asks about one half-hour, so no aggregate (its
+    MAE, even over exactly that half-hour's one pair) is stated (``FORECAST_SCOPE_NOT_PRIMARY``)."""
+    first = _first(res)
+    assert _items(first) == [] and {c for c, _ in first} == {"FORECAST_SCOPE_NOT_PRIMARY"}, first
+    assert all("ev0554" in d or "ev0555" in d or "ev0553" in d for _, d in first)
+
+
 def _k05(summary3: str | None = None, claim_text: str | None = None, headline: str | None = None,
          uncertainties: list[str] | None = None, missing: list[str] | None = None):
     """K05's draft with its claim unit fixed (as its saved repair did) and items replaced: a scripted variant."""
@@ -116,13 +124,15 @@ def test_1_k05s_24_hour_claim_is_rejected_and_not_shown():
 
 
 def test_2_a_faithful_description_of_its_one_paired_half_hour_passes():
+    """I-20 accepts it. Since D28 the MAE is not stated at all for a one-half-hour request (it was shown before)."""
     res = _replay(_k05(**FAITHFUL))
-    v = res.report.validation
-    assert v["final_passed"] and not v.get("repair_attempted"), _first(res)
-    assert any("over the one half-hour with a pair" in s for s in res.report.summary)
+    _only_the_d28_scope_rule(res)
+    assert not any("MAE" in s for s in res.report.summary)
 
 
-def test_2_a_faithful_repair_of_k05_is_shown():
+def test_2_a_faithful_repair_of_k05_passes_i20_but_d28_withholds_the_mae():
+    """It was shown before D28. I-20 still names exactly the two items the repair fixes; since D28 the MAE is not stated
+    at all for this one-half-hour request, so the answer falls back without it."""
     def repair(kw):  # a scoped patch replacing both rejected items and the claim's unit
         return {"edits": [{"target": "summary[3]", "action": "replace", "text": FAITHFUL["summary3"]},
                           {"target": "numeric_claims[c5]", "action": "replace",
@@ -133,7 +143,8 @@ def test_2_a_faithful_repair_of_k05_is_shown():
                 "new_numeric_claims": [], "new_citations": []}
     res = _replay(repair_fn=repair)
     assert _items(_first(res)) == ["c5", "summary[3]"]
-    assert res.report.validation["final_passed"], res.report.validation["initial"]["violations"]
+    v = res.report.validation
+    assert v["fallback_applied"] and v["final_passed"] and not any("MAE" in x for x in res.report.summary)
 
 
 @pytest.mark.parametrize("summary3", [
@@ -145,9 +156,8 @@ def test_2_a_faithful_repair_of_k05_is_shown():
     "The run's MAE of its 30-minute pairs is 10.0 MW.",  # an interval length, not coverage
 ])
 def test_2_partial_coverage_described_by_what_it_includes_passes(summary3):
-    res = _replay(_k05(summary3=summary3, claim_text="MAE 10.0 MW"))
-    v = res.report.validation
-    assert v["final_passed"] and not v.get("repair_attempted"), _first(res)
+    """I-20 accepts each wording (D28 rejects the aggregate itself for this one-half-hour request)."""
+    _only_the_d28_scope_rule(_replay(_k05(summary3=summary3, claim_text="MAE 10.0 MW")))
 
 
 @pytest.mark.parametrize("summary3,phrase", [
@@ -173,18 +183,19 @@ def test_1_the_headline_caveats_and_the_models_own_headline_are_read():
     rep = res.report  # no repair is scripted: it falls back without the rejected caveats
     assert res.report.validation["fallback_applied"]
     assert not any("whole target window" in x or "full 12-hour" in x for x in rep.uncertainties + rep.missing_evidence)
-    ok = _replay(_k05(**FAITHFUL))
-    rep = ok.report.model_copy()
+    ok = _replay(_k05(**FAITHFUL))  # since D28 a fallback without the MAE: the claim is put back to read I-20 alone
+    claim = NumericClaim(**{**_rec()["drafts"]["synthesis:draft"]["numeric_claims"][4], "text": FAITHFUL["claim_text"]})
+    rep = ok.report.model_copy(update={"numeric_claims": [*ok.report.numeric_claims, claim]})
     rep._model_headline = "MAE 10.0 MW over the 24-hour target window."
     out = validate(rep, ok.registry, records=ok.records)
     assert [v.detail.split(":", 1)[0] for v in out.critical if v.code == CODE] == ["headline (the model's own, not shown)"]
 
 
 def test_2_caveats_without_a_coverage_claim_or_with_a_limited_one_pass():
-    res = _replay(_k05(**FAITHFUL, uncertainties=["The MAE covers only one half-hour, so it says little about the run."],
-                       missing=["Forecast-actual pairs for the rest of the comparison window."]))
-    v = res.report.validation
-    assert v["final_passed"] and not v.get("repair_attempted"), _first(res)
+    """I-20 accepts the caveats (D28 rejects the aggregate itself for this one-half-hour request)."""
+    _only_the_d28_scope_rule(_replay(_k05(**FAITHFUL, uncertainties=["The MAE covers only one half-hour, so it says "
+                                                                     "little about the run."],
+                                         missing=["Forecast-actual pairs for the rest of the comparison window."])))
 
 
 # ------------------------------------------------------------------------------------------------ coverage, real data

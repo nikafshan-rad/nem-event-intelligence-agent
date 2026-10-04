@@ -26,7 +26,7 @@ from nem_agent.agent import forecast_compare as fc
 from nem_agent.agent.dispatcher import Dispatcher
 from nem_agent.agent.live import RouteDecision, checked_route
 from nem_agent.agent.request import ForecastRequest, InvestigateRequest, Resolution
-from nem_agent.agent.structured import NAMED_RUN_HALF_HOUR_CLARIFICATION
+from nem_agent.agent.structured import NAMED_RUN_HALF_HOUR_CLARIFICATION, ForecastAnalysis
 from nem_agent.evidence import EvidenceRegistry
 from nem_agent.render import render_result
 from nem_agent.report import InvestigationReport, NumericClaim
@@ -295,24 +295,29 @@ FC_CASES = {c["case_id"]: c for c in json.loads((ROOT / "eval/cases.json").read_
 
 
 @pytest.mark.parametrize("cid", sorted(FC_CASES))
-def test_window_reviews_in_replay_get_their_aggregate_primary(cid, real_store):
-    """A3: the aggregate primary equals the frozen forecast gold; forecast_comparison is unchanged; the day-ahead view,
-    a comparison the question did not ask for, is not stated."""
+def test_fc_cases_in_replay_follow_the_forecast_request(cid, real_store):
+    """D27's A3 checked the aggregate primary against the frozen forecast gold, whose window is the former 12-hour
+    slice. Since D28 the request decides (the frozen gold is unchanged; its metric change is reported, never forced):
+    a forecast value (FC02, FC08) gets no comparison result, and states the forecast for the frozen gold's peak target;
+    a window comparison is an aggregate over exactly the whole local day asked about, under the gold's run selection
+    (its values are checked against an independent recomputation in ``test_forecast_request.py``). No day-ahead view
+    is stated."""
     case = FC_CASES[cid]
     g = case["expected"]["gold_forecast"]
     res = investigate(InvestigateRequest(question=case["question"], **case.get("request", {})), write_trace=False)
-    (a,) = res.report.answer
-    r = res.report.results[0].result
-    assert isinstance(r, ForecastResult) and r.identity.kind == "forecast_aggregate" and a.verification == "verified"
-    assert r.identity.run_selection == g["selector"] and list(r.identity.window_utc) == g["targets_utc"]
-    assert len(r.pairs) == g["n_pairs"]
-    if g["n_pairs"]:
-        assert (r.mae_mw, r.mean_error_mw) == (g["mae_mw"], g["mean_error_mw"])
-        assert r.status == ("established" if g["n_pairs"] == r.targets_expected else "partial")
-        fcomp = res.report.forecast_comparison
-        assert fcomp is not None and (fcomp.n_pairs, fcomp.mae_mw) == (g["n_pairs"], g["mae_mw"])
+    asked = res.resolution.requests.forecast
+    if asked.operation == "forecast_value":
+        assert cid in ("FC02", "FC08") and res.report.answer == [] and res.report.forecast_comparison is None
+        pr = g["peak_target_latest_eligible_run"]
+        assert any(pr["source_row_id"] in o.source_row_ids and o.value == pr["poe50_mw"] for o in res.report.observations)
     else:
-        assert r.status == "unavailable" and a.status == "unavailable"
+        (a,) = res.report.answer
+        r = res.report.results[0].result
+        assert asked.operation == "window_comparison" and asked.scope == "whole_local_day" and a.verification == "verified"
+        assert r.identity.run_selection == g["selector"] and list(r.identity.window_utc) == [iso_utc(t) for t in asked.window]
+        assert r.targets_expected == asked.intervals == 48
+        fcomp = res.report.forecast_comparison
+        assert fcomp is not None and (fcomp.n_pairs, fcomp.mae_mw) == (len(r.pairs), r.mae_mw)
     assert "day-ahead" not in _shown(res.report)
     assert not res.report.validation["fallback_applied"]
 
@@ -377,9 +382,13 @@ def _res(region: str, *, point: ForecastRequest | None = None, window: tuple[str
          as_of: str | None = None, named: ForecastRequest | None = None) -> Resolution:
     req = InvestigateRequest(question=f"SYNTHETIC forecast question for {region}", as_of_utc=as_of)
     fr = point or named
-    requests = SimpleNamespace(forecast_run=SimpleNamespace(forecast_request=lambda: fr),
-                               maximum=SimpleNamespace(status="absent", measures=[]))
     w = (T(window[0]), T(window[1])) if window else None
+    # the forecast request resolved (D28): a point compares one half-hour, a window review a period
+    asked = ForecastAnalysis(status="bound", operation="single_interval_comparison", scope="half_hour",
+                             target=point.half_hour) if point is not None else \
+        ForecastAnalysis(status="bound", operation="window_comparison", scope="explicit", window=w)
+    requests = SimpleNamespace(forecast_run=SimpleNamespace(forecast_request=lambda: fr),
+                               maximum=SimpleNamespace(status="absent", measures=[]), forecast=asked)
     return Resolution(request=req, intent="forecast_review", region=region, event=None, window=w,
                       as_of=T(as_of) if as_of else None, requests=requests)
 
@@ -596,13 +605,13 @@ def test_a_live_point_request_gets_no_window_guidance_even_when_its_run_is_unava
 
 
 def test_a_live_window_review_keeps_its_window_guidance(real_store):
-    """The window guidance is unchanged where the request asks about a window (FC01's question), and
-    ``forecast_comparison`` is the controller's aggregate primary although the draft names no MAE (D27: never filled
-    from the model's ``forecast_mae_evidence_id``)."""
+    """A window comparison is guided to exactly its period (FC01's question: SA1's whole local day of 31 July since
+    D28, the 12-hour slice before), and ``forecast_comparison`` is the controller's aggregate primary although the
+    draft names no MAE (D27: never filled from the model's ``forecast_mae_evidence_id``)."""
     rec, _ = _saved_fake("R02")
     route = copy.deepcopy(rec["route"]) | {"event_date": "2026-07-31"}
     route["requested"]["forecast_run"] = {"selection": "none", "selection_text": None, "half_hour_text": None}
-    a, b = "2026-07-30T11:00:00Z", "2026-07-30T23:00:00Z"  # the 12-hour focus window around FC01's event peak
+    a, b = "2026-07-30T14:30:00Z", "2026-07-31T14:30:00Z"  # SA1's local day of 31 July (D28)
     turn = [("get_forecast_runs", {"region": "SA1", "target_start_utc": a, "target_end_utc": b, "as_of_utc": None,
                                    "max_runs": 4}),
             ("get_actual_demand", {"region": "SA1", "start_utc": a, "end_utc": b, "revision_policy": "latest_available",
@@ -622,9 +631,11 @@ def test_a_live_window_review_keeps_its_window_guidance(real_store):
     res = _live(FC_CASES["FC01"]["question"], fake)
     context = next(i["content"] for i in fake.requests[1]["input"] if isinstance(i, dict)
                    and str(i.get("content", "")).startswith("Investigation context"))
-    assert "forecast_targets_utc" in context and "24 half-hours" in context
+    fr = json.loads(context.split("\n", 1)[1])["forecast_request"]
+    assert "forecast_targets_utc" not in context and "24 half-hours" not in context
+    assert (fr["operation"], fr["start_utc"], fr["end_utc"], fr["half_hours"]) == ("window_comparison", a, b, 48)
     r = res.report.results[0].result
-    assert isinstance(r, ForecastResult) and r.identity.kind == "forecast_aggregate" and r.status == "established"
+    assert isinstance(r, ForecastResult) and r.identity.kind == "forecast_aggregate" and list(r.identity.window_utc) == [a, b]
     assert not res.report.validation["fallback_applied"]
     fcomp = res.report.forecast_comparison
     assert fcomp is not None and (fcomp.mae_mw, fcomp.n_pairs) == (r.mae_mw, len(r.pairs))

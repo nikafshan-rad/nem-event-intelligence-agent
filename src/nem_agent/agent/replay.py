@@ -217,7 +217,10 @@ class ReplayController:
         point = forecast_compare.point_request(res)
         if point is not None:
             return self._plan_forecast_point(res, point)
-        lo, hi = self._focus(res)
+        # D28: exactly the half-hour or period the request asks for; a forecast review that asks about no forecast
+        # (actual demand, a price) keeps the event-review scope
+        asked = forecast_compare.analysis(res)
+        lo, hi = asked.bounds if asked is not None else self._focus(res)
         t = {"region": res.region, "target_start_utc": iso_utc(lo), "target_end_utc": iso_utc(hi)}
         self.d.call("get_forecast_runs", {**t, "as_of_utc": self._as_of(res), "max_runs": 4})
         self.d.call("get_actual_demand", {"region": res.region, "start_utc": iso_utc(lo), "end_utc": iso_utc(hi),
@@ -535,9 +538,65 @@ class ReplayController:
                           published_findings=[], uncertainties=uncertainties,
                           status="answered" if stated and not self.d.required_missing() else "answered_with_caveats")
 
+    def _synth_forecast_asked(self, res: Resolution, asked: Any) -> InvestigationReport:
+        """A forecast value, or one half-hour compared without a named run (D28): no computed answer (a later slice).
+        The scripted text states the forecast for exactly the half-hour asked about, never another half-hour's in its
+        place (the event peak's only when the peak half-hour is what is asked about); for a period, one half-hour of
+        it, named. A comparison is stated only for one half-hour that asks for one, and only that half-hour's pair."""
+        comp = Composer(self.reg, res.region)
+        self._render_maxima(res, comp)
+        recs = self.d.records
+        runs = ok(recs, "get_forecast_runs")
+        region = res.region or "SA1"
+        uncertainties = ["POE10/POE90 are AEMO-published values derived from POE50 by scaling factors (SO_OP_3710); "
+                         "they are not calibrated uncertainty intervals.", *self._standard_uncertainties(res)[1:]]
+        summary: list[str] = []
+        end = iso_utc(asked.target[1]) if asked.target else (
+            iso_utc(half_hour_end_for(parse_iso(res.event.peak_interval_end_utc))) if res.event else None)
+        latest = runs[0].view["runs"][-1] if runs and runs[0].view.get("runs") else None
+        values = latest["values"] if latest else []
+        val = next((v for v in values if v["target_end_utc"] == end), None if asked.target else
+                   (values[0] if values else None))
+        if latest is not None and val is not None:
+            comp.observe(val["poe50_evidence_id"])
+            lead = (f"As of {local_str(res.as_of, region)}, the latest run provably public was issued at "
+                    if res.as_of else "The latest run held was issued at ")
+            summary.append(f"{lead}{local_str(parse_iso(latest['issued_at_utc']), region)}; its POE50 for the half-hour "
+                           f"ending {val['target_end_local']} was {comp.num(val['poe50_evidence_id'], 'mw')}.")
+        elif asked.target is not None:
+            summary.append("No forecast run " + ("provably public by the cutoff " if res.as_of else "") + "holds the "
+                           f"half-hour ending {local_str(asked.target[1], region)}; no other run or half-hour is given "
+                           "in its place.")
+        if asked.operation == "single_interval_comparison":
+            pair = next((pr for r in ok(recs, "compare_forecast_actual") for pr in r.view.get("pairs") or []
+                         if pr["target_end_utc"] == end), None)
+            if pair is not None:
+                comp.observe(pair["actual_evidence_id"])
+                summary.append(f"The actual ({pair['actual_revision']} revision) was "
+                               f"{comp.num(pair['actual_evidence_id'], 'mw')}, so that forecast's error was "
+                               f"{comp.num(pair['error_evidence_id'], 'signed_mw')} (POE50 minus actual).")
+            else:
+                summary.append("No forecast/actual pair is available for that half-hour"
+                               + (" by the cutoff" if res.as_of else "") + ", so no comparison is given.")
+        if res.as_of:
+            summary.append("Runs created after the cutoff, or created before it but not provably public by then, were "
+                           "excluded (counts are in the tool trace).")
+        headline = (f"{res.region} as-of forecast view: " if res.as_of else f"{res.region} operational demand forecast: ") + \
+            (summary[0][0].lower() + summary[0][1:] if summary else "no forecast run holds what the question asks about.")
+        defs = self._definition_citations(comp)
+        if defs:
+            summary.append("Definitions used: " + " ".join(defs))
+        return self._base(res, comp, headline, summary[1:] if summary else [], forecast_comparison=None,
+                          possible_explanations=[], published_findings=[], uncertainties=uncertainties,
+                          status="answered" if val is not None and not self.d.required_missing() else
+                          "answered_with_caveats")
+
     def _synth_forecast_review(self, res: Resolution) -> InvestigationReport:
         if forecast_compare.point_request(res) is not None:
             return self._synth_forecast_point(res)
+        asked = forecast_compare.analysis(res)
+        if asked is not None and not forecast_compare.window_review(res):
+            return self._synth_forecast_asked(res, asked)
         comp = Composer(self.reg, res.region)
         recs = self.d.records
         if forecast_compare.window_review(res):  # the aggregate the review asks for, from its own comparison (D27)

@@ -6,10 +6,15 @@ about had an error of 27 MW. Replay showed the same promotion by code: for a que
 headlined a 24-half-hour MAE under another run policy. Here the resolved request decides the comparison, and code
 computes, verifies and states it:
 
-- **Point** (``forecast_point``): one half-hour a bound forecast-run request names, its run chosen by issue time (the
-  last run issued before the half-hour starts, or the run issued at a named time), compared with the actual.
-- **Aggregate** (``forecast_aggregate``): a forecast review with no point request; MAE and mean error over today's
-  12-hour focus window under the project's default policy, over an explicitly listed set of pairs.
+- **Point** (``forecast_point``): a single-interval comparison whose run a bound forecast-run request names, chosen by
+  issue time (the last run issued before the half-hour starts, or the run issued at a named time), compared with the
+  actual for the half-hour the resolved request asks about.
+- **Aggregate** (``forecast_aggregate``): a window comparison; MAE and mean error over exactly the period the resolved
+  request asks about (D28: never a default slice), over an explicitly listed set of pairs.
+
+What a forecast review asks for is the resolved forecast request (D28, ``structured.ForecastAnalysis``): no comparison
+result for a forecast value, and none for a single-interval comparison whose run is not named (never an aggregate in
+its place).
 
 Each result carries its run selection, target or window, every pair (its own run, times and rows), every half-hour
 without a pair (with its reason), the revision policy, the cutoff and its source rows. Nothing stands in for an
@@ -41,7 +46,7 @@ from ..results import (
     request_digest,
 )
 from ..timeutil import iso_utc, local_str, parse_iso
-from .request import ForecastRequest, Resolution, requested_forecast
+from .request import ForecastRequest, Resolution
 
 if TYPE_CHECKING:
     from ..evidence import EvidenceRegistry
@@ -83,23 +88,64 @@ _REASON_TEXT = {
 
 
 # -- what the request asks for ---------------------------------------------------------------------------------------
+def analysis(res: Resolution) -> Any:
+    """The forecast request a resolution holds when it is bound (``structured.ForecastAnalysis``, D28), else None."""
+    a = getattr(res.requests, "forecast", None) if res.requests is not None else None
+    return a if a is not None and a.status == "bound" else None
+
+
 def point_request(res: Resolution) -> ForecastRequest | None:
-    """The one half-hour a forecast-run request names, decided from the resolved request alone (never from whether a
-    run lookup succeeded): a bound run with its half-hour pinned down."""
-    if res.requests is not None:
-        wanted = res.requests.forecast_run.forecast_request()
-    else:  # a resolution built elsewhere (tests), read as the controller reads it
-        wanted = requested_forecast(res.request.question)
-    return wanted if wanted is not None and wanted.half_hour is not None else None
+    """The run and half-hour of a single-interval comparison (D28), decided from the resolved request alone (never from
+    whether a run lookup succeeded): a bound run request, for the half-hour the request asks about. None for a forecast
+    value, a window comparison, or a single-interval comparison whose run is not named."""
+    a = analysis(res)
+    if a is None or a.operation != "single_interval_comparison" or a.target is None:
+        return None
+    wanted = res.requests.forecast_run.forecast_request()
+    if wanted is None or (wanted.half_hour is not None and wanted.half_hour != a.target):
+        return None
+    return ForecastRequest(wanted.run, wanted.issued_at, a.target)
 
 
 def window_review(res: Resolution) -> bool:
-    """A forecast review asking about a window: no point request, and no demand maximum asked for (a maximum is then
-    the requested result, D24, and is unchanged). Its primary is an aggregate over the focus window."""
-    from . import demand_max
+    """A window comparison (D28): its primary is an aggregate over exactly the period the request asks about. (A demand
+    maximum asked for is the request instead, D24: no forecast request is resolved for it.)"""
+    a = analysis(res)
+    return a is not None and a.operation == "window_comparison" and a.window is not None and res.region is not None
 
-    return res.intent == "forecast_review" and point_request(res) is None and res.window is not None \
-        and res.region is not None and not demand_max.requested_measures(res)
+
+_CONTEXT_NOTE = {
+    "forecast_value": "The question asks what the forecast said for exactly this half-hour or period. Give the forecast "
+                      "values; give no comparison with actual demand, no error and no MAE.",
+    "single_interval_comparison": "The question asks how the forecast compared with actual demand for exactly this "
+                                  "half-hour. Give no other half-hour, no window and no aggregate.",
+    "window_comparison": "The question asks how the forecasts compared with actual demand over exactly this period: "
+                         "use start_utc/end_utc as target_start_utc/target_end_utc (forecast tools accept at most "
+                         "24 h). Give no other period.",
+}
+
+
+def request_scope(res: Resolution) -> dict[str, Any] | None:
+    """What the validator holds the interpretation to (D28): the operation and the half-hour or period asked about."""
+    a = analysis(res)
+    if a is None:
+        return None
+    return {"operation": a.operation, "scope": a.scope,
+            "target_utc": [iso_utc(t) for t in a.target] if a.target else None,
+            "window_utc": [iso_utc(t) for t in a.window] if a.window else None}
+
+
+def request_context(res: Resolution) -> dict[str, Any] | None:
+    """The forecast request as the Live context gives it to the model (D28): the operation, the half-hour or period
+    with its interval count, and the cutoff, decided from the resolved request."""
+    a = analysis(res)
+    if a is None or res.region is None:
+        return None
+    lo, hi = a.bounds
+    return {"operation": a.operation, "scope": a.scope, "start_utc": iso_utc(lo), "end_utc": iso_utc(hi),
+            "start_local": local_str(lo, res.region), "end_local": local_str(hi, res.region),
+            "half_hours": a.intervals, "cutoff_utc": iso_utc(res.as_of) if res.as_of else None,
+            "note": _CONTEXT_NOTE[a.operation]}
 
 
 # -- the run a request names, by issue time (shared by Live, Replay and the verifier) ---------------------------------
@@ -170,15 +216,13 @@ def point_identity(res: Resolution, wanted: ForecastRequest, data_version: str) 
 
 
 def window_identity(res: Resolution, data_version: str) -> ForecastIdentity:
-    """The aggregate a forecast review asks for: today's focus window, under the project's default policy: the run a
-    request names by its issue time; else, under a cutoff, the latest run provably public by it; else, for each
+    """The aggregate a window comparison asks for: exactly its period (D28), under the run the request names by its
+    issue time; else, under a cutoff (from any source), the latest run provably public by it; else, for each
     half-hour, the latest run available before it."""
-    from .replay import forecast_focus
-
-    assert res.region is not None
-    lo, hi = forecast_focus(res)
-    named = res.requests.forecast_run.forecast_request() if res.requests is not None else \
-        requested_forecast(res.request.question)
+    a = analysis(res)
+    assert res.region is not None and a is not None and a.window is not None
+    lo, hi = a.window
+    named = res.requests.forecast_run.forecast_request()
     named_at = named.issued_at if named is not None and named.run == "issued_at" else None
     policy: Literal["run_id", "latest_available_as_of", "latest_before_target"] = \
         "run_id" if named_at else "latest_available_as_of" if res.as_of else "latest_before_target"
