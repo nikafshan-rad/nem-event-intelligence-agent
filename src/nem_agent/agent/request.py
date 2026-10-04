@@ -7,6 +7,7 @@ report and in the evaluation; it is not presented as model reasoning.
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Literal
@@ -545,7 +546,6 @@ def resolve(req: InvestigateRequest, sel: Selection, routed: Any = None,
         Routed,
         RoutedRequest,
         Source,
-        clarifications,
         not_answered_note,
         other_forecasts,
         request_field_notes,
@@ -598,6 +598,9 @@ def resolve(req: InvestigateRequest, sel: Selection, routed: Any = None,
             kind = event.kind
         else:
             window = local_day_window(day, region)
+    if routed is not None and routed.contract == "v16":  # the request plan (D31 Amendment 1): its own compiler
+        return _resolve_plan(req, sel, routed, given, intent, diag, regions, region, dates, day, kind, window, event,
+                             reasons)
     # the as-of cutoff: the request field, else the question's words and the routing model's quoted words, converted by
     # code; a cutoff the model detected that cannot be pinned down is sent back (D26)
     requests = RequestResolution(routed="reported" if routed is not None and routed.requested is not None
@@ -683,6 +686,16 @@ def resolve(req: InvestigateRequest, sel: Selection, routed: Any = None,
     # a run named relative to a half-hour that is not pinned down (held-out v6 Z05, I-16), a demand peak without its
     # measure, or over a window that is not given (I-17), any other detected request that is not bound (I-18), and a
     # cutoff the model detected that cannot be pinned down (D26): sent back, naming what is missing, rather than guessed
+    return _finish(req, intent, region, event, window, as_of, kind, reasons, regions, dates, diag, target, requests)
+
+
+def _finish(req: InvestigateRequest, intent: Intent | None, region: str | None, event: EventSelection | None,
+            window: tuple[datetime, datetime] | None, as_of: datetime | None, kind: Literal["high_price", "low_price"],
+            reasons: list[str], regions: Sequence[str], dates: list[date], diag: dict[str, object],
+            target: tuple[datetime, datetime] | None, requests: Any) -> Resolution:
+    """The status of a resolution, from its requests and what is still missing; shared by every routing contract."""
+    from .structured import RequestResolution, clarifications
+
     reasons += clarifications(requests)
     needs_data = intent in ("market_event_review", "forecast_review")
     if needs_data and region is None and not reasons:
@@ -702,3 +715,42 @@ def resolve(req: InvestigateRequest, sel: Selection, routed: Any = None,
                       routing={**diag, "regions_found": regions, "dates_found": [str(d) for d in dates],
                                "region_tz": REGION_TZ.get(region or "", None), "requests": requests.as_dict()},
                       target=target, requests=requests)
+
+
+def _resolve_plan(req: InvestigateRequest, sel: Selection, routed: Any, given: InvestigateRequest | None,
+                  intent: Intent | None, diag: dict[str, object], regions: Sequence[str], region: str | None,
+                  dates: list[date], day: date | None, kind: Literal["high_price", "low_price"],
+                  window: tuple[datetime, datetime] | None, event: EventSelection | None,
+                  reasons: list[str]) -> Resolution:
+    """A route contract v16 decision (D31 Amendment 1): its request plan, compiled by ``plan.compile_plan`` into the
+    same requests the other contracts resolve to; the window then follows the target half-hour or the period asked
+    about, as under v15. An invalid plan is sent back before anything is read."""
+    from .plan import PLAN_INVALID_CLARIFICATION, compile_plan, withdraw_echo
+
+    c = compile_plan(req.question, req, given or req, intent, region, day, event, routed.plan)
+    requests = c.requests
+    if c.invalid:
+        return Resolution(req, intent, region, event, window, None, kind=kind, status="needs_clarification",
+                          reasons=[PLAN_INVALID_CLARIFICATION],
+                          routing={**diag, "regions_found": regions, "dates_found": [str(d) for d in dates],
+                                   "region_tz": REGION_TZ.get(region or "", None), "requests": requests.as_dict()},
+                          requests=requests)
+    reasons += c.reasons
+    as_of, target = requests.cutoff.as_of, c.target
+    if intent == "forecast_review" and region:
+        if target is not None and not (window and window[0] <= target[0] and target[1] <= window[1]):
+            # the window reviewed is the target's: its local day, or that day's event window when it contains it
+            day = target[0].astimezone(region_zone(region)).date()
+            event = _event_for(sel, region, day)
+            if event and parse_iso(event.window_start_utc) <= target[0] and target[1] <= parse_iso(event.window_end_utc):
+                window, kind = (parse_iso(event.window_start_utc), parse_iso(event.window_end_utc)), event.kind
+            else:
+                event, window = None, local_day_window(day, region)
+            diag["window_from_target"] = str(day)
+        if requests.forecast.status == "bound" and requests.forecast.window is not None:
+            window = requests.forecast.window  # the period asked about is the window investigated
+        if window is None and not dates and as_of is not None:
+            reasons.append("Which date is the half-hour (or period) asked about? The as-of cutoff says what was public "
+                           "by then, not which day the forecast is for.")
+    return withdraw_echo(_finish(req, intent, region, event, window, as_of, kind, reasons, regions, dates, diag,
+                                 target, requests))

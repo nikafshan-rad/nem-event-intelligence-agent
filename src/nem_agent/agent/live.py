@@ -47,6 +47,7 @@ from ..tools import openai_function_tools
 from ..tools.args import strict_json_schema
 from ..tools.impl import NOTICE_TIME_RE
 from . import demand_max, diagnostics, forecast_compare
+from . import plan as request_plan
 from .dispatcher import Dispatcher
 from .playbook import PLAYBOOKS
 from .replay import forecast_focus
@@ -209,8 +210,10 @@ def model_id_from_env() -> str:
     return os.environ.get("NEM_AGENT_MODEL", "gpt-5-mini")
 
 
-def prompt(name: str) -> str:
-    return (resources.files("nem_agent").joinpath(*config.PROMPT_VERSION.split("/")) / f"{name}.md").read_text()
+def prompt(name: str, version: str | None = None) -> str:
+    """A prompt of ``version`` (a directory under src/nem_agent/), by default ``config.PROMPT_VERSION``."""
+    v = version or config.PROMPT_VERSION
+    return (resources.files("nem_agent").joinpath(*v.split("/")) / f"{name}.md").read_text()
 
 
 # ------------------------------------------------------------------------------------ model-facing schemas
@@ -837,6 +840,14 @@ class LiveController:
         self.transcript: list[dict[str, Any]] = []
         self._summary_origin: list[tuple[str, int]] = []  # rendered summary line -> its draft item
         self._change: tuple[EvidenceItem, EvidenceItem, EvidenceItem] | None = None  # derived change, from, to
+        # D31 Amendment 1: route contract v16 (the request plan) with prompts v17, opt-in; off, contract v15 with the
+        # default prompts, exactly as before
+        self.request_plan = request_plan.enabled()
+
+    @property
+    def prompt_version(self) -> str:
+        """The prompts this controller reads: v17 with the request plan, else ``config.PROMPT_VERSION``."""
+        return config.PLAN_PROMPT_VERSION if self.request_plan else config.PROMPT_VERSION
 
     # -- model call with bounds ------------------------------------------------------------------------------
     def _call(self, trace: Any, stage: str, **kwargs: Any) -> dict[str, Any]:
@@ -899,7 +910,16 @@ class LiveController:
             return None, raw
 
     # -- 1. route ---------------------------------------------------------------------------------------------
-    def route(self, question: str, trace: Any) -> RouteDecision | None:
+    def route(self, question: str, trace: Any) -> RouteDecision | request_plan.PlanRouteDecision | None:
+        """The routing decision: contract v15 by default; v16, the request plan, when it is turned on (D31 Amendment
+        1). Either is one call, and an incomplete or invalid response is None (sent back, failing closed)."""
+        if self.request_plan:
+            plan, _ = self._structured(trace, "route", request_plan.PlanRouteDecision,
+                                       prompt("route", self.prompt_version), [{"role": "user", "content": question}])
+            if plan is None:
+                return None
+            assert isinstance(plan, request_plan.PlanRouteDecision)
+            return request_plan.checked_plan_route(plan)
         dec, _ = self._structured(trace, "route", RouteDecision, prompt("route"),
                                   [{"role": "user", "content": question}])
         if dec is None:
@@ -971,7 +991,8 @@ class LiveController:
                                    f"{config.MAX_MODEL_CALLS} calls; {RESERVED_CALLS} kept for synthesis and repair).")
                     trace.add("model", "tool_loop_stopped", reason=stopped[-1])
                     break
-                resp = self._call(trace, "tools", instructions=prompt("system"), input=items, tools=tools,
+                resp = self._call(trace, "tools", instructions=prompt("system", self.prompt_version), input=items,
+                                  tools=tools,
                                   tool_choice="auto", parallel_tool_calls=True)
                 calls = [i for i in resp.get("output", []) if i.get("type") == "function_call"]
                 items += [x for x in (_replayable(i) for i in resp.get("output", [])) if x]
@@ -1011,8 +1032,9 @@ class LiveController:
                           notices=[n["doc_id"] for n in timing["notices"]])
                 items.append({"role": "user", "content": "Notice timing computed by the controller (JSON):\n" +
                               json.dumps(timing, indent=1, ensure_ascii=False)})
-            items.append({"role": "user", "content": prompt("synthesis")})
-            draft, raw = self._structured(trace, "synthesis", synthesis_schema(res.intent), prompt("system"), items)
+            items.append({"role": "user", "content": prompt("synthesis", self.prompt_version)})
+            draft, raw = self._structured(trace, "synthesis", synthesis_schema(res.intent),
+                                          prompt("system", self.prompt_version), items)
             mrep = as_model_report(draft)
             _trace_draft(trace, "synthesis", mrep)
         except BudgetExceeded as exc:
@@ -1038,14 +1060,16 @@ class LiveController:
             mrep2: BaseModel | None = None
             try:
                 if scoped and isinstance(mrep, ModelReport):
-                    patch, _ = self._structured(trace, "repair", RepairPatch, prompt("system"), items)
+                    patch, _ = self._structured(trace, "repair", RepairPatch, prompt("system", self.prompt_version),
+                                                items)
                     if isinstance(patch, RepairPatch):
                         mrep2, notes = apply_patch(mrep, patch, targets)
                         trace.add("model", "repair:scoped", targets=sorted(targets), notes=notes,
                                   patch=patch.model_dump())
                 else:
                     trace.add("model", "repair:full", unmapped_codes=sorted(set(unmapped)))
-                    rewrite, _ = self._structured(trace, "repair", synthesis_schema(res.intent), prompt("system"), items)
+                    rewrite, _ = self._structured(trace, "repair", synthesis_schema(res.intent),
+                                                  prompt("system", self.prompt_version), items)
                     mrep2 = as_model_report(rewrite)
                 _trace_draft(trace, "repair", mrep2)
             except BudgetExceeded as exc:

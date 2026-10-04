@@ -150,6 +150,11 @@ Measured with gpt-5-mini over 58 complete real-API question runs ([`docs/live-ga
 
 Without a key these commands print `UNVERIFIED` and exit non-zero. Replay results are never relabelled as Live.
 
+**Request plan (opt-in, off by default, not evaluated in Live):** `NEM_AGENT_ROUTE_PLAN=1` gives the routing call
+route contract v16 with prompts v17. The model returns a typed request plan, and code compiles it (D31 Amendment 1 in
+[`docs/decisions.md`](docs/decisions.md)). `NEM_AGENT_PLAN_POLICY` chooses the stated-basis policy: `V1` (default) or
+`V0`. It is verified offline only, with scripted plans: no claim is made about how a hosted model fills the plan.
+
 ### What the language model does (and does not do)
 
 This is an **LLM application**. It uses retrieval (RAG) and controlled tool calls, and **no model is trained or

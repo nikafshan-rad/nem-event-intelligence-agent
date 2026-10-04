@@ -1493,3 +1493,245 @@ Acceptance check recorded before implementation. One bounded offline PR; demand 
     - the notice names the snapshot only, not the alias;
   - evaluation sizes, bars and budget;
   - whether routing truncation is addressed first.
+
+### D31, Amendment 1: the approved request-plan contract, opt-in (2026-10-05)
+- **Status: approved for one bounded offline implementation PR; recorded here before implementation.** Nothing in this
+  amendment was implemented or recorded before it. The D31 entry above (2026-10-04) is kept as written. The default
+  Live path is unchanged, and the new path is off by default: adopting it needs a separate approval. D30 stays paused.
+- **Where it comes from:** the proposal was developed after D31 above, in a working session outside the repository.
+  Its final form and the owner's decisions on it (2026-10-05) are recorded here.
+- **What changed from D31 above:**
+  - **Scope:** D31 above covered forecast mentions only; the run, the demand maximum and the cutoff stayed as in
+    contract v13. The approved plan covers the supported forecast operations **and demand maxima**. Each operation
+    references its own scope, run and cutoff by id, and information shared between operations is shared by reference.
+  - **Names:** route contract **v16**, prompts **v17**.
+  - **Switch:** opt-in, off by default (`NEM_AGENT_ROUTE_PLAN`). Recorded v12–v15 decisions keep their resolver and
+    their historical scoring whatever the switch says.
+  - **Open decisions above, now decided:**
+    - the stated-basis policy: **V1** is the opt-in default, and **V0** is implemented for comparison;
+    - the code-rendered reading: an **interpretation echo** through the existing notes channel (below);
+    - routing truncation: **not** addressed here. It stays a separate item.
+  - **Kept from D31 above:** one routing call; no second model call; Replay keeps its parser; the evaluation is its own
+    protocol, later.
+- **Kept unchanged:** the calculations, the pinned-data verifier, the renderer, the validators, the permissions, the
+  supported limits and the supported time vocabulary. No forecasting feature is added. The routing output cap stays
+  2,000 tokens, and the model stays `gpt-5-mini`. The default path keeps contract v15 and prompts v16.
+
+**The contract (v16).** One routing call returns the v15 top-level fields (intent, region, event date, clarification
+and scope flags) without `as_of_text` and `requested`, and with a typed request plan:
+- **`operations`:** each has an id; a **stance** (`asked`, `declined` or `background`); a **kind**
+  (`forecast_value`, `forecast_comparison`, `demand_maximum` or `not_stated`); a **subject** (`operational_demand`,
+  `dispatch_total_demand`, `demand_unspecified`, `weather`, `price`, `other` or `not_stated`) with the words that state
+  it; the words asking for the operation; and references to a scope, a run and a cutoff (each an id, or null).
+- **`scopes`** (`half_hour`, `event_peak_half_hour`, `whole_local_day`, `event` or `explicit`), **`runs`**
+  (`last_issued_before`, `issued_at`, `as_of_availability` or `unclear`) and **`cutoffs`:** each has an id and the
+  question's own words.
+- **`cutoff_ref`:** the cutoff the asked investigation as a whole is limited to, by reference (for example an event
+  review asked as of a time), or null.
+- **The model computes no time.** Code converts every time from the quoted words, as in contracts v13–v15.
+
+**The compiler.** A deterministic compiler turns the plan into the existing `RequestResolution`. The model decides what
+is meant. Code decides:
+- **Admission, failing closed:** an incomplete or unparsable response, or a structurally invalid plan (a repeated id,
+  or a reference to a missing entity or one of the wrong type), is sent back. It offers no tools, executes nothing,
+  and no prefix is salvaged.
+- **One primary analytical operation (decision 1):**
+  - A forecast value and a comparison are consolidated into one comparison only when their subject, scope, run and
+    cutoff are identical and the comparison contains the requested values. That holds for a single half-hour compared
+    under a named run, whose result carries POE50, POE10, POE90 and the actual. Identical duplicates are consolidated
+    too.
+  - Distinct or conflicting asked operations are sent back for clarification: never chosen between, never merged.
+  - An asked forecast of another kind (weather, price, other) is named as not answered, as under D29. Declined and
+    background operations are not executed, and are not named as unanswered.
+- **The stated-basis policy (decision 2):**
+  - **V0:** a demand subject is accepted on the model's stated basis: its subject words must be given and be in the
+    question.
+  - **V1, the opt-in default:** V0, and the subject words must contain the existing, frozen demand vocabulary: a demand
+    word (`demand`, `totaldemand`, `load`) or a POE level for a forecast; for a maximum, words naming exactly the measure
+    read (D26's measure words).
+  - An unnamed forecast is clarified, never assumed to be demand. Neither policy is semantic verification.
+  - **Selection is development-only:** the opt-in default may be changed on development evidence only. No policy is
+    selected using held-out results.
+- **Cutoffs (decision 3):**
+  - A cutoff attached to an asked operation (or by `cutoff_ref`) is never dropped. If it cannot be read, the question is
+    sent back.
+  - A cutoff in the plan that nothing references is sent back for clarification, not applied globally.
+  - A cutoff that belongs only to declined or background material does not become an active constraint.
+  - An as-of cutoff given in the request field stays authoritative.
+- **The quotation-mark check is kept (decision 4).** Words in quotation marks are background. An asked operation whose
+  own words, or whose referenced entity's words, are only inside quotation marks is sent back. This conservatively
+  rejects a question that quotes its own request.
+- **Parser cutoff detection is an omission backstop only (decision 5).** As-of words that the question parser finds
+  outside every plan cutoff, declined or background words and quotation marks are sent back for clarification. They
+  are never applied in the plan's place. Where the parser and a plan cutoff read the same words, their instants must
+  agree.
+- **Temporal consistency:**
+  - Agreement is compared only between representations of the same role. Target time, issue time and cutoff are not
+    required to equal one another.
+  - The existing ordering and availability semantics are kept: a cutoff filters availability without replacing the
+    requested run-selection policy, and a clock-only half-hour is dated by the cutoff only as under I-10.
+  - Explicit request fields stay authoritative. F07's override is kept: a request cutoff applies over a question cutoff
+    that cannot be read ("noon"), and the discrepancy is recorded with the answer.
+  - Every time the question names must be held by a plan entity's words, whatever its stance, or by a bracket restating
+    one; otherwise the asked scope is sent back (D26/D28). Referenced entities of declined or background material may
+    hold contextual times without creating an executable request.
+  - Supported windows only: half-hour grid and the 24-hour forecast limit (D28), the 48-hour investigation bound. Never
+    clipped or substituted.
+- **What is replaced, for contract v16 only:** D29's clause containment and lexical conflict rules; the lexical evidence
+  checks on the model's operation; the parser's reading and veto of operations, domains, runs, maxima and targets; and
+  lexical negation masks on model readings. Replay and recorded v12–v15 decisions keep them.
+- **The interpretation echo:** a controller-generated statement of the bound reading, in the existing notes channel.
+  It is labelled as controller-generated metadata: not a model interpretation, a validation result or a confirmation by
+  the user. Fallback withholding and interpretation-status semantics are unchanged.
+- **Known unsupported, not fixed here:** "noon", "midday" and other parts of the day as times; vague narrowing words;
+  windows over the supported limits; an issue time or half-hour without a date, zone or start/end reading. These are
+  sent back as today.
+- **Semantic limitations, kept in view:**
+  - Located words and vocabulary matches are provenance, not proof of meaning. A plausible misreading whose words name
+    demand passes both policies.
+  - An asked run or maximum that the model leaves out of the plan is not detected, unless its words hold a time no
+    entity accounts for.
+  - The model's stance (declined, background) is trusted as given.
+
+**Acceptance criteria (offline; no Live claim):**
+1. **The default path and historical scoring are unchanged.** With the switch off (the default), Live sends contract
+   v15 with prompts v16. Every existing test, the Replay evaluation, the safety suite, every frozen hash and every
+   historical score are unchanged. Recorded v12–v15 decisions resolve exactly as before, with the switch on or off.
+2. **Scripted plans demonstrate the compiler's behaviour, independently of model extraction quality.** They cover
+   incidental demand mentions, ambiguity, negation, background, shared scope, mixed operations and kinds, time roles,
+   missing references and request overrides.
+3. **Equivalent bound resolutions preserve computed results, verification and validation.** The compiled fields that
+   the controllers read equal the v15 resolution's for the same reading. The intentional new metadata is listed
+   separately: the contract label, the plan record and the echo note.
+4. **Incomplete, invalid and sent-back plans offer no tools and execute nothing.**
+5. **Known unsupported cases are listed, including noon.** They are tested as clarifications and not claimed fixed.
+6. **The echo is tested in serialization and display,** with fallback withholding and interpretation status unchanged.
+7. **Reporting:** every changed outcome under the opt-in path, the compatibility implications and the remaining
+   semantic limitations are reported in the PR.
+8. **Full tests, lint, type check and CI pass.**
+
+**Also recorded for the later evaluation (not prepared here):**
+- a time-role family of cases (target, issue time, cutoff);
+- incomplete calls count in overall availability;
+- extraction quality is measured separately from compiler correctness.
+
+**Constraints of the PR:** no paid call, no Live protocol preparation, no model switch, no unrelated fix and no
+release. Offline checks use a scratch ledger. The real ledger stands as previously recorded: USD 9.336937, 3,226 lines,
+SHA-256 prefix `f303c2bc70aadd8f`. It is absent from the implementing machine, so this is not independently
+re-verified, and no replacement is created.
+
+### D31, Amendment 1: implementation, offline (2026-10-05)
+- **Status: implemented offline, opt-in and off by default.** Not enabled, not evaluated in Live, and not adopted.
+  No paid call was made. The amendment above was committed before any code.
+- **What was built:**
+  - `nem_agent/agent/plan.py`: the v16 schema (`PlanRouteDecision`), the switch (`NEM_AGENT_ROUTE_PLAN`), the policy
+    (`NEM_AGENT_PLAN_POLICY`), the compiler (`compile_plan`) and the echo;
+  - prompts v17: `route.md` is new; `system.md` and `synthesis.md` are byte-identical to v16's;
+  - `request.resolve`: a v16 decision goes to the compiler. Its shared tail is moved, unchanged, into `_finish`;
+  - `LiveController.route` sends v16 only with the switch on, and a report records the prompts it used;
+  - the tests isolate the two settings, so a shell setting never changes the contract the suite exercises.
+- **Offline evidence** (`tests/provider/test_request_plan.py`; scripted plans show design properties only, not
+  extraction quality):
+  - **The default path is unchanged:**
+    - the v15 routing schema's hash and the v16 route prompt equal v2.0.0's;
+    - all 399 saved decisions the current reader accepts (v12, v13, v15) resolve identically with the switch off
+      and on. The other 38 saved decisions, the earliest L1–L3 records, are in a shape no current reader accepts;
+    - the full suite, the Replay evaluation, the safety suite and the retrieval evaluation pass as at the baseline.
+  - **Equivalence:** the saved end-to-end records (R02, D01, D02, F02, F06, F07; F07N and F08 sent back) resolve to the
+    same bound request. Through the real store and the SYNTHETIC fake transport, R02 and the maxima give the same
+    report, apart from the intentional new metadata: the computed results, verification, validation, R02's
+    fallback, and the maxima's byte-identical statements. One field differs and is read by no controller: F07's v13
+    decision also read its cutoff words as an "as of availability" run, and a plan's maximum has no run.
+  - **The v15 diagnostic questions with scripted correct plans:** 16 of 17 give the frozen amended gold's outcome.
+    N07 is sent back because "noon" cannot be read.
+- **Changed outcomes under the opt-in path, for the same reading:**
+  - **Bound now, sent back by v15's resolver:** correct readings whose words fall outside the requested clause (v15
+    diagnostic D01, D02, D03, D07, the last a shared half-hour).
+  - **No longer named as unanswered:** a forecast the question declines (N04).
+  - **Sent back now** (what v15 does with the same question was checked with scripted v15 decisions where stated):
+    - a forecast whose subject words hold no demand word or POE level (V1), including a run named by its issue time
+      with no subject (v15 accepted the model's demand reading, and Replay takes a bound run as showing demand);
+    - a forecast comparison and a demand maximum asked together. v15 bound the maximum alone; its note said the
+      question mentions a forecast without showing which (checked);
+    - two measures' maxima asked together. v15 bound one measure's maximum (checked);
+    - a forecast value and a comparison over a period, and an asked forecast of unknown kind beside a supported one.
+      v15's single operation and domain fields hold one reading;
+    - a cutoff that nothing references, or as-of words the plan leaves out. v15's parser applied the question's
+      as-of cutoff to the whole question (checked).
+  - **Not applied now:** a cutoff that only declined or background material refers to.
+  - **Unchanged:** the known unsupported time expressions (noon, midday, parts of the day, windows over the limits),
+    sent back as before. Event reviews keep their handling: a forecast operation there decides tool eligibility and
+    the not-answered note only.
+- **Compatibility:**
+  - **With the switch off:** none.
+  - **With it on:**
+    - traces carry v16 decisions (a `plan`, without `as_of_text` and `requested`), which the v15 `RouteDecision` reader
+      rejects; readers dispatch on the `plan` key;
+    - `versions.prompt` is `prompts/v17`;
+    - the routing record's `requests` gains `plan` and the contract `v16`;
+    - the report's uncertainties gain the labelled echo note. The report schema is unchanged;
+    - the routing call's reservation is larger (a longer prompt and schema); it is not measured in Live.
+  - **New names:**
+    - the module `nem_agent.agent.plan`;
+    - `Routed.plan` and `RequestResolution.plan`, serialised only when set;
+    - `PLAN_CUTOFF_CLARIFICATION`;
+    - `live.prompt(name, version=None)`;
+    - `LiveController.request_plan` and `prompt_version`;
+    - `config.ROUTE_PLAN_DEFAULT`, `PLAN_PROMPT_VERSION` and `PLAN_POLICY_DEFAULT`.
+- **Remaining limitations:** as listed in the amendment.
+  - Neither policy verifies meaning. A misreading whose words name demand passes both; V0 accepts any stated basis.
+  - A model's omission of a run or maximum is not detected unless a time is left unheld.
+  - Stances are trusted.
+  - The quotation-mark check sends back a question that quotes its own request.
+  - Truncation is unaddressed, and the routing cap is unchanged.
+- **Not done:** no Live run, no evaluation protocol, no model switch, no release.
+
+### D31, Amendment 1: integration review before merge (2026-10-05)
+- **What it checked:** the implementation against the amendment's acceptance criteria, through the Live entry point
+  (`investigate` in Live mode with the SYNTHETIC fake transport and the real store), not only the compiler
+  (`tests/provider/test_request_plan_review.py`). It used scripted plans: design properties only.
+- **Two failures found and fixed, within the approved scope:**
+  1. **Decision 3.** A cutoff that only an asked operation which does not run refers to (a forecast of another kind,
+     named as not answered, or an operation a document question does not read) was applied to the request that
+     runs, and stated in its echo. It is now sent back (`PLAN_CUTOFF_CLARIFICATION`), unless the running request
+     refers to a cutoff naming the same time, or the request gives one.
+  2. **Decision 1.** Identical duplicate maxima were sent back, though the amendment consolidates identical
+     duplicates. They are now one operation; two measures, or two windows, are still sent back.
+- **Checked and holding:**
+  - **Historical decisions:** the contract a decision was given in chooses the resolver, and the switch only chooses
+    the contract of a new routing call. All 399 readable saved decisions resolve identically with the switch off
+    and on. Every frozen Live runner first refuses a checkout whose `src/` is not its frozen tree, so none can run
+    on this code with or without the switch.
+  - **Fail-closed:** fourteen kinds of incomplete, invalid, conflicting and sent-back plans make the routing call
+    only: no tool is offered or run, and only the send-back is shown.
+  - **Cutoffs and roles:**
+    - an active cutoff that cannot be read is sent back for every intent, unless the request gives one (F07);
+    - declined and background entities create no request;
+    - the parser backstop covers everything the question parser detects (`extract_as_of` reads only the as-of words
+      `AS_OF_Q_RE` finds).
+  - **Consolidation:** it holds only for an identical subject, scope, run and cutoff, changing one at a time.
+  - **The echo:** on the page it is a bullet under "Uncertainties and missing evidence", never under the
+    interpretation. The banner, validation and interpretation status equal the v15 run's for the same record (R02,
+    a fallback; D02, validated). It is withdrawn when the question does not run.
+  - **V0 and V1:**
+    - the 17 scripted correct plans give the same outcomes under both;
+    - of four misreadings, V1 sends back the three whose subject words hold no demand vocabulary, and V0 accepts all
+      four;
+    - no selection rule was applied, and no held-out outcome was used.
+- **The trust boundary**, as demonstrated (errors in the plan itself):
+  - **Caught:**
+    - an omitted run or cutoff whose words hold a time;
+    - omitted as-of words the parser reads;
+    - an asked request labelled declined or background in a forecast review (nothing is asked);
+    - quoted background labelled asked;
+    - an unnamed forecast read as demand (V1).
+  - **Accepted and run,** with the echo stating the reading:
+    - an omitted run with no time of its own;
+    - an omitted cutoff with neither as-of words nor a clock ("published by noon");
+    - a declined or unquoted background forecast labelled asked;
+    - a subject taken from an incidental "demand".
+  - **Accepted, with nothing said:** an omitted maximum, or an asked maximum labelled declined, in an event review.
+    The review runs without it. v15's parser would have bound such a maximum.
+
+  These are the recorded semantic limitations (stances trusted, omissions undetected, provenance not meaning), not
+  failures of an acceptance criterion. No phrase rule was added for them.

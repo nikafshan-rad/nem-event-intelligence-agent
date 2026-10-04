@@ -58,10 +58,19 @@ def _session_budget_ledger(tmp_path_factory):
     at a scratch ledger (a module fixture running the fake transport once wrote to the real one)."""
     with pytest.MonkeyPatch.context() as mp:
         mp.setenv("NEM_AGENT_BUDGET_LEDGER", str(tmp_path_factory.mktemp("ledger") / "budget_ledger.jsonl"))
+        for name in _ROUTE_PLAN_SETTINGS:
+            mp.delenv(name, raising=False)
         yield
+
+
+# D31 Amendment 1: the request plan is opt-in; tests that use it turn it on themselves, so a setting in the shell
+# never changes which routing contract the suite exercises
+_ROUTE_PLAN_SETTINGS = ("NEM_AGENT_ROUTE_PLAN", "NEM_AGENT_PLAN_POLICY")
 
 
 @pytest.fixture(autouse=True)
 def _isolated_budget_ledger(tmp_path, monkeypatch):
     """Tests never touch the real task-wide spending ledger (nem_agent.budget)."""
     monkeypatch.setenv("NEM_AGENT_BUDGET_LEDGER", str(tmp_path / "budget_ledger.jsonl"))
+    for name in _ROUTE_PLAN_SETTINGS:
+        monkeypatch.delenv(name, raising=False)
