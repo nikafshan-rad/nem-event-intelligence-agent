@@ -71,6 +71,9 @@ class Resolution:
     # the computed results the runtime verifier did not admit (D25): their bindings carry no value, and no statement may
     # give their value (``validation.unadmitted_result_violations``)
     results_not_admitted: list[Any] | None = None
+    # the forecast comparison the request asks for, as the controller computed it (D27): what the primary result owns,
+    # admitted or not (``forecast_compare.scope_of``); the validator holds the interpretation to its scope
+    forecast_primary: dict[str, Any] | None = None
     # the forecast-run and demand-maximum requests as resolved, with provenance (``structured.RequestResolution``,
     # I-18); None only for a resolution built elsewhere (tests)
     requests: Any = None
@@ -579,7 +582,7 @@ def resolve(req: InvestigateRequest, sel: Selection, routed: Any = None,
     data_intent = intent in ("market_event_review", "forecast_review")
     model_requests = routed.requested if routed is not None else None
     if data_intent:
-        requests.forecast_run = resolve_run(q, region, model_requests)
+        requests.forecast_run = resolve_run(q, region, model_requests, requests.cutoff.spans)
         clash = [(c, h) for c in requests.cutoff.spans if c.source == "route_model"
                  for h in requests.forecast_run.spans if h.role == "run_half_hour" and spans_overlap(c, h)]
         if clash and not req.as_of_utc:  # the same words read as the cutoff and as the target half-hour (a cutoff

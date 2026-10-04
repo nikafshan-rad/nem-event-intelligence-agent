@@ -259,11 +259,19 @@ def test_a_missing_interpretation_does_not_erase_the_computed_answer():
 
 
 # ------------------------------------------------------------------------------------------------ unchanged elsewhere
-@pytest.mark.parametrize("label,cid", [("MC-dev-e2e-mini", "K07"), ("live-check-p1-dev", "W18"),
-                                       ("LC-route-v12-e2e", "K05"), ("L3-holdout-v5", "Y18")])
+@pytest.mark.parametrize("label,cid", [("live-check-p1-dev", "W18"), ("L3-holdout-v5", "Y18")])
 def test_answers_without_a_computed_maximum_have_no_computed_answer(label, cid):
     rep = _replay(label, cid).report
     assert rep.answer == [] and rep.results == []
+
+
+@pytest.mark.parametrize("label,cid,status", [("MC-dev-e2e-mini", "K07", "unavailable"),
+                                              ("LC-route-v12-e2e", "K05", "established")])
+def test_a_point_request_has_the_controllers_comparison_as_its_computed_answer(label, cid, status):
+    """D27: K07 (its run not public by the cutoff) and K05 had no computed answer before."""
+    rep = _replay(label, cid).report
+    assert [(a.kind, a.status, a.verification) for a in rep.answer] == [("forecast_point", status, "verified")]
+    assert [r.result.identity.kind for r in rep.results] == ["forecast_point"]
 
 
 def test_the_computed_answer_states_the_maximum_for_p2():

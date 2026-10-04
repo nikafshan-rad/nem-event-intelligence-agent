@@ -26,7 +26,7 @@ from ..report import (
     Versions,
 )
 from ..timeutil import NEM_TZ, half_hour_end_for, iso_utc, local_str, parse_iso
-from . import demand_max
+from . import demand_max, forecast_compare
 from .dispatcher import Dispatcher, ToolCallRecord
 from .request import Resolution
 
@@ -214,6 +214,9 @@ class ReplayController:
                                    "run_selector": "latest_before_target", "as_of_utc": self._as_of(res)})
 
     def _plan_forecast_review(self, res: Resolution) -> None:
+        point = forecast_compare.point_request(res)
+        if point is not None:
+            return self._plan_forecast_point(res, point)
         lo, hi = self._focus(res)
         t = {"region": res.region, "target_start_utc": iso_utc(lo), "target_end_utc": iso_utc(hi)}
         self.d.call("get_forecast_runs", {**t, "as_of_utc": self._as_of(res), "max_runs": 4})
@@ -234,6 +237,23 @@ class ReplayController:
         if WEATHER_WORDS.search(res.request.question):
             self.d.call("get_weather_context", {"region": res.region, "start_utc": iso_utc(lo), "end_utc": iso_utc(hi),
                                                 "as_of_utc": self._as_of(res)})
+
+    def _plan_forecast_point(self, res: Resolution, point: Any) -> None:
+        """One run and half-hour a forecast review names (D27; K14 was headlined with a 24-half-hour MAE under another
+        run policy): the run it names, recorded as the Live controller records it (I-9), the forecast runs and actuals
+        for that half-hour, and its comparison by the controller, the computed answer. No window comparison is made."""
+        assert res.region is not None and point.half_hour is not None
+        h0, h1 = point.half_hour
+        res.forecast_run = forecast_compare.forecast_run_record(self.d.store, res.region, point, res.as_of)
+        t = {"region": res.region, "target_start_utc": iso_utc(h0), "target_end_utc": iso_utc(h1)}
+        self.d.call("get_forecast_runs", {**t, "as_of_utc": self._as_of(res), "max_runs": 4})
+        self.d.call("get_actual_demand", {"region": res.region, "start_utc": iso_utc(h0), "end_utc": iso_utc(h1),
+                                          "revision_policy": "latest_available", "as_of_utc": self._as_of(res)})
+        forecast_compare.submit(self.d, res, forecast_compare.compute(
+            self.d, forecast_compare.point_identity(res, point, self.d.store.data_version)))
+        self.d.call("retrieve_public_evidence", {
+            "query": "operational demand forecast 50% POE most probable 10% 90% scaling factor load forecasting",
+            "top_k": 4, "doc_types": ["definition", "procedure"], "as_of_utc": self._as_of(res)})
 
     def _plan_source_explanation(self, res: Resolution) -> None:
         args: dict[str, Any] = {"query": res.request.question[:300], "top_k": 5, "as_of_utc": self._as_of(res)}
@@ -468,9 +488,10 @@ class ReplayController:
         controller's own call (``demand_max``; I-17: held-out v6 Z04), recorded for the validator, and rendered as the
         computed answer from the verified-result registry (``render.render_result``, D25), apart from the summary."""
         measures = demand_max.requested_measures(res)
-        if not measures or not res.region:
+        if not res.region or not (measures or res.forecast_primary):  # D27: the forecast primary is rendered too
             return
-        res.demand_max = [demand_max.compute(self.d, res, m) for m in measures]
+        if measures:
+            res.demand_max = [demand_max.compute(self.d, res, m) for m in measures]
 
         def num(eid: str) -> str:
             comp.observe(eid)
@@ -494,9 +515,37 @@ class ReplayController:
             largest_abs_error=la, note=f"{v['error_definition']}; {v['actuals_are']}.")
 
     # ------------------------------------------------------------------ forecast_review
+    def _synth_forecast_point(self, res: Resolution) -> InvestigationReport:
+        """The computed answer states the comparison (D27); the scripted text adds no other comparison."""
+        comp = Composer(self.reg, res.region)
+        self._render_maxima(res, comp)
+        prim = res.forecast_primary or {}
+        stated = bool(prim.get("admitted")) and prim.get("status") == "established"
+        headline = (f"{res.region} operational demand: the forecast run the question names is compared with the actual "
+                    "for the half-hour it asks about, in the computed answer." if stated else
+                    f"{res.region} operational demand: the comparison the question asks for cannot be given; no other "
+                    "forecast run or half-hour is used in its place.")
+        uncertainties = ["POE10/POE90 are AEMO-published values derived from POE50 by scaling factors (SO_OP_3710); "
+                         "they are not calibrated uncertainty intervals.", *self._standard_uncertainties(res)[1:]]
+        summary: list[str] = []
+        defs = self._definition_citations(comp)
+        if defs:
+            summary.append("Definitions used: " + " ".join(defs))
+        return self._base(res, comp, headline, summary, forecast_comparison=None, possible_explanations=[],
+                          published_findings=[], uncertainties=uncertainties,
+                          status="answered" if stated and not self.d.required_missing() else "answered_with_caveats")
+
     def _synth_forecast_review(self, res: Resolution) -> InvestigationReport:
+        if forecast_compare.point_request(res) is not None:
+            return self._synth_forecast_point(res)
         comp = Composer(self.reg, res.region)
         recs = self.d.records
+        if forecast_compare.window_review(res):  # the aggregate the review asks for, from its own comparison (D27)
+            ident = forecast_compare.window_identity(res, self.d.store.data_version)
+            rec = forecast_compare.matching_record(ident, recs)
+            forecast_compare.submit(self.d, res, forecast_compare.compute(self.d, ident) if rec is None else
+                                    forecast_compare.result_from_output(ident, rec.status, rec.data, rec.view, self.reg,
+                                                                        rec.call_id, rec.blocked_reason))
         cmps = ok(recs, "compare_forecast_actual")
         runs = ok(recs, "get_forecast_runs")
         uncertainties = self._standard_uncertainties(res)[1:]
@@ -529,7 +578,8 @@ class ReplayController:
                                       note="Actual demand for the target half-hours had not been published by the cutoff, "
                                            "so no error can be computed in an as-of view."))
             return self._abstain(res, comp, "No aligned forecast/actual pairs are available for the requested window.")
-        main = cmps[0]
+        # the comparison the review asks for (D27): the primary's own call where there is one, else the plan's first
+        main = next((r for r in cmps if r.call_id == (res.forecast_primary or {}).get("call_id")), cmps[0])
         fc = self._forecast_comparison(main, comp)
         v = main.view
         la = v["largest_abs_error"]
@@ -551,11 +601,7 @@ class ReplayController:
             f"{comp.num(la['error_evidence_id'], 'signed_mw')}"
             + (f" ({comp.num(la['error_pct_evidence_id'], 'pct')} of actual)" if la.get("error_pct_evidence_id") else "")
             + ".")
-        for extra in cmps[1:]:
-            ev_ = extra.view
-            comp.observe(ev_["mae_mw"]["evidence_id"])
-            summary.append("Using only runs issued at least a day ahead (the day-ahead view), the mean absolute error was "
-                           f"{comp.num(ev_['mae_mw']['evidence_id'], 'mw')}.")
+        # D27: the day-ahead view (``cmps[1:]``) is a comparison the question did not ask for, so it is not stated
         act = ok(recs, "get_actual_demand")
         if act:
             used = act[0].view["revisions_used"]

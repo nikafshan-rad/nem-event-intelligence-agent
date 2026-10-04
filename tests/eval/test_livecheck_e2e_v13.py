@@ -219,14 +219,24 @@ def test_offline_the_clarification_controls_stop_before_any_tool(offline, store_
                                     "detected_by": inter["maximum"]["detected_by"]}
 
 
+# D27 (after this check; its records, criteria and verdict are unchanged): R02 asks about one run and half-hour, so the
+# current code computes and renders that comparison (forecast_result/1). The frozen criterion 8, written for demand
+# maxima, reads any computed result or answer as a maximum computed for the control.
+D27_R02 = ["an analytical result was computed (result:analytical_result)", "the report has a computed answer (format 2)"]
+
+
 def test_offline_the_non_maximum_control_binds_no_maximum(offline, store_sel, real_store):
     _, rec, trace = offline["R02"]
     a = _auto("R02", rec, trace, store_sel)
-    assert a["problems"]["8_non_maximum_control"] == [] and rec["report"]["schema_version"] == "1"
+    assert a["problems"]["8_non_maximum_control"] == D27_R02 and rec["report"]["schema_version"] == "2"
+    assert [(x["kind"], x["status"]) for x in rec["report"]["answer"]] == [("forecast_point", "established")]
     assert a["control"]["intermediate"]["maximum"]["status"] == "absent"
     assert a["control"]["intermediate"]["forecast_run"]["status"] == "bound"
-    # with no tool data the SYNTHETIC run abstains, so the control is contained but not demonstrated
-    assert rec["report"]["status"] == "abstained" and not a["control"]["demonstrated"]
+    # the SYNTHETIC draft falls back. It abstained (the control contained, not demonstrated) when no model tool ran;
+    # since D27 the controller's comparison of the run asked for gives data, so the fallback shows that pair's values
+    assert rec["report"]["status"] == "answered_with_caveats" and a["control"]["demonstrated"]
+    assert {o["metric"] for o in rec["report"]["observations"]} == {
+        "opdemand_forecast_poe50", "opdemand_actual", "forecast_error_mw", "forecast_error_pct"}
 
 
 def test_offline_every_record_round_trips_and_keeps_its_evidence(offline, store_sel, real_store):
@@ -240,7 +250,8 @@ def test_offline_every_record_round_trips_and_keeps_its_evidence(offline, store_
 def test_saved_drafts_give_a_validated_interpretation_a_fallback_and_the_control_answer(tmp_path, store_sel,
                                                                                         real_store, monkeypatch):
     """The development comparison's saved tool calls and drafts under the v13 route decisions: K11 (D02) validates,
-    K09 (D01) falls back with the correct computed answer, K06 (R02) answers format 1 with its gold run."""
+    K09 (D01) falls back with the correct computed answer, K06 (R02) answers with its gold run (format 2 since D27: the
+    point asked for is its computed answer, which the frozen kit, reading demand maxima only, cannot show)."""
     store, _ = store_sel
     _, d02, t02 = _run(monkeypatch, tmp_path, "D02", _saved("D02", "K11"))
     a = _auto("D02", d02, t02, store_sel)
@@ -250,15 +261,18 @@ def test_saved_drafts_give_a_validated_interpretation_a_fallback_and_the_control
     assert b["fallback"] and b["usability_floor"] == "F" and b["correct_result_produced"] and b["auto_x"] == []
     _, r02, tr = _run(monkeypatch, tmp_path, "R02", _saved("R02", "K06"))
     c = _auto("R02", r02, tr, store_sel)
-    assert c["control"]["demonstrated"] and not any(c["problems"].values()), c["problems"]
-    for rec in (d02, d01, r02):
+    assert c["control"]["demonstrated"] and {k: v for k, v in c["problems"].items() if v} == {
+        "2_result_correctness": ["an admitted operational demand result in a case with no gold result"],
+        "8_non_maximum_control": D27_R02}, c["problems"]
+    assert [(x["kind"], x["status"]) for x in r02["report"]["answer"]] == [("forecast_point", "established")]
+    with pytest.raises(KeyError):  # the frozen kit reads demand maxima only
+        KIT.evidence_view(r02, store)
+    for rec in (d02, d01):
         view = KIT.evidence_view(rec, store)
         assert KIT.missing(view) == [] and view["observations"]
         for o in view["observations"]:
             assert o["label"] and o["definition"]["source"] and o["source"]["evidence_id"]
             assert o["availability"]["derived"] or o["availability"]["available_at_utc"]
-    derived = [o for o in KIT.evidence_view(r02, store)["observations"] if o["availability"]["derived"]]
-    assert derived and all(o["definition"]["derivation"] for o in derived)  # e.g. the MAE, with its derivation
     assert KIT.evidence_view(d02, store)["cited_passages"][0]["text"]
 
 
@@ -280,7 +294,8 @@ def test_the_kit_gives_f07s_availability_for_every_half_hour(offline, store_sel,
 def test_the_kit_refuses_to_leave_out_evidence_and_the_blind_sheet_hides_ids(offline, store_sel, tmp_path, real_store):
     """SCRIPTED: an evidence item dropped from a record, and a label blanked."""
     store, _ = store_sel
-    recs = {cid: v[1] for cid, v in offline.items()}
+    # R02's current record has a forecast result (D27), which the frozen kit cannot read: it is left out (not saved)
+    recs = {cid: v[1] for cid, v in offline.items() if cid != "R02"}
     order = {f"A{i + 1:02d}": c["case_id"] for i, c in enumerate(reversed(CASES))}
     dev, blind = KIT.build(CASES, GOLD, recs, order, store)
     assert [c["case_id"] for c in dev["cases"]] == [c["case_id"] for c in CASES]
@@ -305,6 +320,8 @@ def test_score_writes_both_sheets_and_the_brief(offline, tmp_path, monkeypatch, 
     (live / "LC-e2e-v13").mkdir(parents=True)
     log = []
     for cid, (_, rec, trace) in offline.items():
+        if cid == "R02":  # a forecast result (D27), which the frozen kit cannot read: left out (not saved)
+            continue
         (label / f"{cid}.json").write_text(json.dumps(rec))
         (label / "traces" / f"{rec['trace_id']}.json").write_text(json.dumps(trace))
         log.append({"event": "slot_end", "case": cid, "outcome": "saved"})
@@ -316,7 +333,7 @@ def test_score_writes_both_sheets_and_the_brief(offline, tmp_path, monkeypatch, 
     blind = json.loads((tmp_path / "kit" / "blind_sheet.json").read_text())
     assert set(SCORE.readings_of(blind, freeze)) == set(BY_ID)
     m = SCORE.measures(freeze, live)
-    assert m["coverage"] == {"saved": 8, "of": 8, "not_saved": []}
+    assert m["coverage"] == {"saved": 7, "of": 8, "not_saved": ["R02"]}
 
 
 # ------------------------------------------------------------------------------------------------ clarification 1
@@ -416,7 +433,7 @@ def test_the_non_maximum_control_violations(offline, real_store):
     """SCRIPTED: R02's record with a maximum bound, a wrong run, and its run never bound."""
     _, rec, trace = offline["R02"]
     g = GOLD["R02"]
-    assert EXPORT.non_maximum_problems(rec, trace, g) == []
+    assert EXPORT.non_maximum_problems(rec, trace, g) == D27_R02
     bad = copy.deepcopy(rec)
     bad["resolution"]["requests"]["maximum"]["status"] = "bound"
     assert any("maximum was bound" in p for p in EXPORT.non_maximum_problems(bad, trace, g))
@@ -610,6 +627,8 @@ def test_refusals(monkeypatch, tmp_path):
     ok = {"total": 8.968449, "lines": 3087, "sha256_prefix": "99ea30e92377eddc"}
     monkeypatch.delenv("NEM_AGENT_BUDGET_LEDGER", raising=False)  # refusal() reads no ledger: it is given one
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test-not-a-key")
+    assert RUN.refusal(f, 10.168449, ok, [], tmp_path) == "the prompt version differs"  # the code is on v14 (D27)
+    monkeypatch.setattr(RUN.config, "PROMPT_VERSION", "prompts/v13")  # the frozen prompts
     assert RUN.refusal(f, 10.168449, ok, [], tmp_path) is None
     assert "at least USD 10.168449" in RUN.refusal(f, 10.16, ok, [], tmp_path)
     assert "not the frozen starting ledger" in RUN.refusal(f, 10.168449, dict(ok, lines=3088), [], tmp_path)

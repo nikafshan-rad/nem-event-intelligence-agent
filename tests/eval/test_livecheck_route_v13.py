@@ -334,6 +334,8 @@ def test_refusals(monkeypatch, tmp_path):
     ok = {"total": 8.895359, "lines": 3023, "sha256_prefix": "8dfcdd5e914830cb"}
     monkeypatch.delenv("NEM_AGENT_BUDGET_LEDGER", raising=False)  # refusal() reads no ledger: it is given one
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test-not-a-key")
+    assert RUN.refusal(f, 9.087359, ok, [], tmp_path) == "the prompt version differs"  # the code is on v14 (D27)
+    monkeypatch.setattr(RUN.config, "PROMPT_VERSION", "prompts/v13")  # the frozen prompts
     assert RUN.refusal(f, 9.087359, ok, [], tmp_path) is None
     assert "at least USD 9.087359" in RUN.refusal(f, 9.08, ok, [], tmp_path)
     assert "not the frozen starting ledger" in RUN.refusal(f, 9.087359, dict(ok, lines=3024), [], tmp_path)

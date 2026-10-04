@@ -837,6 +837,44 @@ def requested_max_violations(report: InvestigationReport, registry: EvidenceRegi
     return out
 
 
+def forecast_scope_violations(report: InvestigationReport, registry: EvidenceRegistry, records: list[Any] | None,
+                              primary: dict[str, Any]) -> list[Violation]:
+    """``FORECAST_SCOPE_NOT_PRIMARY`` (D27): a numeric claim or observation whose evidence a forecast comparison
+    registered, outside the scope of the comparison the request asks for (the primary). The scope is read from the
+    evidence's metric and source rows (``forecast_compare.out_of_scope``), never from wording, value or case: per-pair
+    values of another half-hour or run, and aggregates over other pairs. A primary the verifier did not admit owns
+    nothing: no value of its pairs may be stated through any evidence carrying its rows (as for a maximum, D25).
+
+    The guarantee is exactly that. It is a provenance restriction, not a semantic check: every other check still reads
+    every sentence, citing the primary does not make a sentence true, and a statement about another comparison that
+    gives no number is not matched."""
+    from .agent import forecast_compare as fc
+
+    calls = {r.call_id: r for r in records or [] if getattr(r, "name", None) == fc.TOOL and r.status in ("ok", "unavailable")}
+    rows = {x for pair in primary.get("pair_rows") or [] for x in pair}
+    out: list[Violation] = []
+    seen: set[str] = set()
+
+    def check(where: str, eid: str) -> None:
+        ev = registry.get(eid)
+        if ev is None or where in seen:
+            return
+        why = fc.out_of_scope(ev, primary, calls, registry)
+        if why is None and not primary["admitted"] and rows & set(ev.source_row_ids):
+            why = "it carries the rows of the comparison the question asks for, which was not verified"
+        if why:
+            seen.add(where)
+            out.append(Violation("FORECAST_SCOPE_NOT_PRIMARY", "critical",
+                                 f"{where}: {eid} ({ev.metric}) is outside the forecast comparison the question asks "
+                                 f"for: {why}. The controller states that comparison in the computed answer; give no "
+                                 "other comparison's values"))
+    for c in report.numeric_claims:
+        check(c.claim_id, c.evidence_id)
+    for o in report.observations:
+        check(f"observation {o.evidence_id}", o.evidence_id)
+    return out
+
+
 def unadmitted_result_violations(report: InvestigationReport, registry: EvidenceRegistry, not_admitted: list[Any],
                                  sentences: list[tuple[str, str]], numbers: Any) -> list[Violation]:
     """``REQUESTED_RESULT_NOT_VERIFIED`` (D25): a sentence anywhere (headline, the model's own headline, summary,
@@ -2036,7 +2074,8 @@ def validate(report: InvestigationReport, registry: EvidenceRegistry, *, as_of: 
              window: tuple[datetime, datetime] | None = None, records: list[Any] | None = None,
              forecast_run: dict[str, Any] | None = None, demand_max: list[dict[str, Any]] | None = None,
              required_tools: tuple[str, ...] = (), event_kind: str | None = None,
-             approval_records: Sequence[Any] = (), not_admitted: list[Any] | None = None) -> ValidationResult:
+             approval_records: Sequence[Any] = (), not_admitted: list[Any] | None = None,
+             forecast_primary: dict[str, Any] | None = None) -> ValidationResult:
     """``approval_records``: approval records (``approvals.Approval``) that belong to this answer. An investigation
     never has one, so the service passes none and every action claim fails."""
     res = ValidationResult()
@@ -2130,6 +2169,9 @@ def validate(report: InvestigationReport, registry: EvidenceRegistry, *, as_of: 
     #    time must be an instant the tools or the request produced (times without a date are not checked)
     res.checks_run.append("narrative_times")
     known = _known_instants(registry, records, report, window)
+    # the target half-hour or window of the forecast comparison the request asks for (D27): produced by the request,
+    # as the window is, also when no tool returned it (a run not public by the cutoff is never compared)
+    known |= {parse_iso(t) for t in (forecast_primary or {}).get("target_utc") or ()}
     for where, text in _narratives(report) + _hypothesis_tests(report):
         for sentence in SENTENCE_RE.split(QUOTED_RE.sub(" ", text)):
             times = []
@@ -2471,6 +2513,10 @@ def validate(report: InvestigationReport, registry: EvidenceRegistry, *, as_of: 
         res.checks_run.append("unadmitted_result")
         V.extend(unadmitted_result_violations(report, registry, not_admitted, result_texts,
                                               lambda s: number_spans(s, chunk_ids, titles(s))))
+    # -- the forecast comparison the request asks for (D27): no value of another comparison in the interpretation
+    if forecast_primary:
+        res.checks_run.append("forecast_scope")
+        V.extend(forecast_scope_violations(report, registry, records, forecast_primary))
     # -- the half-hour a forecast-run request names, named by its own end or start (I-19)
     if forecast_run and forecast_run.get("half_hour_utc"):
         res.checks_run.append("requested_interval")
@@ -2617,7 +2663,7 @@ WITHHELD_LABEL = ("rejected model text: withheld with the narrative that failed 
 
 def _result_refusal(report: InvestigationReport, registry: EvidenceRegistry, result: ValidationResult,
                     as_of: datetime | None, bindings: list[dict[str, Any]], k: int,
-                    claims: list[NumericClaim]) -> str | None:
+                    claims: list[NumericClaim], answer_index: int | None = None) -> str | None:
     """Why the computed answer ``answer[k]`` (an established maximum, rendered from an admitted result) may not be kept
     in a fallback, or None when it may: its binding (the k-th), measure, region, window, coverage, evidence, as-of
     eligibility and the controller's own claims for it (recorded when it was rendered) are checked, and no critical
@@ -2659,15 +2705,43 @@ def _result_refusal(report: InvestigationReport, registry: EvidenceRegistry, res
     if not claims or {c.evidence_id for c in claims} != set(eids) or \
             any(abs(c.value - float(b["value"])) > c.rounding + 1e-9 for c in claims):
         return "the answer's claims are not the binding's evidence"
+    a = k if answer_index is None else answer_index  # D27: a binding is indexed among the maxima answers only
     for v in result.critical:
-        if v.detail.startswith((f"answer[{k}]", *(f"{c.claim_id}:" for c in claims))):
+        if v.detail.startswith((f"answer[{a}]", *(f"{c.claim_id}:" for c in claims))):
             return f"named by a critical violation ({v.code})"
+    return None
+
+
+def _forecast_refusal(registry: EvidenceRegistry, as_of: datetime | None, primary: dict[str, Any] | None, ans: Any,
+                      claims: list[NumericClaim]) -> str | None:
+    """Why a forecast comparison's computed answer (D27) may not be kept in a fallback, or None: it must be the
+    primary's, and a stated one (established or partial) admitted, with the controller's own claims for it all the
+    primary's evidence, at their values, public by the as-of cutoff. One with no value (unavailable, not verified) is
+    kept."""
+    if primary is None or ans.result_id != primary["result_id"]:
+        return "not the forecast comparison the request asks for"
+    if ans.status not in ("established", "partial"):
+        return None
+    if not primary["admitted"]:
+        return "the result was not admitted"
+    owned = set(primary["evidence_ids"])
+    if not claims or not {c.evidence_id for c in claims} <= owned:
+        return "the answer's claims are not the result's evidence"
+    for c in claims:
+        ev = registry.get(c.evidence_id)
+        if ev is None or ev.value is None or abs(c.value - float(ev.value)) > c.rounding + 1e-9:
+            return f"{c.evidence_id}: another value"
+        if not metric_compatible(ev):
+            return f"{c.evidence_id}: another measure ({ev.metric})"
+        if as_of is not None and ev.available_at_utc and parse_iso(ev.available_at_utc) > as_of:
+            return f"{c.evidence_id}: not available at the as-of cutoff"
     return None
 
 
 def facts_only(report: InvestigationReport, registry: EvidenceRegistry, result: ValidationResult,
                as_of: datetime | None, bindings: list[dict[str, Any]] | None = None, *,
-               exclude: frozenset[int] = frozenset(), diag: dict[str, Any] | None = None) -> InvestigationReport:
+               exclude: frozenset[int] = frozenset(), diag: dict[str, Any] | None = None,
+               forecast_primary: dict[str, Any] | None = None) -> InvestigationReport:
     """Safe fallback after failed validation: keep only independently valid observations, no narrative. A value from a
     forecast run that stands in for the one asked for is not shown either (I-9).
 
@@ -2679,6 +2753,9 @@ def facts_only(report: InvestigationReport, registry: EvidenceRegistry, result: 
     are kept, with ``NOTES_WITHHELD``. The answer stays a fallback. Without one, the notes are as before."""
     substituted = {m.group(1) for v in result.critical if v.code == "FORECAST_RUN_SUBSTITUTED"
                    and (m := re.match(r"(ev\d{4})", v.detail))}
+    # D27: a value of a comparison the request did not ask for is not listed either
+    substituted |= {m.group(1) for v in result.critical if v.code == "FORECAST_SCOPE_NOT_PRIMARY"
+                    and (m := re.search(r"\b(ev\d{4,})\b", v.detail))}
     good_obs = []
     for o in report.observations:
         if o.evidence_id in substituted:
@@ -2696,20 +2773,24 @@ def facts_only(report: InvestigationReport, registry: EvidenceRegistry, result: 
     answer_claims = prov.get("answer_claims") or []
     kept: list[tuple[int, Any, list[NumericClaim]]] = []
     refused: list[dict[str, Any]] = []
+    mi = 0  # each maximum's binding, indexed among the maxima answers only (D27; the same index without forecasts)
     for k, ans in enumerate(report.answer):
         claims = list(answer_claims[k]) if k < len(answer_claims) else []
         named_by = next((v for v in result.critical if v.detail.startswith(f"answer[{k}]")), None)
+        maximum = ans.kind == "demand_maximum"
         why = ("named by a critical violation in the fallback's own validation" if k in exclude
                else f"named by a critical violation ({named_by.code})" if named_by is not None
-               else _result_refusal(report, registry, result, as_of, bindings or [], k, claims)
-               if ans.status == "established" else None)
+               else (_result_refusal(report, registry, result, as_of, bindings or [], mi, claims, answer_index=k)
+                     if ans.status == "established" else None) if maximum
+               else _forecast_refusal(registry, as_of, forecast_primary, ans, claims))
+        mi += maximum
         if why:
             refused.append({"answer_index": k, "result_id": ans.result_id, "status": ans.status, "reason": why})
         else:
             kept.append((k, ans, claims))
     computed = {"answer": [ans for _, ans, _ in kept], "summary": [],
                 "numeric_claims": [c.model_copy() for _, _, cs in kept for c in cs]}
-    if not any(ans.status == "established" for _, ans, _ in kept):
+    if not any(ans.status in ("established", "partial") for _, ans, _ in kept):
         update: dict[str, Any] = {
             **computed,
             # model-written caveats are kept, except any that a critical violation names or that claims an approval
@@ -2810,25 +2891,29 @@ def validate_and_finalize(report: InvestigationReport, registry: EvidenceRegistr
     run = getattr(res, "forecast_run", None)
     maxima = getattr(res, "demand_max", None)
     unadmitted = getattr(res, "results_not_admitted", None)
+    primary = getattr(res, "forecast_primary", None)
     first = validate(report, registry, as_of=as_of, window=window, records=records, required_tools=req, event_kind=kind,
-                     forecast_run=run, demand_max=maxima, not_admitted=unadmitted)
+                     forecast_run=run, demand_max=maxima, not_admitted=unadmitted, forecast_primary=primary)
     info: dict[str, Any] = {"initial": first.as_dict(), "fallback_applied": False,
                             "repair_attempted": bool(report.validation.get("repair_attempted"))}
     final = report
     if first.critical:
         fb: dict[str, Any] = {}
-        final = facts_only(report, registry, first, as_of, maxima, diag=fb)
+        final = facts_only(report, registry, first, as_of, maxima, diag=fb, forecast_primary=primary)
         second = validate(final, registry, as_of=as_of, window=window, records=records, required_tools=req,
-                          event_kind=kind, forecast_run=run, demand_max=maxima, not_admitted=unadmitted)
+                          event_kind=kind, forecast_run=run, demand_max=maxima, not_admitted=unadmitted,
+                          forecast_primary=primary)
         # a kept result must also pass the fallback's own validation (I-21): one named there is not kept
         named_kept = frozenset(r["answer_index"] for r in fb.get("result_retained", []) for v in second.critical
                                if v.detail.startswith((f"answer[{r['fallback_answer_index']}]",
                                                        *(f"{c}:" for c in r["claim_ids"]))))
         if named_kept:
             fb = {}
-            final = facts_only(report, registry, first, as_of, maxima, exclude=named_kept, diag=fb)
+            final = facts_only(report, registry, first, as_of, maxima, exclude=named_kept, diag=fb,
+                               forecast_primary=primary)
             second = validate(final, registry, as_of=as_of, window=window, records=records, required_tools=req,
-                              event_kind=kind, forecast_run=run, demand_max=maxima, not_admitted=unadmitted)
+                              event_kind=kind, forecast_run=run, demand_max=maxima, not_admitted=unadmitted,
+                              forecast_primary=primary)
         info.update(fallback_applied=True, after_fallback=second.as_dict())
         if fb.get("result_retained") or fb.get("result_not_retained"):
             # diagnostics only, outside the displayed answer: the controller's result kept or not, and every model

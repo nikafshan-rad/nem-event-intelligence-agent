@@ -280,7 +280,7 @@ def test_routing_labels_for_saved_routes_without_the_new_field():
         "label"] == "CORRECT"
 
 
-def test_a_wrong_binding_region_or_cutoff_is_wrong_and_a_missing_half_hour_is_partial():
+def test_a_wrong_binding_region_or_cutoff_is_wrong_and_an_unread_half_hour_is_sent_back():
     rec = _route_case("K06", {"forecast_run": K06_RUN, "maximum": NO_MAX})
     wrong = copy.deepcopy(rec)
     wrong["resolution"]["requests"]["forecast_run"]["half_hour_utc"] = ["2026-08-19T22:30:00Z", "2026-08-19T23:00:00Z"]
@@ -293,9 +293,11 @@ def test_a_wrong_binding_region_or_cutoff_is_wrong_and_a_missing_half_hour_is_pa
     assert SCORE.route_label(DEV_GOLD["K06"], cutoff)["label"] == "WRONG"
     bound_where_none = copy.deepcopy(rec)
     assert SCORE.route_label(DEV_GOLD["K13"] | {"region": "SA1"}, bound_where_none)["label"] == "WRONG"
-    k14 = _route_case("K14", None)  # the parser binds the issue time; the half-hour is not read without v12
+    k14 = _route_case("K14", None)  # the parser reads the issue time; the half-hour is not read without v12
     lab = SCORE.route_label(DEV_GOLD["K14"], k14)
-    assert lab["label"] in ("PARTIAL", "CORRECT") and lab["label"] != "WRONG"
+    # it was PARTIAL (the run bound without its half-hour); since D27 Amendment 2 a named run whose half-hour is not
+    # read is sent back before any tool: a supply miss of the reading, never a wrong binding or a containment miss
+    assert (lab["label"], lab["supply_miss"], lab["containment_miss"], lab["wrong"]) == ("SENT_BACK", True, False, [])
 
 
 def test_a_cut_off_routing_output_is_route_invalid_and_sent_back():

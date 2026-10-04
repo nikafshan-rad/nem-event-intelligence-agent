@@ -298,14 +298,28 @@ def test_a_faithful_k09_passes_with_no_fallback():
     assert not v["fallback_applied"] and v["final_passed"] and "fallback_result" not in v
 
 
-@pytest.mark.parametrize("label,cid", [("MC-dev-e2e-mini", "K07"), ("live-check-p1-dev", "W18"),
-                                       ("LC-route-v12-e2e", "K05"), ("L3-holdout-v5", "Y18")])
+@pytest.mark.parametrize("label,cid", [("live-check-p1-dev", "W18"), ("L3-holdout-v5", "Y18")])
 def test_fallbacks_without_a_requested_maximum_keep_their_notes(label, cid):
     rep = _replay(label, cid).report
     v = rep.validation
     assert v["fallback_applied"] and "fallback_result" not in v and "fallback_withheld" not in v
     assert rep.summary == [] and rep.answer == [] and rep.uncertainties[-1] == WITHHELD_LINE
     assert NOTES_WITHHELD not in rep.uncertainties
+
+
+@pytest.mark.parametrize("label,cid,status,code", [("MC-dev-e2e-mini", "K07", "unavailable", "FORECAST_RUN_SUBSTITUTED"),
+                                                   ("LC-route-v12-e2e", "K05", "established",
+                                                    "AGGREGATE_COVERAGE_MISMATCH")])
+def test_a_point_requests_fallback_keeps_its_computed_answer(label, cid, status, code):
+    """D27 (K07 and K05 had no computed answer before): the controller's comparison of the run asked for is the
+    computed answer and the fallback keeps it, as it keeps a maximum. The checks that made them fall back still fire
+    (I-9 on K07, I-20 on K05)."""
+    rep = _replay(label, cid).report
+    v = rep.validation
+    assert v["fallback_applied"] and code in {x["code"] for x in v["initial"]["violations"]}
+    assert [(a.kind, a.status) for a in rep.answer] == [("forecast_point", status)]
+    assert [x["status"] for x in v["fallback_result"]["retained"]] == [status]
+    assert rep.summary == [] and rep.uncertainties[-1] in (WITHHELD_LINE, NOTES_WITHHELD)
 
 
 def test_two_maxima_bound_are_both_kept(monkeypatch):
