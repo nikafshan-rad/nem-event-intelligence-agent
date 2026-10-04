@@ -310,6 +310,29 @@ pass.
   - the case-note file count, and the ledger cost.
 - **Scoring:** `score.py` scores offline and never calls a model.
 
+## Known before the run
+This section was added after the pre-registration commit (`78e6f47`) and before any run. No rule changed.
+
+Offline, SYNTHETIC careful readings were run through the real per-call runner
+(`tests/eval/test_livecheck_route_v15.py`). With them, the merged code gives these outcomes:
+
+- **N04:** a correct reading resolves exactly as the gold says, yet the resolution also names a weather forecast as
+  not answered.
+  - The question declines it ("Leave the weather forecast out of this one"). The code's reading of declined requests
+    does not cover "leave … out".
+  - Under "Classes" that is an unsupported part wrongly claimed: a violation. Any call in which the model reads N04
+    correctly therefore fails the check.
+- **N07:** a correct reading is sent back, because the code does not read "noon", a known D26 limit. N07 cannot be
+  supplied, so the supply bar (each configuration at least once) cannot be met.
+- **Together:** as frozen, the check cannot PASS with the merged code, whatever the model does.
+  - Its verdict is FAIL if the model reads N04 correctly in either call, and otherwise INCONCLUSIVE at best.
+  - Every other configuration is classed as its gold says under careful readings.
+  - The run would still measure extraction for every configuration.
+
+Neither question is changed. They were written independently to this protocol's specification before these
+outcomes were known, and changing them would fit the sample to the code. Whether to run as frozen is the owner's
+decision.
+
 ## Limitations
 - **The sample is small:** 17 questions, 2 calls each. There are no rates, and differences of one or two calls are
   within run-to-run variation.

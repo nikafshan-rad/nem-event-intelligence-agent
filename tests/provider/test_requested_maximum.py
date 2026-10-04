@@ -90,12 +90,14 @@ def test_no_other_question_in_the_repository_asks_for_a_maximum():
         # the Live check of this fix asks for maxima by design: its case file and its run and review records; so do
         # the I-18 paraphrase matrix and its records, the Live check of the v12 routing extraction, and the development
         # model comparison's run and review records (it reran that check's cases), and the Live acceptance check of
-        # computed maxima (D24, D25) and its records, the routing-only Live check of route contract v13 (D26), and the
-        # end-to-end Live acceptance check of v13 request resolution and its records
+        # computed maxima (D24, D25) and its records, the routing-only Live check of route contract v13 (D26), the
+        # end-to-end Live acceptance check of v13 request resolution and its records, and the routing-only Live check
+        # of route contract v15 (its demand-maximum regression control, F07)
         if "traces" in f.parts or any(part.startswith(("livecheck_i15_17", "LC-i15-17", "structured_requests",
                                                        "livecheck_routing_v12", "LC-route-v12", "MC-dev",
                                                        "livecheck_maxima", "LC-maxima", "livecheck_route_v13",
-                                                       "LC-route-v13", "livecheck_e2e_v13", "LC-e2e-v13"))
+                                                       "LC-route-v13", "livecheck_e2e_v13", "LC-e2e-v13",
+                                                       "livecheck_route_v15", "LC-route-v15"))
                                       for part in f.parts):
             continue
         try:

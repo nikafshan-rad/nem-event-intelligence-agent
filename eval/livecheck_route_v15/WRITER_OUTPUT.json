@@ -1,0 +1,217 @@
+{
+ "cases": [
+  {
+   "config": "N01",
+   "question": "I'm adding some weather colour to a write-up on Brisbane. What maximum temperature was forecast for the city on 13 August 2026?",
+   "request": {},
+   "region": "QLD1",
+   "outcome": "clarify_unsupported",
+   "acceptable_outcomes": [
+    "clarify_unsupported",
+    "clarify_which_forecast",
+    "refusal",
+    "event_review_unsupported"
+   ],
+   "intents": [],
+   "domain": "weather",
+   "operation": null,
+   "scope": null,
+   "run": null,
+   "cutoff_utc": null,
+   "maximum": null,
+   "request_anchors": [],
+   "excluded_anchors": [],
+   "unsupported_parts": [],
+   "demand_forecast_tools": "not_used",
+   "notes": "Asks only for a forecast daily maximum temperature for Brisbane (QLD1) on one date. That is a weather forecast, which the assistant does not provide. 'Maximum' is the temperature's maximum, not a demand maximum, so maximum is null, and no operational demand forecast may stand in for it. clarify_unsupported fits best; the other three outcomes CAPABILITIES.md allows for another-kind-only requests are also acceptable."
+  },
+  {
+   "config": "N02",
+   "question": "Could you pull AEMO's predispatch price forecasts for South Australia? The day I care about is 29 July 2026, and I want to see what the pre-dispatch runs were projecting for the regional spot price that evening.",
+   "request": {},
+   "region": "SA1",
+   "outcome": "clarify_unsupported",
+   "acceptable_outcomes": [
+    "clarify_unsupported",
+    "clarify_which_forecast",
+    "refusal",
+    "event_review_unsupported"
+   ],
+   "intents": [],
+   "domain": "price",
+   "operation": null,
+   "scope": null,
+   "run": null,
+   "cutoff_utc": null,
+   "maximum": null,
+   "request_anchors": [],
+   "excluded_anchors": [],
+   "unsupported_parts": [],
+   "demand_forecast_tools": "not_used",
+   "notes": "Asks only for AEMO's predispatch price forecasts for South Australia (SA1) on a past date in the data period. Price forecasts are not provided, so the outcome is clarify_unsupported (or any other outcome CAPABILITIES.md allows for a request for another kind of forecast only). The date holds an SA1 high-price event (peak 17:55 market time), so an event review is plausible, but only if it says explicitly that the price-forecast part is not answered and uses no demand forecast (event_review_unsupported). 'Runs' here are pre-dispatch price runs, not demand forecast runs."
+  },
+  {
+   "config": "N03",
+   "question": "I'm reviewing how 10 August 2026 played out in New South Wales. How far off were the forecasts on the day, compared with what actually happened?",
+   "request": {},
+   "region": "NSW1",
+   "outcome": "clarify_which_forecast",
+   "acceptable_outcomes": [
+    "clarify_which_forecast",
+    "event_review_unclear"
+   ],
+   "intents": [],
+   "domain": "unclear",
+   "operation": null,
+   "scope": null,
+   "run": null,
+   "cutoff_utc": null,
+   "maximum": null,
+   "request_anchors": [],
+   "excluded_anchors": [],
+   "unsupported_parts": [],
+   "demand_forecast_tools": "not_used",
+   "notes": "Asks how far off 'the forecasts' were for New South Wales (NSW1) on one date, against what actually happened. Nothing shows which forecast: demand forecast against actual demand, predispatch price against dispatch price, or weather forecast against observed weather are all equally natural readings for an analyst reviewing a day. The assistant must not assume demand. It should ask which forecast is meant, or, if it runs an event review, say a forecast is mentioned without its kind and use no demand forecast."
+  },
+  {
+   "config": "N04",
+   "question": "Leave the weather forecast out of this one. For Victoria, I want AEMO's operational demand forecast values for a single half-hour on 17 August 2026: the one ending at 18:30 AEST. What did they show?",
+   "request": {},
+   "region": "VIC1",
+   "outcome": "resolved",
+   "acceptable_outcomes": [
+    "resolved"
+   ],
+   "intents": [
+    "forecast_review"
+   ],
+   "domain": "operational_demand",
+   "operation": "forecast_value",
+   "scope": {
+    "kinds": [
+     "half_hour"
+    ],
+    "start_utc": "2026-08-17T08:00:00Z",
+    "end_utc": "2026-08-17T08:30:00Z",
+    "start_local": "2026-08-17T18:00:00+10:00",
+    "end_local": "2026-08-17T18:30:00+10:00",
+    "half_hours": 1
+   },
+   "run": {
+    "rule": "none",
+    "half_hour_end_utc": null,
+    "issued_at_utc": null
+   },
+   "cutoff_utc": null,
+   "maximum": null,
+   "request_anchors": [
+    "AEMO's operational demand forecast values",
+    "a single half-hour on 17 August 2026",
+    "the one ending at 18:30 AEST"
+   ],
+   "excluded_anchors": [
+    "the weather forecast"
+   ],
+   "unsupported_parts": [],
+   "demand_forecast_tools": "eligible",
+   "notes": "The weather forecast is explicitly declined, so it is not a request and there is no unsupported part. The request is what AEMO's operational demand forecasts for VIC1 said for one half-hour: the half-hour ending 18:30 AEST (Melbourne has no daylight saving in August) on 17 August 2026, i.e. (18:00, 18:30] local. Asking what the forecasts said, with no actual demand, is a forecast value. No single run is asked for (it asks for the forecast values, plural, and what 'they' showed), so the run selection is none, and there is no cutoff. A careful analyst might ask which run is wanted; CAPABILITIES.md sets the run selection to none when no single run is asked for, so I read it as resolved."
+  },
+  {
+   "config": "N05",
+   "question": "I don't need AEMO's operational demand forecast for this. What did the weather forecasters expect for Hobart on 2 August 2026, particularly wind and rain?",
+   "request": {},
+   "region": "TAS1",
+   "outcome": "clarify_unsupported",
+   "acceptable_outcomes": [
+    "clarify_unsupported",
+    "clarify_which_forecast",
+    "refusal",
+    "event_review_unsupported"
+   ],
+   "intents": [],
+   "domain": "weather",
+   "operation": null,
+   "scope": null,
+   "run": null,
+   "cutoff_utc": null,
+   "maximum": null,
+   "request_anchors": [],
+   "excluded_anchors": [
+    "AEMO's operational demand forecast"
+   ],
+   "unsupported_parts": [],
+   "demand_forecast_tools": "not_used",
+   "notes": "AEMO's operational demand forecast is explicitly declined. What is asked is the weather forecast for Hobart (TAS1) on one date, wind and rain in particular. That is a weather forecast, which is not provided, and the declined demand forecast must not be offered in its place. 'Wind' here is the weather element, not a wind-generation forecast."
+  },
+  {
+   "config": "N06",
+   "question": "For context, someone in our operations team told me \"AEMO's demand forecast for South Australia came in well below the actuals.\" What minimum temperature had been forecast for Adelaide on 14 August 2026?",
+   "request": {},
+   "region": "SA1",
+   "outcome": "clarify_unsupported",
+   "acceptable_outcomes": [
+    "clarify_unsupported",
+    "clarify_which_forecast",
+    "refusal",
+    "event_review_unsupported"
+   ],
+   "intents": [],
+   "domain": "weather",
+   "operation": null,
+   "scope": null,
+   "run": null,
+   "cutoff_utc": null,
+   "maximum": null,
+   "request_anchors": [],
+   "excluded_anchors": [
+    "AEMO's demand forecast for South Australia came in well below the actuals"
+   ],
+   "unsupported_parts": [],
+   "demand_forecast_tools": "not_used",
+   "notes": "The sentence in quotation marks is someone else's statement (a member of the operations team) about a demand forecast, reported as background. It is not a request. The only request is the forecast minimum temperature for Adelaide (SA1) on one date, a weather forecast that is not provided. The analyst may want the temperature to explain the demand miss, but they do not ask for the demand forecast or its comparison, so no demand forecast should be used."
+  },
+  {
+   "config": "N07",
+   "question": "A colleague's note says \"the Bureau was calling for a cold, drizzly morning across Brisbane.\" How did AEMO's operational demand forecast for Queensland compare with actual operational demand between 06:00 and noon AEST on 4 August 2026?",
+   "request": {},
+   "region": "QLD1",
+   "outcome": "resolved",
+   "acceptable_outcomes": [
+    "resolved"
+   ],
+   "intents": [
+    "forecast_review"
+   ],
+   "domain": "operational_demand",
+   "operation": "window_comparison",
+   "scope": {
+    "kinds": [
+     "explicit"
+    ],
+    "start_utc": "2026-08-03T20:00:00Z",
+    "end_utc": "2026-08-04T02:00:00Z",
+    "start_local": "2026-08-04T06:00:00+10:00",
+    "end_local": "2026-08-04T12:00:00+10:00",
+    "half_hours": 12
+   },
+   "run": {
+    "rule": "none",
+    "half_hour_end_utc": null,
+    "issued_at_utc": null
+   },
+   "cutoff_utc": null,
+   "maximum": null,
+   "request_anchors": [
+    "AEMO's operational demand forecast for Queensland",
+    "compare with actual operational demand",
+    "between 06:00 and noon AEST on 4 August 2026"
+   ],
+   "excluded_anchors": [
+    "the Bureau was calling for a cold, drizzly morning across Brisbane"
+   ],
+   "unsupported_parts": [],
+   "demand_forecast_tools": "eligible",
+   "notes": "The sentence in quotation marks is a colleague's statement about a weather forecast, reported as background, not a request; there is no unsupported part. The request compares AEMO's operational demand forecast for QLD1 with actual operational demand over a stated period: 06:00 to noon AEST (Brisbane, no daylight saving) on 4 August 2026, i.e. the 12 half-hours ending 06:30 to 12:00 (the half-hour ending 06:00 lies before the stated start, so it is not included). Comparing over a period is a window comparison. No single run is asked for, so the run selection is none, and there is no cutoff."
+  }
+ ]
+}
