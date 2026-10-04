@@ -32,7 +32,7 @@ capture. The same question in Replay mode, which uses no language model and is l
 | Hybrid RAG (SQLite FTS5 + model2vec embeddings), eligibility filters, injection handling | built, verified | G3, `tests/retrieval` |
 | Scripted replay controller, and a live OpenAI Responses API function-calling controller | Replay: verified. **Live: experimental**: it runs on the real API (gpt-5-mini, gates L0–L6), but its answer quality is not fully validated (see the next rows) | G4, `tests/provider`, [`docs/live-gates.md`](docs/live-gates.md) |
 | Typed computed answers: demand maxima (`analytical_result/1`) and forecast comparisons (`forecast_result/1`), computed and verified by code and rendered apart from the model's interpretation (report format "2") | built, verified offline. **Live: experimental.** Every computed result shown in the demand-maxima and v13 end-to-end Live checks matched gold (6 and 5), but both checks failed for other reasons | D24, D25, D27; `tests/provider`; [`RELEASE_NOTES.md`](RELEASE_NOTES.md) |
-| Request resolution before any tool: route contract v15 (prompts v16) for the forecast run, the demand maximum, and the forecast's operation, scope and kind | built, verified offline. **Live: experimental.** The v13 routing-only check passed on a development sample. The v15 routing diagnostic failed (supply 3/20; correct readings rejected by the resolver) | D26, D28, D29; [`docs/live-gates.md`](docs/live-gates.md) |
+| Request resolution before any tool: route contract v15 (prompts v16) for the forecast run, the demand maximum, and the forecast's operation, scope and kind | built, verified offline. **Live: experimental.** The v13 routing-only check passed on a development sample. The v15 routing diagnostic failed (supply 3/20): of the model's 23 correct readings, code rejected 9 and mis-resolved 1, so 10 were lost | D26, D28, D29; [`docs/live-gates.md`](docs/live-gates.md) |
 | Independent validators (numbers, quotes, as-of, metrics, causality, injection) + approval-gated local write | built, verified | G5, `make safety` |
 | 40-case evaluation, two baselines, held-out split | built, measured (replay) | G6; v2.0.0: [`artifacts/release/v2.0.0/eval/report.md`](artifacts/release/v2.0.0/eval/report.md) (2026-09-28: [`artifacts/eval/report.md`](artifacts/eval/report.md)) |
 | FastAPI + Streamlit UI + API smoke test | built, verified | G7, [`docs/demo.md`](docs/demo.md) |
@@ -220,9 +220,11 @@ approving the exact content hash. Details: [`docs/architecture.md`](docs/archite
 
 ## Measured results (replay; code/data/corpus versions are in each report)
 
-Held-out split = 21 of 40 cases (split by event group; no event group appears in both splits). These figures were
-measured on the v2.0.0 release code against the frozen gold
-([`artifacts/release/v2.0.0/eval/report.md`](artifacts/release/v2.0.0/eval/report.md)).
+Held-out split = 21 of 40 cases (split by event group; no event group appears in both splits). These figures come
+from re-running the existing offline Replay evaluation (`make eval`; no language model, no paid call) on the v2.0.0
+release code, against the frozen gold
+([`artifacts/release/v2.0.0/eval/report.md`](artifacts/release/v2.0.0/eval/report.md)). No case, gold or
+threshold was added or changed.
 
 | Metric | System | Baseline: table (no LLM, no RAG) | Baseline: retrieval-only |
 | --- | --- | --- | --- |

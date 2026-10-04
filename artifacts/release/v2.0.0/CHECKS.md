@@ -1,6 +1,10 @@
 # v2.0.0 release checks (offline; no language model)
 
-These are the release checks for v2.0.0, run on the release code before the documentation commits.
+These are the repository's existing offline checks, re-run on the v2.0.0 release code before the documentation
+commits.
+- **Not a new evaluation:** no case, gold, threshold or protocol was added or changed. The Replay evaluation
+  (`make eval`) is the existing 40-case offline evaluation, re-run.
+- **Not a Live run:** no language model was called, and no paid call was made.
 - **Code:** commit `5199800` (`src/` tree `6c26d0e0ce143ac2b44d4aa21856da08e7d6dc4d`). It is `main` `0f02799` plus
   the version string only. The release candidate has the same `src/` tree; it adds documentation and this folder.
 - **Environment:**

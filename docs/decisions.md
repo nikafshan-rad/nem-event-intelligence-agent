@@ -1433,10 +1433,12 @@ Acceptance check recorded before implementation. One bounded offline PR; demand 
   prepared. The owner decisions listed below are open. v2.0.0 ships the D26–D29 resolver unchanged.
 - **The evidence** (counts from small samples, not rates):
   - **v15 routing diagnostic (34 calls):** the model's errors were concentrated in one field. All three domain errors
-    read an unnamed forecast as operational demand (N03 ×2, D08). Code's lexical and quote-boundary checks lost 10 of
-    the 23 correct readings: 8 to clause containment, 1 to "noon" and 1 to N04's negation mis-resolution. They caught
-    none of the 5 incorrect readings for its actual error: 4 were sent back by clause containment for unrelated
-    reasons, and D08 was accepted.
+    read an unnamed forecast as operational demand (N03 ×2, D08). Code lost 10 of the 23 correct readings in total:
+    - it rejected 9: 8 by clause containment, and 1 because "noon" was not read;
+    - it mis-resolved 1: N04's declined weather forecast was noted as unanswered.
+
+    Code caught none of the 5 incorrect readings for its actual error: 4 were sent back by clause containment for
+    unrelated reasons, and D08 was accepted.
   - **Earlier checks show the same pattern:**
     - vocabulary gaps (I-15–I-17; v12's Q11, Q12 and Q15) and span rules (K10, Q23) rejected correct readings;
     - the model made no wrong binding in v12 (42 cases) or v13 (23 of 23 exact).
@@ -1482,7 +1484,12 @@ Acceptance check recorded before implementation. One bounded offline PR; demand 
 - **Open owner decisions:**
   - the stated-basis policy;
   - whether answers state the code-rendered reading;
-  - the evaluation model: OpenAI's deprecations page, read 2026-10-04, lists `gpt-5-mini-2025-08-07` for shutdown
-    on 11 December 2026;
+  - the evaluation model:
+    - the code requests the alias `gpt-5-mini`, and every saved record that captured the reported model shows the
+      snapshot `gpt-5-mini-2025-08-07`;
+    - OpenAI's deprecations page lists that snapshot for removal from the API on December 11, 2026
+      (<https://developers.openai.com/api/docs/deprecations#2026-06-11-gpt-5-and-o3-model-deprecations>, read
+      2026-10-04), with recommended replacement `gpt-5.6-terra`;
+    - the notice names the snapshot only, not the alias;
   - evaluation sizes, bars and budget;
   - whether routing truncation is addressed first.

@@ -64,7 +64,9 @@ request contract before any tool runs.
 
 #### Offline verification (no language model)
 
-On the release code, in a fresh checkout (details under "Release checks" below):
+These are the repository's existing offline checks, re-run on the release code in a fresh checkout (details under
+"Release checks" below). Re-running them uses no language model and makes no paid call. It is not a new evaluation:
+no case, gold, threshold or protocol was added or changed.
 - **Tests:** 2,245 pass. 3 are skipped, because the traces they read are git-ignored and absent from a fresh
   checkout.
 - **Replay evaluation:** its gates pass. The figures against its frozen gold have changed since the README's
@@ -122,18 +124,27 @@ Live quality.
 - **The 40-case hosted evaluation:** never run.
 - **Real-model request extraction** beyond the samples above, and generalisation to other events, dates, data or
   wordings.
-- **Any model other than `gpt-5-mini-2025-08-07`.**
-  - OpenAI's deprecations page (read 2026-10-04) lists that snapshot for shutdown on 11 December 2026, with
-    `gpt-5.6-terra` as the recommended replacement. It does not say whether the `gpt-5-mini` alias follows.
-  - Live behaviour on any replacement would need to be verified again.
+- **Any model other than the snapshot that served the recorded Live runs.**
+  - **The IDs:** the code requests the alias `gpt-5-mini`. Every saved Live record that captured the model the API
+    reported shows the snapshot `gpt-5-mini-2025-08-07`, including all 34 calls of the v15 diagnostic. Older records
+    store only the requested alias.
+  - **The notice:** OpenAI's deprecations page
+    (<https://developers.openai.com/api/docs/deprecations#2026-06-11-gpt-5-and-o3-model-deprecations>, read
+    2026-10-04), in its entry "2026-06-11: GPT-5 and o3 model deprecations", says it notified "developers using older
+    GPT-5 and o3 model snapshots of their deprecation and removal from the API on December 11, 2026". Its table lists
+    `gpt-5-mini-2025-08-07` with shutdown date Dec 11, 2026 and recommended replacement `gpt-5.6-terra`.
+  - **What the notice does not cover:** it names the dated snapshot only, not the alias `gpt-5-mini`, and does not
+    say what the alias will serve after that date.
+  - **Consequence:** Live behaviour on any other model or snapshot is unverified.
 
 ### Known limitations
 
-1. **Correct readings rejected by the resolver** (over-clarification; contained, but the question is not answered):
-   - **v15 diagnostic:** code lost 10 of the model's 23 correct readings.
-     - 8 were rejected by D29's clause-containment rule (D01 ×2, D02 ×2, D03 ×2, D07, N07).
-     - 1 was rejected by "noon" (N07).
-     - 1 was mis-resolved: N04 noted a declined weather forecast as unanswered.
+1. **Correct readings rejected or mis-resolved by the resolver:**
+   - **v15 diagnostic:** 10 of the model's 23 correct readings were lost in total.
+     - **Rejected, 9.** They were sent back: contained, but the question was not answered.
+       - 8 by D29's clause-containment rule (D01 ×2, D02 ×2, D03 ×2, D07, N07).
+       - 1 because "noon" was not read (N07).
+     - **Mis-resolved, 1.** N04 noted a declined weather forecast as unanswered, which is a scored violation.
    - **Earlier checks:**
      - vocabulary gaps ("daily high", "midday", an event named by its ID);
      - span rules (a missing peak word; the several-dates rule);
@@ -248,8 +259,13 @@ Expected: `data_version` `8c14c217f5570d32` and `corpus_version` `221b6ea0f21e00
 
 ### Release checks on the candidate commit
 
-The release checks follow CI's sequence in a fresh git worktree, with no API key, a scratch budget ledger and a new
-virtual environment. The full record is in `artifacts/release/v2.0.0/CHECKS.md`.
+- **What they are:** the repository's existing offline checks, re-run. They follow CI's sequence in a fresh git
+  worktree, with no API key, a scratch budget ledger and a new virtual environment.
+- **What they are not:**
+  - a new evaluation: no case, gold, threshold or protocol was added or changed;
+  - a Live run: no language model was called and no paid call was made. The Replay evaluation (`make eval`) is the
+    existing 40-case offline evaluation, re-run.
+- **The record:** `artifacts/release/v2.0.0/CHECKS.md`.
 - **Steps:** install, version, lint, type check, store index, restore, data build and check, document index, the
   publisher-download check, tests, the Replay evaluation, the retrieval evaluation, the safety suite, the demo, the
   API smoke test, and the Streamlit startup.
@@ -289,7 +305,8 @@ deterministic compiler.
 ### Paid API use to date
 
 The task-wide ledger counts **USD 9.336937** over all Live work. Interrupted calls are counted at their worst case,
-and the billed amount is not observed. This release made no paid call.
+and the billed amount is not observed. This release made no paid call, ran no Live check, and created no new
+evaluation.
 
 ## v1.0 (2026-09-28)
 
