@@ -831,3 +831,163 @@ Acceptance check recorded before implementation. One bounded offline PR; demand 
   - No response was incomplete.
   - It is development evidence only: not end to end, and not generalisation.
   - **Not claimed** above still stands: no truncation rate is shown.
+
+## D27. Typed forecast-comparison results: the requested comparison is the computed answer (2026-10-04)
+- **Context:** the end-to-end Live check of v13 (PR #73) failed on R02.
+  - **What R02 said:** "The run/actual pair for the review yields a mean absolute error (MAE) of 149.81 MW". That MAE
+    (`ev0676`) is over 21 half-hour pairs of a 12-hour window. The pair asked about has an error of 27 MW.
+  - **This change does not alter** the check's FAIL, its records or any historical verdict. This entry was written
+    before any code of the change.
+- **Root causes** (observed in R02's record and in Replay, offline):
+  1. **The forecast-review instructions ask for an aggregate whatever the question.** The context's "A forecast review
+     compares the 24 half-hours around the event peak" and the synthesis instruction to set `forecast_mae_evidence_id`
+     to "the MAE you report" are given even when the question asks about one half-hour.
+  2. **One untyped comparison slot, filled by the model's choice.** `forecast_comparison` is copied from whichever
+     comparison holds the MAE the model names. It records no target or window, pairs, exclusions or revision policy.
+     The controller's own comparison of the requested pair (`controller_requested_run`) was given to the model to cite
+     and went unused.
+  3. **The aggregate's scope was in evidence metadata only** (`coverage`, a derivation string). Nothing rendered it.
+  4. **Validation binds numbers to values, not to scopes.**
+     - The aggregate-scope check (I-20) reads stated durations and counts, and the requested-run check (I-9) reads
+       runs. A sentence naming no scope passes both.
+     - R02's first draft said "the 24‑half‑hour review". "24" was flagged only as an untracked number, the repair
+       deleted it, and the unscoped sentence passed.
+  5. **Replay promotes an aggregate by code.**
+     - For a question naming one run and half-hour (K14's: the run issued at 18:56:59Z), Replay binds the run but
+       never compares it.
+     - Its headline gives a 24-half-hour MAE under another run policy (the latest run available before each
+       half-hour).
+     - It never records the requested run, so the I-9 checks do not run.
+- **Decision** (the owner's scope decisions, 2026-10-04):
+  - **Two typed result kinds** (`forecast_result/1`, beside the unchanged `analytical_result/1` of the demand maxima),
+    in the existing registry, verifier and renderer:
+    - `forecast_point`: one half-hour;
+    - `forecast_aggregate`: MAE and mean error over an explicitly listed set of pairs.
+  - **Identity:** the request digest, kind, region, measure (operational demand: POE50 against the actual), the target
+    half-hour or the aggregation window, the run-selection policy (with the named issue time or run where the request
+    names one), the actual-revision policy, the cutoff, the calculation version (`forecast_compare/1`) and the pinned
+    data version.
+  - **Policies:** existing ones only.
+    - **Point:** the last run issued before the half-hour starts (by issue time), or the run issued at a named time.
+    - **Aggregate:** the tool's selectors (`run_id`, `latest_before_target`, `min_lead_hours`,
+      `latest_available_as_of`). The policy is held at aggregate level.
+    - **Per pair:** its own run ID with its issue, publication and availability times, the forecast row, the actual
+      row and its revision, and the signed error.
+    - No forecasting feature is added.
+  - **Content:**
+    - the pairs;
+    - every half-hour of the target or window without a pair, with its reason;
+    - the expected count;
+    - for an aggregate, its MAE and mean error;
+    - the source rows;
+    - limitations.
+  - **Status:**
+    - a point is `established` (one pair) or `unavailable`;
+    - an aggregate is `established` (every half-hour of the window paired), `partial` (stated only as a statistic over
+      the pairs it lists), or `unavailable`.
+  - **Sign convention:** error = POE50 − actual, so a positive error means the forecast was above the actual. The
+    percentage error is the error ÷ actual × 100, and there is none when the actual is 0. MAE is the mean of the
+    absolute errors over the listed pairs. POE10 and POE90 are band context only.
+  - **No substitution:**
+    - **When the requested comparison is unavailable,** the result is `unavailable` with its reason: no run holds the
+      target, two runs are tied, the run is not public by the cutoff, there is no actual, or the actual is not public
+      by the cutoff.
+    - **Nothing stands in for it.** No other run, half-hour or window is computed or shown in its place.
+    - **The guard:** run, target or window and the policies are part of the identity, so a substituted value fails
+      re-derivation.
+  - **The primary result, decided only by code from the resolved request:**
+    - a bound forecast run with its half-hour gives a **point primary**, in Live and Replay;
+    - a forecast review with no point request gives an **aggregate primary** over today's 12-hour focus window, under
+      the project's default policy: `latest_before_target`, or `latest_available_as_of` under a cutoff, or `run_id`
+      when the request names a run by its issue time without a half-hour.
+  - **No supplementary aggregates** in this migration: a comparison the request did not ask for is never typed,
+    rendered or stated. `forecast_comparison` is filled only from an admitted aggregate primary, never from the model's
+    `forecast_mae_evidence_id`.
+  - **The computed answer:** the primary is verified like a maximum (in the run and on load) and rendered by code in
+    `answer`. The interpretation stays apart and is validated as before. A result not admitted is rendered with no
+    value.
+  - **Scope provenance in the interpretation** (`FORECAST_SCOPE_NOT_PRIMARY`, critical) applies only when a forecast
+    primary exists.
+    - **Rejected:** a numeric claim or observation whose evidence a forecast comparison produced, outside the primary's
+      scope. The scope is read from evidence and source rows, never from wording, values or case:
+      - per-pair evidence (POE10/50/90, the actual, the signed and percentage error) whose forecast or actual row is
+        not a primary pair's;
+      - aggregate evidence (MAE, mean error, pair count) from a comparison whose pair set is not exactly the primary's.
+    - **If the primary was not admitted,** no evidence of its scope may be stated either.
+    - **A provenance restriction, not a semantic check.**
+      - Every existing check still applies to every sentence.
+      - Citing primary evidence does not make a sentence true.
+      - No known false statement is accepted because it cites the primary.
+    - **The fallback:**
+      - it keeps an admitted primary, with its own retention check;
+      - maxima keep theirs, indexed among maxima answers only;
+      - it lists no forecast-comparison evidence outside the primary's scope.
+  - **The model-facing correction** (prompts v14; routing's prompt and contract unchanged):
+    - **Context:** for a point request, decided from the resolved request and never from whether its run lookup
+      succeeded, the context gives no `forecast_targets_utc` and no "24 half-hours" note.
+    - **`synthesis.md`:** asks for `forecast_mae_evidence_id` only when the context gives `forecast_targets_utc`.
+    - **Unchanged:** the JSON schemas, `route.md` and `system.md`.
+  - **Replay:**
+    - **A point request:** the shared run lookup (now also recording the requested run, so the I-9 checks run), its
+      own point comparison, and no window comparison or aggregate sentence.
+    - **A window review:** the aggregate primary is typed from its first comparison. Its day-ahead sentence, an
+      unrequested comparison, is dropped.
+  - **Out of scope:** event reviews with no forecast request keep today's handling.
+- **Acceptance criteria** (offline; no Live claim). The synthetic controls test general design properties, not
+  generalisation.
+  - **A. Computed-result correctness and scope:**
+    1. **R02** (saved route, tool calls and drafts, fake transport): the point primary is admitted and rendered with
+       the run issued 2026-08-19T21:57:01Z, POE50 1594, POE10 1663, POE90 1525, actual 1567 MW (updated revision),
+       error +27 MW and 1.72%, pair count 1, both source rows and the selection policy.
+    2. **K14 in Replay:** the primary is the point result of the run issued at 2026-07-30T18:56:59Z for its half-hour.
+       No window comparison is made or stated.
+    3. **Window reviews in Replay** (FC01–FC10): the aggregate primary equals the frozen forecast gold (pairs, MAE,
+       mean error, policy). `forecast_comparison` is unchanged where the gold scores it.
+    4. **A SYNTHETIC store** (seeded values) through the real tool, verifier and renderer:
+       - regions QLD1 (AEST), SA1 (ACST) and NSW1 (AEDT);
+       - every existing policy;
+       - windows of 1, 3 and 24 half-hours, and one with a gap;
+       - 0, 1, partial and complete pair sets;
+       - with and without a cutoff;
+       - each revision policy;
+       - different runs across the targets of one aggregate.
+
+       Identity equals the inputs. Per-pair runs and times are exact. Exclusions carry their reasons. Coverage and
+       sign are right.
+    5. **No substitution:** a run not held, tied runs, a run not public by the cutoff, no actual, and an actual not
+       public by the cutoff each give `unavailable` with its reason. Nothing else is computed or stated, and a Live
+       point request never gets window guidance.
+    6. **Equal values across scopes:** a point error equal to an aggregate's MAE; two aggregates with equal values
+       under different windows or policies; the same value in two regions. Each stays distinct by identity.
+    7. **Verification:** a tampered value, pair, row, run or policy gives `failed`. Another data version or calculation
+       version gives `unverifiable`. Either way the result renders with no value, and the interpretation may not state
+       it.
+  - **B. Handling of R02's saved misleading interpretation:**
+    1. **R02's saved synthesis and repair drafts:**
+       - the sentence giving 149.81 MW (and its claim) is rejected by scope provenance, and the answer falls back;
+       - the requested point is rendered correctly;
+       - neither the unrequested aggregate nor the misleading sentence is shown;
+       - the original draft, the violations and the fallback classification are kept in the diagnostics.
+    2. **Wordings:** the same out-of-scope value cited in at least five wordings (headline, summary, explanation,
+       uncertainty; with or without "pair") is rejected each time. True statements of the primary's own values pass.
+    3. **An aggregate primary:** citing it passes; citing another policy's aggregate (the day-ahead view) is rejected.
+    4. **Equal values:** citing out-of-scope evidence is rejected even when its value equals the primary's.
+    5. **The repair hint** is generic: it names no wording, value or case.
+  - **C. Compatibility and remaining semantic limitations:**
+    1. **Maxima unchanged:** every saved maximum result validates and re-verifies, and its rendering and fallback are
+       byte-identical.
+    2. **Reports:** the report schema change is additive (the `results` union, the answer `kind` and `status` enums),
+       and every saved and frozen record still validates.
+    3. **Routing** is unchanged: the saved v13 decisions resolve identically.
+    4. **The suites:** the full suite, the Replay evaluation and the safety suite are unchanged apart from listed and
+       explained differences.
+    5. **The I-9 and I-20 checks** still fire on their saved reproductions.
+    6. **Unchanged:** frozen material, records, scores and historical verdicts. No paid call.
+    7. **Remaining semantic limitations, stated and not claimed solved:**
+       - a qualitative statement about an out-of-scope comparison with no number;
+       - a false description of the primary's own values in words that the existing checks do not read;
+       - the model's behaviour under prompts v14 (unverified until a separate Live check);
+       - event reviews with no forecast request.
+- **Not claimed:**
+  - that typed results make the free-text interpretation correct;
+  - that the synthetic controls show generalisation.
