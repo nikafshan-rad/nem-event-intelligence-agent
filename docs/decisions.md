@@ -824,3 +824,10 @@ Acceptance check recorded before implementation. One bounded offline PR; demand 
        contained); its v12 scoring reproduces `RUN2.json` exactly from the v12 code.
      - **F07 end to end:** matches gold, with the cutoff from the request override.
      - **Unchanged:** the Replay evaluation and the safety suite.
+- **Live, routing only** (2026-10-04, after merge; results in `docs/live-gates.md`): the frozen routing-only Live check
+  (`eval/livecheck_route_v13`, PR #70) gave **PASS** on v13 request extraction and resolution on its development
+  sample.
+  - 23 of 23 bindings were exact to gold, and 9 of 9 controls behaved correctly.
+  - No response was incomplete.
+  - It is development evidence only: not end to end, and not generalisation.
+  - **Not claimed** above still stands: no truncation rate is shown.

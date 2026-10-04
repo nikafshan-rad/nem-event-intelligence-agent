@@ -1,0 +1,228 @@
+{
+  "trace_id": "tr-a6ff24d00e7b",
+  "started_at": "2026-10-04T00:31:32.641535Z",
+  "events": [
+    {
+      "seq": 1,
+      "t_ms": 14838.8,
+      "kind": "model",
+      "name": "route",
+      "model": "gpt-5-mini",
+      "response_id": "resp_0726ddb8910780e7016ac19e65087887d09e020c2b921cff22",
+      "function_calls": [],
+      "usage": {
+        "input_tokens": 1537,
+        "input_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 1408
+        },
+        "output_tokens": 1549,
+        "output_tokens_details": {
+          "reasoning_tokens": 1344
+        },
+        "total_tokens": 3086
+      },
+      "cost_usd": 0.003165,
+      "cost_basis": "ledger accounting at the configured list prices (cached input at the cached rate); not the billed amount",
+      "max_output_tokens": 2000,
+      "status": "completed",
+      "incomplete": null,
+      "duration_ms": 14809.0,
+      "requested": {
+        "model": "gpt-5-mini",
+        "max_output_tokens": 2000,
+        "reasoning_effort": "not sent (the provider's default applies)"
+      },
+      "reported": {
+        "model": "gpt-5-mini-2025-08-07",
+        "max_output_tokens": 2000,
+        "reasoning_effort": "medium"
+      }
+    },
+    {
+      "seq": 2,
+      "t_ms": 14840.8,
+      "kind": "route",
+      "name": "model_decision",
+      "decision": {
+        "intent": "forecast_review",
+        "region": "QLD1",
+        "event_date": "2025-10-05",
+        "as_of_text": "Based only on data published by noon Brisbane time on Sunday 5 October 2025,",
+        "needs_clarification": false,
+        "clarification_reason": null,
+        "clarification": null,
+        "out_of_scope": false,
+        "requested": {
+          "forecast_run": {
+            "selection": "as_of_availability",
+            "selection_text": "Based only on data published by noon Brisbane time on Sunday 5 October 2025,",
+            "half_hour_text": null
+          },
+          "maximum": {
+            "kind": "maximum",
+            "measure": "operational_demand",
+            "measure_text": "operational demand",
+            "peak_text": "what was the highest operational demand in Queensland over that entire local day, and at what time?",
+            "window": "whole_local_day",
+            "window_text": "over that entire local day"
+          }
+        }
+      },
+      "policy_notes": []
+    },
+    {
+      "seq": 3,
+      "t_ms": 14844.3,
+      "kind": "route",
+      "name": "forecast_review",
+      "status": "needs_clarification",
+      "routing": {
+        "router": "explicit",
+        "regions_found": [
+          "QLD1"
+        ],
+        "dates_found": [
+          "2025-10-05"
+        ],
+        "region_tz": "Australia/Brisbane",
+        "requests": {
+          "routed": "reported",
+          "contract": "v13",
+          "forecast_run": {
+            "status": "as_of_availability",
+            "selection": null,
+            "half_hour_utc": null,
+            "issued_at_utc": null,
+            "provenance": {},
+            "detected_by": [
+              "route_model"
+            ],
+            "missing": [],
+            "conflicts": [],
+            "spans": [
+              {
+                "role": "run_selection",
+                "text": "Based only on data published by noon Brisbane time on Sunday 5 October 2025,",
+                "source": "route_model",
+                "occurrences": [
+                  [
+                    0,
+                    76
+                  ]
+                ],
+                "located": true
+              }
+            ]
+          },
+          "maximum": {
+            "status": "bound",
+            "measures": [
+              "operational demand"
+            ],
+            "window_kind": "day",
+            "window_utc": [
+              "2025-10-04T14:00:00Z",
+              "2025-10-05T14:00:00Z"
+            ],
+            "provenance": {
+              "measure": {
+                "source": "question",
+                "text": "Based only on data published by noon Brisbane time on Sunday 5 October 2025, what was the highest operational demand in Queensland over that entire local day, and at what time?",
+                "conversion": "question parser"
+              },
+              "window": {
+                "source": "route_model",
+                "text": "over that entire local day",
+                "conversion": "whole local day 2025-10-05 in QLD1"
+              }
+            },
+            "detected_by": [
+              "question",
+              "route_model",
+              "cue"
+            ],
+            "missing": [],
+            "conflicts": [],
+            "spans": [
+              {
+                "role": "measure",
+                "text": "operational demand",
+                "source": "route_model",
+                "occurrences": [
+                  [
+                    98,
+                    116
+                  ]
+                ],
+                "located": true
+              },
+              {
+                "role": "peak",
+                "text": "what was the highest operational demand in Queensland over that entire local day, and at what time?",
+                "source": "route_model",
+                "occurrences": [
+                  [
+                    77,
+                    176
+                  ]
+                ],
+                "located": true
+              },
+              {
+                "role": "window",
+                "text": "over that entire local day",
+                "source": "route_model",
+                "occurrences": [
+                  [
+                    131,
+                    157
+                  ]
+                ],
+                "located": true
+              }
+            ],
+            "unused": []
+          },
+          "cutoff": {
+            "status": "unresolved",
+            "as_of_utc": null,
+            "provenance": {},
+            "detected_by": [
+              "route_model"
+            ],
+            "missing": [
+              "cutoff"
+            ],
+            "conflicts": [],
+            "spans": [
+              {
+                "role": "cutoff",
+                "text": "Based only on data published by noon Brisbane time on Sunday 5 October 2025,",
+                "source": "route_model",
+                "occurrences": [
+                  [
+                    0,
+                    76
+                  ]
+                ],
+                "located": true
+              }
+            ],
+            "notes": []
+          },
+          "notes": []
+        }
+      },
+      "reasons": [
+        "Which time is the as-of cutoff? The question names one, but its time, date or time zone cannot be read, so no cutoff is assumed. Give it with its date and time zone."
+      ],
+      "region": "QLD1",
+      "as_of": null,
+      "window": [
+        "2025-10-04T14:00:00+00:00",
+        "2025-10-05T14:00:00+00:00"
+      ]
+    }
+  ]
+}

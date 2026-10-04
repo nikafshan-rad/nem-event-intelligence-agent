@@ -3742,3 +3742,114 @@ Outcomes on the targeted check's scale (S supplied, U unavailable, C clarificati
 
 **Unchanged:** v1.0 (`f14db6d`), every frozen protocol file, the historical verdicts and scores, and the code and
 prompts. No fix has been started, no model is switched, and no further run has been made.
+
+## Results: routing-only Live check of route contract v13 (run once on `main`, 2026-10-04, under the frozen protocol of PR #70)
+
+**Verdict: PASS**, on what the check accepts and only that: **v13 request extraction and resolution, on this
+development sample** (`eval/livecheck_route_v13/PROTOCOL.md`, criteria applied unchanged by `score.py`).
+
+**This is development evidence on familiar questions, for routing only.** No tool ran and no answer was written, so
+it says nothing about end-to-end answer quality. Ten familiar questions, each run 2–5 times, are no evidence of
+generalisation and show no rates. It is not L3. Historical verdicts are unchanged: the Live acceptance check of
+computed demand maxima keeps its frozen FAIL, and the disputed R03/R04 findings stand as recorded, not as established
+application defects. Live stays experimental.
+
+Records are in:
+- `artifacts/live/LC-route-v13-run/`: the 32 records (`<NN>-<config>.json`), each call's standard output, and its
+  trace under `traces/`;
+- `artifacts/live/LC-route-v13/run_log.jsonl` and `artifacts/logs/LC_route_v13_driver.log`;
+- `artifacts/live/LC-route-v13-score/SCORE.json`: the scoring output. `python eval/livecheck_route_v13/score.py`
+  reproduces it byte for byte from the committed records, offline and with no model call.
+
+**Checks before the paid calls:**
+- **Merge:** PR #70 merged as `50ec3ca`, whose tree equals the reviewed head `01355b3`. CI on `main` passed.
+- **Freeze and code:** all 15 frozen hashes matched. The code under test is `a648269` (`src/` tree `34d74c4c…`,
+  prompts v13 `fb29d188…`), with `gpt-5-mini` and a routing output cap of 2,000 tokens.
+- **Ledger:** USD 8.895359, 3,023 lines, `8dfcdd5e914830cb`: the frozen start.
+- **Runner state:** no record, run log, lock or runner process existed, and no override was set.
+- **Approval:** the owner approved one execution with a task cap of USD 9.087359, a per-call cap of USD 0.006 and a
+  run cap of USD 0.192, with no retry allowance.
+
+**Run:** `eval/livecheck_route_v13/run_eval.py --approved-task-cap 9.087359`, detached, the 32 calls in the frozen
+order, from 00:31:18 to 00:37:48 UTC.
+- **32 of 32 saved in one attempt.** There was no interruption, API error, budget stop or safety stop, and no call
+  was repeated.
+- **Ledger:** USD 8.895359 → **8.968449**, so USD **0.07309** was spent, against the run cap of USD 0.192.
+  - **New lines:** 64: 32 reservations, all settled.
+  - **Integrity** (the file is ignored by git): `8dfcdd5e914830cb`, 3,023 lines → `99ea30e92377eddc`, 3,087 lines.
+- **Model:** `gpt-5-mini` was requested with no reasoning effort sent. The API reported `gpt-5-mini-2025-08-07` at
+  "medium", the provider's default.
+
+### The frozen decision
+
+| Criterion | Result | Bar | Met |
+| --- | --- | --- | --- |
+| Demonstrated violations: wrong binding, incomplete response not sent back, dropped cutoff, C06 proceeding, C07, C08 or C09 binding, missed request | 0 | 0 | yes |
+| Calls saved | 32 of 32 | 32 | yes |
+| Containment shown in a completed response: C06, C07, C08, C09 | 3/3, 2/2, 2/2, 2/2 | at least 1 each | yes |
+| C03, C04 and C05 supplied | 3/3 each, 9 of 9 together | 2 each, 7 together | yes |
+| C10 and C11 supplied | 4 of 4 | 3 | yes |
+
+### Exact resolution against gold: 23 of 23
+
+Every call whose gold is a binding resolved exactly to gold: region, measure, window kind and window, run selection,
+half-hour, issue time and cutoff. Each configuration's provenance was the same in every repeat; each record holds its
+spans' offsets.
+
+| Configuration (question) | Exact | Bound | Provenance |
+| --- | --- | --- | --- |
+| C01 (D02) | 5/5 | QLD1 operational demand, local day of 29 July 2026 | measure and window: the question parser |
+| C02 (F02) | 5/5 | SA1 total demand, local day of 29 July 2026 | measure and window: the question parser |
+| C03 (D01) | 3/3 | NSW1 total demand, local day of 29 July 2026 | measure: the model's quoted words (v12 rejected this reading); window: the question parser |
+| C04 (F06) | 3/3 | VIC1 total demand over the event, 2026-08-19T11:00Z to 2026-08-20T11:30Z | measure and event window: the model's quoted words (v12 rejected this reading) |
+| C05 (F07, cutoff field) | 3/3 | QLD1 operational demand, local day of 5 October 2025; cutoff 2025-10-05T02:00Z | measure: the question parser; window: the model's quoted words; cutoff: the request field |
+| C10 (K06) | 2/2 | SA1, the last run issued before the half-hour (2026-08-19T22:00Z, 22:30Z] | selection and half-hour: the model's quoted words |
+| C11 (K14) | 2/2 | TAS1, the run issued at 2026-07-30T18:56:59Z, half-hour (21:30Z, 22:00Z] | selection and issue time: the question parser; half-hour: the model's quoted words |
+
+In C05, the model also quoted the cutoff words, which code cannot convert ("noon"). The request field's cutoff was
+applied, with a note. In C05 and C06, the model gave the run selection `as_of_availability`, which requests no run,
+and none was bound.
+
+### Correct control behaviour: 9 of 9
+
+| Configuration (question) | Correct | Expected | Observed |
+| --- | --- | --- | --- |
+| C06 (F07, no cutoff field) | 3/3 | sent back for the cutoff ("noon" cannot be read) | sent back with the cutoff clarification; no cutoff assumed |
+| C07 (F08) | 2/2 | sent back: no measure named | sent back, asking which demand measure; no maximum bound |
+| C08 (Q17) | 2/2 | sent back: the run's half-hour has no date | sent back, asking which half-hour; no run bound |
+| C09 (Q21) | 2/2 | no maximum requested (demand at the price peak) | proceeded with nothing bound |
+
+All nine came from completed, valid responses. There was no unnecessary clarification and no missed request.
+
+### Completion: no incomplete response observed; truncation is not shown to be fixed
+
+- All 32 routing responses completed and were valid. The largest output was 1,719 of 2,000 tokens (slot 24, C06).
+- **C01 (D02) and C02 (F02), reported apart:** each completed 5 of 5, with outputs of 937–1,493 and 765–1,088
+  tokens, and every one resolved to gold. In the maxima check, under v12, both stopped at a cut-off routing response
+  (D26).
+- **Not shown:** that whitespace degeneration or routing truncation is fixed, or rarer. Zero in ten calls is
+  compatible with a per-call rate of up to about 26% (one-sided 95%). v13's output also differs from v12's, so no
+  cause of the difference is established.
+
+### Usage, latency and cost
+
+- **Tokens:** 49,304 input (43,648 of them cached) and 35,297 output (29,504 of them reasoning).
+- **Duration per call:** median 10.5 s, range 7.3–16.1 s.
+- **Ledger cost:** USD 0.07309: a mean of 0.002284 per call, and at most 0.003505, against the per-call cap of 0.006.
+  The billed amount was not observed, because the API response does not carry it.
+
+### Limitations
+
+- **The sample:** familiar development questions, each run 2–5 times on a non-deterministic model. It shows no rates,
+  and differences of one or two calls are within run-to-run variation.
+- **The scope:** routing and request resolution only. Nothing about tools, evidence, numbers or answers end to end.
+- **D26's known gaps** were not tested beyond F07 (C06): vague narrowing words, "noon" and "midday", and windows over
+  two dates.
+
+**Unchanged:**
+- v1.0 (`f14db6d`);
+- the frozen protocol, configurations, gold, runner and scorer;
+- the historical verdicts and scores, including the maxima check's FAIL and the disputed R03/R04 findings;
+- the code and prompts.
+
+No fix has been started, no model is switched, and no further run has been made.
