@@ -1685,3 +1685,53 @@ re-verified, and no replacement is created.
   - The quotation-mark check sends back a question that quotes its own request.
   - Truncation is unaddressed, and the routing cap is unchanged.
 - **Not done:** no Live run, no evaluation protocol, no model switch, no release.
+
+### D31, Amendment 1: integration review before merge (2026-10-05)
+- **What it checked:** the implementation against the amendment's acceptance criteria, through the Live entry point
+  (`investigate` in Live mode with the SYNTHETIC fake transport and the real store), not only the compiler
+  (`tests/provider/test_request_plan_review.py`). It used scripted plans: design properties only.
+- **Two failures found and fixed, within the approved scope:**
+  1. **Decision 3.** A cutoff that only an asked operation which does not run refers to (a forecast of another kind,
+     named as not answered, or an operation a document question does not read) was applied to the request that
+     runs, and stated in its echo. It is now sent back (`PLAN_CUTOFF_CLARIFICATION`), unless the running request
+     refers to a cutoff naming the same time, or the request gives one.
+  2. **Decision 1.** Identical duplicate maxima were sent back, though the amendment consolidates identical
+     duplicates. They are now one operation; two measures, or two windows, are still sent back.
+- **Checked and holding:**
+  - **Historical decisions:** the contract a decision was given in chooses the resolver, and the switch only chooses
+    the contract of a new routing call. All 399 readable saved decisions resolve identically with the switch off
+    and on. Every frozen Live runner first refuses a checkout whose `src/` is not its frozen tree, so none can run
+    on this code with or without the switch.
+  - **Fail-closed:** fourteen kinds of incomplete, invalid, conflicting and sent-back plans make the routing call
+    only: no tool is offered or run, and only the send-back is shown.
+  - **Cutoffs and roles:**
+    - an active cutoff that cannot be read is sent back for every intent, unless the request gives one (F07);
+    - declined and background entities create no request;
+    - the parser backstop covers everything the question parser detects (`extract_as_of` reads only the as-of words
+      `AS_OF_Q_RE` finds).
+  - **Consolidation:** it holds only for an identical subject, scope, run and cutoff, changing one at a time.
+  - **The echo:** on the page it is a bullet under "Uncertainties and missing evidence", never under the
+    interpretation. The banner, validation and interpretation status equal the v15 run's for the same record (R02,
+    a fallback; D02, validated). It is withdrawn when the question does not run.
+  - **V0 and V1:**
+    - the 17 scripted correct plans give the same outcomes under both;
+    - of four misreadings, V1 sends back the three whose subject words hold no demand vocabulary, and V0 accepts all
+      four;
+    - no selection rule was applied, and no held-out outcome was used.
+- **The trust boundary**, as demonstrated (errors in the plan itself):
+  - **Caught:**
+    - an omitted run or cutoff whose words hold a time;
+    - omitted as-of words the parser reads;
+    - an asked request labelled declined or background in a forecast review (nothing is asked);
+    - quoted background labelled asked;
+    - an unnamed forecast read as demand (V1).
+  - **Accepted and run,** with the echo stating the reading:
+    - an omitted run with no time of its own;
+    - an omitted cutoff with neither as-of words nor a clock ("published by noon");
+    - a declined or unquoted background forecast labelled asked;
+    - a subject taken from an incidental "demand".
+  - **Accepted, with nothing said:** an omitted maximum, or an asked maximum labelled declined, in an event review.
+    The review runs without it. v15's parser would have bound such a maximum.
+
+  These are the recorded semantic limitations (stances trusted, omissions undetected, provenance not meaning), not
+  failures of an acceptance criterion. No phrase rule was added for them.

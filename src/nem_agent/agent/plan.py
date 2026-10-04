@@ -452,13 +452,13 @@ def _consolidate(ops: list[_Op], cutoff_at: dict[str, datetime | None]) -> tuple
     forecast value and a comparison are one comparison only when their subject, scope, run and cutoff are identical
     and the comparison contains the requested values: one half-hour compared under a named run, whose result carries
     POE50, POE10, POE90 and the actual. Anything else is not chosen between, nor merged."""
-    if any(o.family != "forecast" for o in ops) or not all(_same_reading(ops[0], o, cutoff_at) for o in ops[1:]):
+    if len({o.family for o in ops}) != 1 or not all(_same_reading(ops[0], o, cutoff_at) for o in ops[1:]):
         return None, []
     kinds = {o.op.kind for o in ops}
-    if len(kinds) == 1:
+    if len(kinds) == 1:  # identical duplicates (a forecast operation's or a demand maximum's)
         return ops[0], ops[1:]
     first = ops[0]
-    if first.scope.kind in SINGLE_SCOPES and first.run.status == "bound" and \
+    if first.family == "forecast" and first.scope.kind in SINGLE_SCOPES and first.run.status == "bound" and \
             first.run.selection in ("last_issued_before", "issued_at"):
         primary = next(o for o in ops if o.op.kind == "forecast_comparison")
         return primary, [o for o in ops if o is not primary]
@@ -545,12 +545,15 @@ def compile_plan(q: str, req: InvestigateRequest, given: InvestigateRequest, int
     unresolved = [rd for rd in ops if rd.status == "unresolved"]
     ctx.kinds = record["not_answered"] = sorted({str(rd.other_kind) for rd in ops if rd.status == "unsupported"})
     if intent not in ("market_event_review", "forecast_review"):
-        return out  # a document question: its operations are not read (as under v15); its cutoff is
+        # a document question: its operations are not read (as under v15); the plan's cutoff_ref is its cutoff
+        _cutoff_of_what_runs(ctx, co, {plan.cutoff_ref} - {None})
+        return out
     if any(rd.run.status == "as_of_availability" for rd in supported) and co.as_of is None and \
             co.status not in ("conflict", "unresolved"):
         co.status, co.missing = "unresolved", ["cutoff"]  # the newest run public by a cutoff, with no cutoff
     # -- one primary operation (decision 1)
     primary: _Op | None = None
+    merged: list[_Op] = []
     if len(supported) + len(unresolved) > 1:
         if not unresolved:
             primary, merged = _consolidate(supported, ctx.cutoff_at)
@@ -571,10 +574,13 @@ def compile_plan(q: str, req: InvestigateRequest, given: InvestigateRequest, int
             rr.forecast = ForecastAnalysis(status="unresolved", detected_by=["intent", "route_model"],
                                            missing=["domain_unsupported"] if ctx.kinds else ["operation"],
                                            unsupported=ctx.kinds, domain=ctx.kinds[0] if len(ctx.kinds) == 1 else None)
-        elif ctx.kinds:
-            rr.notes.append(not_answered_note(ctx.kinds))
+        else:  # an event review runs without a plan operation: only the plan's cutoff_ref limits it
+            if ctx.kinds:
+                rr.notes.append(not_answered_note(ctx.kinds))
+            _cutoff_of_what_runs(ctx, co, {plan.cutoff_ref} - {None})
         return out
     record["primary"] = primary.op.id
+    _cutoff_of_what_runs(ctx, co, ({o.op.cutoff_ref for o in [primary, *merged]} | {plan.cutoff_ref}) - {None})
     _compile_primary(out, primary, ctx)
     record["echo"] = echo(rr, region)
     if record["echo"]:
@@ -634,6 +640,21 @@ def _compile_cutoff(ctx: _Ctx, co: CutoffRequest, refs_inactive: set[str]) -> No
             co.notes.append(f"cutoff: the question parser reads as-of words ('{ps.text}') that no plan cutoff holds")
     elif read:
         co.status, co.as_of = "bound", read[0]
+
+
+def _cutoff_of_what_runs(ctx: _Ctx, co: CutoffRequest, running: set[Any]) -> None:
+    """Decision 3, for the request that runs: a cutoff that only an asked operation which does not run refers to (a
+    forecast of another kind, named as not answered, or an operation a document question does not read) is not the
+    running request's. Unless it names the same time as a cutoff the running request refers to, it is sent back:
+    never applied to the running request in the plan's place, and never dropped. A request cutoff stands."""
+    if ctx.given.as_of_utc or co.status in ("conflict", "unresolved"):
+        return
+    own = {ctx.cutoff_at.get(c) for c in running}
+    stray = sorted(c for c in ctx.refs_active - running if ctx.cutoff_at.get(c) not in own or not running)
+    if stray:
+        co.status, co.as_of, co.missing = "unresolved", None, ["cutoff_reference"]
+        co.notes += [f"cutoff: {c} limits only an operation that does not run; which request it limits is not shown"
+                     for c in stray]
 
 
 def _unresolved_primary(out: Compiled, rd: _Op, ctx: _Ctx) -> None:
