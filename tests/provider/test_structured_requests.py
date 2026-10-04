@@ -24,6 +24,7 @@ from nem_agent.agent.live import RouteDecision, checked_route
 from nem_agent.agent.request import InvestigateRequest, Resolution, resolve
 from nem_agent.agent.structured import (
     MAXIMUM_UNREAD_CLARIFICATION,
+    NAMED_RUN_HALF_HOUR_CLARIFICATION,
     RUN_RULE_CLARIFICATION,
     RoutedRequest,
     forecast_run_cue,
@@ -286,14 +287,17 @@ def test_z04_z05_and_k11_bind_as_before():
 
 @pytest.mark.parametrize("cid", ["K13", "K14"])
 def test_values_at_the_price_peak_and_named_issue_times_are_unchanged(cid):
-    """K13 asks for total demand at the price peak (no maximum); K14 names a run by its issue time (bound by the
-    question parser, as before)."""
+    """K13 asks for total demand at the price peak (no maximum); K14 names a run by its issue time (read by the
+    question parser, as before). Its half-hour ("8:00 am AEST") is not read without the routing model, so since D27
+    Amendment 2 the request is sent back for it (it was bound without its half-hour)."""
     res, _ = _replay(cid)
     rq = res.resolution.requests
     assert rq.maximum.status == "absent"
     if cid == "K14":
-        assert rq.forecast_run.status == "bound" and rq.forecast_run.selection == "issued_at"
+        assert (rq.forecast_run.status, rq.forecast_run.missing, rq.forecast_run.selection) == (
+            "unresolved", ["half_hour"], "issued_at")
         assert rq.forecast_run.provenance["selection"].source == "question"
+        assert res.resolution.reasons == [NAMED_RUN_HALF_HOUR_CLARIFICATION] and res.records == []
 
 
 # ------------------------------------------------------------------------------------------------ 3. adversarial

@@ -991,8 +991,9 @@ Acceptance check recorded before implementation. One bounded offline PR; demand 
 - **Not claimed:**
   - that typed results make the free-text interpretation correct;
   - that the synthetic controls show generalisation.
-- **Amendment during implementation** (2026-10-04, written after the code; disclosed; the recorded text above is
-  unchanged):
+- **Amendment 1, during implementation** (2026-10-04, written after the code; disclosed; the recorded text above is
+  unchanged; its A2 substitute and K14 limitation were rejected in the owner's review and are withdrawn by Amendment
+  2):
   - **A2 cannot be met as recorded.** Root cause 5 missed that Replay's question parser does not read K14's
     half-hour ("ending at 8:00 am AEST, 31 July 2026": a clock with "am"). In Live, the routing model's quoted words
     give it (D26). In Replay, K14's resolved request names the run by its issue time without a half-hour, so by this
@@ -1013,3 +1014,50 @@ Acceptance check recorded before implementation. One bounded offline PR; demand 
     produced, for the narrative-time check, as the request's window already does. An unavailable point may then state
     its own half-hour when no tool returned it (a run not public by the cutoff is never compared). No other time is
     admitted.
+- **Amendment 2, after the owner's review of PR #74** (2026-10-04; the text above is unchanged):
+  - **Amendment 1's A2 substitute is withdrawn.** For K14 in Replay, an aggregate of the named run over a window was a
+    comparison standing in for the one asked for: the substitution this decision rules out.
+  - **A2, as amended by the owner:**
+    - K14 gives either the exact point result it asks for, or a target-half-hour clarification before any tool or
+      calculation;
+    - never an aggregate primary or window-review guidance;
+    - the eight Replay point reproductions (H05, V07, V08, W07, W08, Y05, Y06, Z05) are additional evidence, not a
+      replacement for K14.
+  - **Mechanism: general containment in request resolution.** No case condition and no new time parsing.
+    - **The rule:** a run named by its issue time with no half-hour read is bound only when every time the question
+      names is held by a role's words. Those words are the issue time's (the routing model's located selection words,
+      or the question parser's own match) or the cutoff's.
+    - **Otherwise:** the request is unresolved, missing its half-hour (or what the model's unreadable half-hour words
+      lack). The new clarification (`NAMED_RUN_HALF_HOUR_CLARIFICATION`) is returned before any tool.
+    - **The same rule as D26** applies to a maximum's window. The existing representation (an unresolved request,
+      what it is missing, its clarification) expresses it, so no field is added.
+    - **A time that no role holds** may be the half-hour asked about or narrow the window. Either way, no window is
+      reviewed in its place.
+  - **Scope of its effect** (every saved resolution, before and after):
+    - 211 saved questions, resolved as Replay resolves them, and 258 saved Live routing decisions were compared;
+    - only K14's question changes: as i15-17 K14, maxima R04 and its route-v13 case;
+    - so does K14's saved Live decision in `LC-i15-17-fresh`, an older route contract with no half-hour words;
+    - every other resolution is identical, including every saved v13 decision (C3).
+  - **Tests:**
+    - K14 in Replay, and in Live without its half-hour words: sent back before any tool, with nothing computed;
+    - K14 with its half-hour words: the exact point of the named run;
+    - K14 resolved under a cutoff before its run is public: an unavailable point, with no comparison and no window;
+    - Replay Y05 and W07 under such a cutoff: unavailable points;
+    - SYNTHETIC questions: a named run with a narrowing clock range is sent back, and a named run with no other time
+      is reviewed over its window, as before.
+  - **API migration** (README):
+    - **Two version fields:** the report's `schema_version` is its format ("1" or "2", unchanged by D27). Each
+      result's `result.schema_version` is the discriminator a reader parses by (`analytical_result/1` or
+      `forecast_result/1`).
+    - **New answer values:** the kinds `forecast_point` and `forecast_aggregate`, and the status `partial`.
+    - **Compatibility limits, rather than "additive":** a reader that dispatches on each result's schema, or reads
+      `summary_v1`, handles every report. A reader that assumes every result is a demand maximum (the pre-D27 result
+      model, the frozen e2e kit) cannot read a forecast result. A test identifies, parses, re-verifies and shows every
+      kind and status.
+  - **Changed outcomes since PR #74's first head** (`fceb6d8`):
+    - K14's question in Replay (K14, maxima R04, route v13): an aggregate of the named run becomes the clarification;
+    - the saved Live K14 decision in `LC-i15-17-fresh`, re-resolved: a window review of the named run becomes the
+      clarification;
+    - the frozen routing-v12 scorer's label for K14 read without a routing model (a test record): `PARTIAL` (bound
+      without its half-hour) becomes `SENT_BACK`, a supply miss, never wrong and no containment miss;
+    - nothing else.

@@ -24,12 +24,15 @@ import pytest
 
 from nem_agent.agent import forecast_compare as fc
 from nem_agent.agent.dispatcher import Dispatcher
+from nem_agent.agent.live import RouteDecision, checked_route
 from nem_agent.agent.request import ForecastRequest, InvestigateRequest, Resolution
+from nem_agent.agent.structured import NAMED_RUN_HALF_HOUR_CLARIFICATION
 from nem_agent.evidence import EvidenceRegistry
 from nem_agent.render import render_result
 from nem_agent.report import InvestigationReport, NumericClaim
 from nem_agent.results import ForecastResult, ReportedResult, ResultRegistry, verify_loaded
-from nem_agent.service import investigate
+from nem_agent.selection import load_selection
+from nem_agent.service import investigate, resolve_routed
 from nem_agent.store import Store
 from nem_agent.timeutil import iso_utc
 from nem_agent.trace import Trace
@@ -132,8 +135,9 @@ def _case(cid: str, directory: str) -> dict:
 
 @pytest.mark.parametrize("cid", sorted(REPLAY_POINTS))
 def test_replay_point_requests_are_the_named_runs_point(cid, real_store):
-    """A2, as amended (D27): every saved question Replay resolves as one run and half-hour gets the point result of that
-    run and half-hour, equal to its frozen gold; no window comparison is made or stated."""
+    """Additional evidence for A2 (not a replacement for K14): every other saved question Replay resolves as one run
+    and half-hour gets the point result of that run and half-hour, equal to its frozen gold; no window comparison is
+    made or stated."""
     case = _case(cid, REPLAY_POINTS[cid])
     res = investigate(InvestigateRequest(question=case["question"], as_of_utc=case.get("as_of_utc")), write_trace=False)
     wanted = res.resolution.requests.forecast_run.forecast_request()
@@ -154,29 +158,136 @@ def test_replay_point_requests_are_the_named_runs_point(cid, real_store):
     assert not res.report.validation["fallback_applied"]
 
 
-def test_k14_in_replay_binds_no_half_hour_so_its_named_run_is_reviewed_over_the_window(real_store):
-    """The amendment to A2 (D27), a stated limitation: Replay's question parser does not read K14's "half-hour ending at
-    8:00 am AEST, 31 July 2026" (in Live the routing model's quoted words give it, D26), so its resolved request names
-    the run without a half-hour. By the decision's rule that is a window review of the named run: no point is computed,
-    and nothing under another run selection is stated (the 24-half-hour MAE under another policy that was Replay's
-    headline before)."""
-    case = _case("K14", "livecheck_i15_17")
-    res = investigate(InvestigateRequest(question=case["question"]), write_trace=False)
+# ------------------------------------------------------------------------------------------------ K14: A2 as amended
+K14 = _case("K14", "livecheck_i15_17")
+K14_RUN = K14["expected"]["gold_run"]  # issued 2026-07-30T18:56:59Z, available 21:47:35Z; target ends 22:00Z
+
+
+def _k14_route(half_hour_text: str | None) -> dict:
+    """A SYNTHETIC v13 route decision for K14's question (R02's saved decision as the template): the run named by its
+    issue time, with or without the words of its half-hour."""
+    rec, _ = _saved_fake("R02")
+    route = copy.deepcopy(rec["route"]) | {"region": "TAS1", "event_date": "2026-07-31"}
+    route["requested"]["forecast_run"] = {"selection": "issued_at",
+                                          "selection_text": "Take the forecast run issued at 2026-07-30T18:56:59Z",
+                                          "half_hour_text": half_hour_text}
+    return route
+
+
+def _no_tool_draft(kw: dict) -> dict:
+    raise AssertionError("no synthesis: the request is sent back before any tool")
+
+
+def _sent_back(res: Any) -> None:
+    """Sent back before any tool or calculation: the target-half-hour clarification, nothing computed or rendered."""
+    fr = res.resolution.requests.forecast_run
+    assert res.resolution.status == "needs_clarification" and res.report.status == "needs_clarification"
+    assert (fr.status, fr.missing, fr.selection) == ("unresolved", ["half_hour"], "issued_at")
+    assert res.resolution.reasons == [NAMED_RUN_HALF_HOUR_CLARIFICATION]
+    assert res.records == [] and res.report.results == [] and res.report.answer == []
+    assert res.resolution.forecast_primary is None and res.resolution.forecast_run is None
+    assert res.report.forecast_comparison is None and res.report.observations == []
+
+
+def test_k14_in_replay_is_sent_back_for_its_half_hour(real_store):
+    """A2 as amended: Replay's question parser does not read K14's half-hour ("8:00 am"). Its "8:00" is a time that no
+    role's words hold (the issue time's are "issued at 2026-07-30T18:56:59Z"), so the request is unresolved and sent
+    back with the target-half-hour clarification, before any tool: no aggregate, no window review."""
+    _sent_back(investigate(InvestigateRequest(question=K14["question"]), write_trace=False))
+
+
+def test_k14_in_live_without_its_half_hour_words_is_sent_back(real_store):
+    """The same containment in Live (general, not Replay's): a routing reading that names the run but not its
+    half-hour; the saved Live decision of LC-i15-17-fresh (an older contract with no half-hour words) resolves alike."""
+    fake = FakeModel(_k14_route(None), [], _no_tool_draft)
+    res = _live(K14["question"], fake)
+    _sent_back(res)
+    assert len(fake.requests) == 1  # the routing call only
+    rec = json.loads((LIVE / "LC-i15-17-fresh" / "K14.json").read_text())
+    trace = json.loads((LIVE / "LC-i15-17-fresh" / "traces" / f"{rec.get('trace_id') or rec['score']['trace_id']}.json")
+                       .read_text())["events"]
+    dec = next(e["decision"] for e in trace if e["name"] == "model_decision")
+    saved = resolve_routed(InvestigateRequest(question=K14["question"], mode="live"),
+                           checked_route(RouteDecision.model_validate(dec)), load_selection())
+    assert saved.status == "needs_clarification" and saved.reasons == [NAMED_RUN_HALF_HOUR_CLARIFICATION]
+
+
+def test_k14_resolved_with_its_half_hour_is_its_exact_point(real_store):
+    """A2's other path: a reading that carries K14's half-hour (the routing model's quoted words, converted by code)
+    gives the point result of the named run for that half-hour; no window guidance, no aggregate."""
+    fake = FakeModel(_k14_route("half-hour ending at 8:00 am AEST, 31 July 2026"), [[]],
+                     lambda kw: copy.deepcopy(DRAFT))
+    res = _live(K14["question"], fake)
     wanted = res.resolution.requests.forecast_run.forecast_request()
-    assert wanted.run == "issued_at" and wanted.half_hour is None and res.resolution.forecast_run is None
-    (a,) = res.report.answer
+    assert wanted.half_hour == (T("2026-07-30T21:30:00Z"), T(K14_RUN["target_end_utc"]))
+    context = next(i["content"] for i in fake.requests[1]["input"] if isinstance(i, dict)
+                   and str(i.get("content", "")).startswith("Investigation context"))
+    assert "forecast_targets_utc" not in context and "24 half-hours" not in context
+    assert [(a.kind, a.status, a.verification) for a in res.report.answer] == [
+        ("forecast_point", "established", "verified")]
+    (rr,) = res.report.results
+    r = rr.result
+    assert isinstance(r, ForecastResult) and r.identity.run_selection == "issued_at" and len(r.pairs) == 1
+    p = r.pairs[0]
+    assert (p.run_id, p.run_issued_at_utc, p.target_end_utc) == (K14_RUN["run_id"], K14_RUN["issued_at_utc"],
+                                                                 K14_RUN["target_end_utc"])
+    cmps = [x for x in res.records if x.name == "compare_forecast_actual"]
+    assert [x.call_id for x in cmps] == [fc.POINT_CALL_ID]
+    assert (cmps[0].args["target_start_utc"], cmps[0].args["target_end_utc"]) == ("2026-07-30T21:30:00Z",
+                                                                                  K14_RUN["target_end_utc"])
+    assert res.report.forecast_comparison is None
+
+
+def test_k14_resolved_but_unavailable_stays_a_point(real_store):
+    """An unavailable resolved point stays a point: under a cutoff before K14's run is public, the answer is the point
+    result, unavailable with its reason; no comparison is made and no window aggregate stands in for it."""
+    fake = FakeModel(_k14_route("half-hour ending at 8:00 am AEST, 31 July 2026"), [[]],
+                     lambda kw: copy.deepcopy(DRAFT))
+    res = _live(K14["question"], fake, as_of_utc="2026-07-30T20:00:00Z")
+    context = next(i["content"] for i in fake.requests[1]["input"] if isinstance(i, dict)
+                   and str(i.get("content", "")).startswith("Investigation context"))
+    assert "forecast_targets_utc" not in context and "24 half-hours" not in context
+    (rr,) = res.report.results
+    r = rr.result
+    assert isinstance(r, ForecastResult) and r.identity.kind == "forecast_point" and r.status == "unavailable"
+    assert [x.reason for x in r.excluded] == ["run_not_public_by_cutoff"] and not r.pairs
+    assert [(a.kind, a.status) for a in res.report.answer] == [("forecast_point", "unavailable")]
+    assert "not provably public" in res.report.answer[0].statement
+    assert not [x for x in res.records if x.name == "compare_forecast_actual"]
+    assert res.report.forecast_comparison is None
+
+
+@pytest.mark.parametrize("cid", ["Y05", "W07"])
+def test_an_unavailable_point_in_replay_stays_a_point(cid, real_store):
+    """The same in Replay: a held-out point question under a cutoff before its run is public."""
+    case = _case(cid, REPLAY_POINTS[cid])
+    res = investigate(InvestigateRequest(question=case["question"], as_of_utc="2026-07-30T20:00:00Z"),
+                      write_trace=False)
+    assert fc.point_request(res.resolution) is not None
+    (rr,) = res.report.results
+    assert rr.result.identity.kind == "forecast_point" and rr.result.status == "unavailable"
+    assert [(a.kind, a.status) for a in res.report.answer] == [("forecast_point", "unavailable")]
+    wanted = res.resolution.requests.forecast_run.forecast_request()
+    span = (iso_utc(wanted.half_hour[0]), iso_utc(wanted.half_hour[1]))
+    assert all((x.args["target_start_utc"], x.args["target_end_utc"]) == span
+               for x in res.records if x.name == "compare_forecast_actual")
+    assert res.report.forecast_comparison is None
+
+
+def test_the_containment_is_general_not_k14s(real_store):
+    """SYNTHETIC questions: any named run with a time no role's words hold is sent back; a named run with no other
+    time is reviewed over its window (the run named, D27's default), as before."""
+    narrowed = ("Take the forecast run issued at 2026-07-30T18:56:59Z. How did its operational demand forecast for "
+                "Tasmania compare with the actuals between 18:00 and 21:00 AEST on 31 July 2026?")
+    res = investigate(InvestigateRequest(question=narrowed), write_trace=False)
+    assert res.resolution.reasons == [NAMED_RUN_HALF_HOUR_CLARIFICATION] and res.records == []
+    whole = ("How did the operational demand forecast run issued at 2026-07-30T18:56:59Z compare with actual "
+             "operational demand in Tasmania on 31 July 2026?")
+    res = investigate(InvestigateRequest(question=whole), write_trace=False)
+    assert res.resolution.status == "ok" and res.resolution.requests.forecast_run.status == "bound"
     r = res.report.results[0].result
-    assert (a.kind, a.status, a.verification) == ("forecast_aggregate", "partial", "verified")
-    assert isinstance(r, ForecastResult) and r.identity.run_selection == "run_id"
-    gold = case["expected"]["gold_run"]
-    assert r.identity.named_issued_at_utc == gold["issued_at_utc"] and {p.run_id for p in r.pairs} == {gold["run_id"]}
-    assert res.report.forecast_comparison.mae_mw == r.mae_mw
-    other_calls = {x.call_id for x in res.records
-                   if x.name == "compare_forecast_actual" and x.args["run_selector"] != "run_id"}
-    others = {ev.evidence_id for ev in res.registry.items.values() if ev.tool_call_id in other_calls}
-    assert others and not others & {o.evidence_id for o in res.report.observations}
-    assert not others & {c.evidence_id for c in res.report.numeric_claims}
-    assert not res.report.validation["fallback_applied"]
+    assert isinstance(r, ForecastResult) and r.identity.kind == "forecast_aggregate"
+    assert r.identity.run_selection == "run_id" and {p.run_id for p in r.pairs} == {K14_RUN["run_id"]}
 
 
 FC_CASES = {c["case_id"]: c for c in json.loads((ROOT / "eval/cases.json").read_text())["cases"]
@@ -681,7 +792,9 @@ def test_maxima_render_and_validate_exactly_as_saved(cid, real_store):
 
 
 def test_saved_records_with_results_still_validate_and_round_trip():
-    """C2: the report schema change is additive: every saved record carrying results validates and round-trips."""
+    """C2: every saved record carrying results (demand maxima only, before D27) still validates and round-trips. The
+    compatibility limits for other readers are below (``test_a_reader_of_demand_maxima_only_cannot_read_forecast_results``).
+    """
     n = 0
     for p in sorted(LIVE.glob("*/*.json")):
         rec = json.loads(p.read_text())
@@ -707,3 +820,100 @@ def test_prompts_v14_change_only_the_synthesis_forecast_bullet():
         "-- Forecast reviews: compare the context's `forecast_targets_utc` with compare_forecast_actual, and set",
         "-  `forecast_mae_evidence_id` to the evidence_id of the MAE you report (null for other questions)."]
     assert all("forecast" in x or "controller" in x or "compare_forecast_actual" in x for x in changed)
+
+
+# ------------------------------------------------------------------------------------------------ the API migration
+def _all_kinds(tmp_path: Path, selection: Any) -> tuple[Store, list[tuple[ReportedResult, Any]]]:
+    """SYNTHETIC: a forecast result of every kind and status, with its rendered answer."""
+    syn = Syn()
+    syn.run("QLD1", "P1", "2026-06-01T07:40:00Z", {e: 6000.0 + i for i, e in enumerate(_ends("2026-06-01T08:00:00Z", 3))},
+            available="2026-06-01T07:50:00Z")
+    syn.actual("QLD1", "2026-06-01T08:30:00Z", 6050.0)
+    syn.actual("QLD1", "2026-06-01T09:30:00Z", 6000.0)  # the half-hour ending 09:00 has no actual: a gap
+    store = syn.store(tmp_path / "store")
+    hh = (T("2026-06-01T08:00:00Z"), T("2026-06-01T08:30:00Z"))
+    out = []
+    for res in (_res("QLD1", point=ForecastRequest("last_issued_before", None, hh)),  # established
+                _res("QLD1", point=ForecastRequest("last_issued_before", None, (T("2026-06-01T07:00:00Z"),
+                                                                                T("2026-06-01T07:30:00Z")))),  # no run
+                _res("QLD1", window=("2026-06-01T08:00:00Z", "2026-06-01T08:30:00Z")),  # established
+                _res("QLD1", window=("2026-06-01T08:00:00Z", "2026-06-01T09:30:00Z")),  # partial
+                _res("QLD1", window=("2026-06-01T10:00:00Z", "2026-06-01T11:00:00Z"))):  # unavailable
+        d, _ = _primary(store, selection, res)
+        (reported,) = d.results.reported()
+        out.append((reported, render_result(reported, d.results, "QLD1", lambda e, d=d: f"{d.registry.get(e).value} MW")))
+    return store, out
+
+
+def test_every_result_type_is_identified_and_handled(tmp_path, selection, real_store):
+    """The API migration (D27). Two version fields, apart:
+    - the report's ``schema_version`` is its format: "2" when it carries a computed answer (``answer`` and ``results``),
+      else "1" (``report_format``, ``summary_v1``), unchanged by D27;
+    - each result's ``result.schema_version`` is its schema, the discriminator a reader parses by:
+      "analytical_result/1" (a demand maximum, D24) or "forecast_result/1" (D27).
+    ``result.identity.kind`` and the answer's ``kind`` name what it is: ``demand_maximum``, ``forecast_point`` or
+    ``forecast_aggregate``; the answer's ``status`` adds ``partial`` (an aggregate over the listed pairs only).
+    Every kind and status is identified, parsed by its own schema, re-verified, rendered and shown by the app's
+    consumers (``summary_v1``, ``result_provenance``)."""
+    from nem_agent.report import report_format, report_json_schema, summary_v1
+    from nem_agent.results import AnalyticalResult
+    from nem_agent.ui_data import result_provenance
+
+    store, made = _all_kinds(tmp_path, selection)
+    assert sorted((r.result.identity.kind, r.result.status) for r, _ in made) == [
+        ("forecast_aggregate", "established"), ("forecast_aggregate", "partial"), ("forecast_aggregate", "unavailable"),
+        ("forecast_point", "established"), ("forecast_point", "unavailable")]
+    saved = {cid: json.loads((E2E / f"{cid}.json").read_text())["report"] for cid in ("D02", "F07")}
+    results = saved["D02"]["results"] + saved["F07"]["results"] + [json.loads(r.model_dump_json()) for r, _ in made]
+    answers = saved["D02"]["answer"] + saved["F07"]["answer"] + [a.model_dump(mode="json") for _, a in made]
+    rep = json.loads(InvestigationReport.model_validate(saved["D02"] | {"results": results, "answer": answers})
+                     .model_dump_json())
+    assert report_format(rep) == "2"
+    assert summary_v1(rep)[:len(answers)] == [a["statement"] for a in answers]
+    assert {(a["kind"], a["status"]) for a in rep["answer"]} == {
+        ("demand_maximum", "established"), ("demand_maximum", "not_established"), *(
+            (r.result.identity.kind, r.result.status) for r, _ in made)}
+    model = {"analytical_result/1": AnalyticalResult, "forecast_result/1": ForecastResult}
+    for x in rep["results"]:
+        parsed = ReportedResult.model_validate(x).result
+        assert type(parsed) is model[x["result"]["schema_version"]]
+        own = store if isinstance(parsed, ForecastResult) else real_store
+        assert verify_loaded(x, store=own, selection=selection).outcome == "verified"
+    shown = result_provenance(rep)["computed_answer"]
+    assert all(f"{a['status'].replace('_', ' ')} ({a['verification']})" in shown for a in rep["answer"])
+    # the published JSON schema states both result schemas, every kind and every status
+    schema = report_json_schema()
+    found = []
+
+    def walk(o: Any) -> None:
+        if isinstance(o, dict):
+            if (o.get("discriminator") or {}).get("propertyName") == "schema_version":
+                found.append(set(o["discriminator"]["mapping"]))
+            for v in o.values():
+                walk(v)
+        elif isinstance(o, list):
+            for v in o:
+                walk(v)
+    walk(schema)
+    assert {"analytical_result/1", "forecast_result/1"} in found
+    answer_props = schema["$defs"]["RenderedResult"]["properties"]
+    assert set(answer_props["kind"]["enum"]) == {"demand_maximum", "forecast_point", "forecast_aggregate"}
+    assert set(answer_props["status"]["enum"]) == {"established", "not_established", "partial", "unavailable",
+                                                   "not_verified"}
+
+
+def test_a_reader_of_demand_maxima_only_cannot_read_forecast_results(tmp_path, selection):
+    """The compatibility limits, stated rather than called additive: a reader that dispatches on each result's
+    ``schema_version`` reads every report, and a format-1 reader keeps ``summary_v1``. A reader that assumes every
+    result is a demand maximum does not: the pre-D27 result model rejects every forecast result, and a maximum's own
+    fields (``identity.window_utc``, ``interval_ends_utc``) are not there (the frozen e2e kit fails so, D27)."""
+    from pydantic import ValidationError
+
+    from nem_agent.results import AnalyticalResult
+
+    _, made = _all_kinds(tmp_path, selection)
+    for r, _ in made:
+        obj = json.loads(r.result.model_dump_json())
+        with pytest.raises(ValidationError):
+            AnalyticalResult.model_validate(obj)
+        assert "interval_ends_utc" not in obj and obj["identity"]["kind"] != "demand_maximum"

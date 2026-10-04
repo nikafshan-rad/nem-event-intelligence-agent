@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import contextlib
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta, timezone, tzinfo
 from typing import Any, Literal
@@ -39,6 +40,7 @@ from .request import (
     _SUB_WINDOW_RE,
     AS_OF_Q_RE,
     HALF_HOUR_CLARIFICATION,
+    ISSUED_AT_RE,
     MAXIMUM_CLARIFICATION,
     MAXIMUM_EVENT_CLARIFICATION,
     MAXIMUM_WINDOW_CLARIFICATION,
@@ -757,10 +759,10 @@ def _grounded_rule(model: RoutedForecastRun | None, q: str) -> bool:
         bool(_FC_WORD_RE.search(q) or _RUN_ONLY_RE.search(text))
 
 
-def resolve_run(q: str, region: str | None, routed: RoutedRequest | None) -> RunRequest:
+def resolve_run(q: str, region: str | None, routed: RoutedRequest | None, held: Sequence[Span] = ()) -> RunRequest:
     """The forecast run a question asks for, from the question parser and the routing model's grounded reading. Every
     time is converted by code from the question's words (the model's quoted words included): no model timestamp is
-    read (D26)."""
+    read (D26). ``held``: other roles' located words (the cutoff's), which hold the times they contain."""
     out = RunRequest()
     model = routed.forecast_run if routed is not None else None
     if model is not None:
@@ -845,8 +847,24 @@ def resolve_run(q: str, region: str | None, routed: RoutedRequest | None) -> Run
     elif out.selection == "last_issued_before":
         out.status, out.missing = "unresolved", sorted(set(model_missing or ["half_hour"]))
         return out
+    elif _unheld_times(q, out, held):
+        # a run named by its issue time, with no half-hour read: a time the question names that no role's words hold
+        # (the issue time's, the cutoff's) may be the half-hour asked about, or narrow the window. The request is sent
+        # back: never compared over a window in its place (D27, as a maximum's window under D26)
+        out.status, out.missing = "unresolved", sorted(set(model_missing or ["half_hour"]))
+        return out
     out.status = "bound"
     return out
+
+
+def _unheld_times(q: str, run: RunRequest, held: Sequence[Span]) -> list[str]:
+    """The times in the question that neither the run's issue-time words (the routing model's located selection words,
+    or the question parser's own match) nor ``held`` hold (``unaccounted_times``)."""
+    own = [sp for sp in run.spans if sp.role == "run_selection"]
+    m = ISSUED_AT_RE.search(q)
+    if m is not None:  # the words the question parser reads the issue time from (a conflicting reading returned earlier)
+        own.append(Span("run_selection", m.group(0), ((m.start(), m.end()),), "question"))
+    return unaccounted_times(q, [*held, *own])
 
 
 _WHOLE_DAY_RE = re.compile(r"\b(?:whole|entire|full)\s+(?:of\s+)?(?:the\s+)?day\b|\bthe\s+whole\s+of\b|\ball\s+(?:of\s+)?"
@@ -1162,6 +1180,12 @@ START_OR_END_CLARIFICATION = (
 TIME_ZONE_CLARIFICATION = (
     "Which time zone is the half-hour given in (for example AEST, ACST, market time or UTC)? The question does not "
     "pin it down, so no half-hour is assumed.")
+# a run named by its issue time and a time the question names that cannot be read as its half-hour (D27): the field
+# only, with no time or quotation for the answer checks to read
+NAMED_RUN_HALF_HOUR_CLARIFICATION = (
+    "Which half-hour is the forecast asked about? The question names a forecast run and a time that cannot be read as "
+    "one half-hour, so nothing is compared: no other half-hour or window is reviewed in its place. Give the "
+    "half-hour's date with its year, its end time, and the time zone (for example AEST, market time or UTC).")
 ISSUE_TIME_CLARIFICATION = (
     "Which issue time names the forecast run asked for? Give it with its date and time zone. No run is chosen in its "
     "place.")
@@ -1192,7 +1216,8 @@ def clarifications(r: RequestResolution) -> list[str]:
         miss = set(fr.missing)
         out.append(RUN_RULE_CLARIFICATION if "run_rule" in miss else ISSUE_TIME_CLARIFICATION if "issue_time" in miss
                    else START_OR_END_CLARIFICATION if miss == {"start_or_end"}
-                   else TIME_ZONE_CLARIFICATION if miss == {"time_zone"} else HALF_HOUR_CLARIFICATION)
+                   else TIME_ZONE_CLARIFICATION if miss == {"time_zone"}
+                   else NAMED_RUN_HALF_HOUR_CLARIFICATION if fr.selection == "issued_at" else HALF_HOUR_CLARIFICATION)
     if mx.status == "conflict":
         out.append(f"The {_fields(mx.conflicts)} of the demand peak asked about can be read in two ways: the "
                    "question's wording and the routing model's reading disagree. Which is meant? Neither is chosen.")

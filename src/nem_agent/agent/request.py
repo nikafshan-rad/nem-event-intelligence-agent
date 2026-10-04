@@ -582,7 +582,7 @@ def resolve(req: InvestigateRequest, sel: Selection, routed: Any = None,
     data_intent = intent in ("market_event_review", "forecast_review")
     model_requests = routed.requested if routed is not None else None
     if data_intent:
-        requests.forecast_run = resolve_run(q, region, model_requests)
+        requests.forecast_run = resolve_run(q, region, model_requests, requests.cutoff.spans)
         clash = [(c, h) for c in requests.cutoff.spans if c.source == "route_model"
                  for h in requests.forecast_run.spans if h.role == "run_half_hour" and spans_overlap(c, h)]
         if clash and not req.as_of_utc:  # the same words read as the cutoff and as the target half-hour (a cutoff

@@ -155,10 +155,21 @@ fine-tuned**. In Live mode, gpt-5-mini is used unchanged through the OpenAI Resp
    with verbatim quotes, hedged hypotheses with tests, and missing evidence.
 
 Code, not the model, does everything else:
-- the **computed answer** to a demand-maximum question: computed from the pinned data, admitted only after it is
-  re-derived from the store, and rendered in the report's `answer` field with its limitations and source rows, apart
-  from the model's interpretation in `summary`. Such a report is marked `schema_version` "2"; every other report is
-  "1", where `summary` holds everything shown, as before. `report.summary_v1` reads both as format 1 (D25);
+- the **computed answer** to a demand-maximum question (D25) or to the forecast comparison a forecast review asks
+  for (D27): computed from the pinned data, admitted only after it is re-derived from the store, and rendered in the
+  report's `answer` field with its limitations and source rows, apart from the model's interpretation in `summary`.
+  - **Two version fields, apart.** The report's `schema_version` is its format: "2" when it carries a computed answer
+    (`answer`, `results`), else "1", where `summary` holds everything shown, as before; `report.summary_v1` reads both
+    as format 1. Each result's own `result.schema_version` is its schema, the field to dispatch on:
+    `analytical_result/1` (a demand maximum) or `forecast_result/1` (a forecast comparison, D27).
+  - **Kinds and statuses.** An answer's `kind` is `demand_maximum`, `forecast_point` (one half-hour's forecast/actual
+    pair) or `forecast_aggregate` (MAE and mean error over a listed set of pairs). Its `status` is `established`,
+    `not_established` (maxima), `partial` (an aggregate over the pairs it lists only), `unavailable` or
+    `not_verified`.
+  - **Compatibility limits.** Saved records still validate. A reader that dispatches on each result's
+    `schema_version`, or reads `summary_v1`, handles every report. A reader that assumes every result is a demand
+    maximum does not: the pre-D27 result model rejects a forecast result, whose fields differ. `forecast_comparison`
+    is now filled only from the controller's verified aggregate, never from the model's choice;
 - all arithmetic;
 - data access (no SQL, URLs or paths reach the model);
 - the as-of rules;
