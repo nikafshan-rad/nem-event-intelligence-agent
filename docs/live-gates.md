@@ -3853,3 +3853,43 @@ All nine came from completed, valid responses. There was no unnecessary clarific
 - the code and prompts.
 
 No fix has been started, no model is switched, and no further run has been made.
+
+## Results: end-to-end Live acceptance check of v13 request resolution (run once on `main`, 2026-10-04, under the frozen protocol of PR #72)
+
+**Verdict: FAIL.** The assessment uses the **disclosed post-run amended review kit**
+(`eval/livecheck_e2e_v13/AMENDMENT_1.md`), with **unchanged scoring criteria**. The verdict was computed by the
+unchanged frozen `score.py --review` from both reviews, under the stricter-reading rule.
+
+**This is development evidence on familiar questions,** each run once. It is not L3, and not evidence of
+generalisation. Historical verdicts are unchanged, including the maxima check's FAIL and the disputed R03/R04 findings.
+Live stays experimental. The full account, with every file, is in `artifacts/live/LC-e2e-v13-review/README.md`.
+
+**The run:**
+- **What ran:** 8 of 8 cases saved, on `main` `2f35c0f` (code `a648269`, prompts v13, gpt-5-mini).
+- **One interruption:** an environment restart during R02, which was rerun once under the frozen rule. Its first
+  attempt's cost stays counted.
+- **Spend:** USD 0.258916.
+- **Ledger:** USD 8.968449, 3,087 lines → **USD 9.227365**, 3,158 lines, `4250ef88a8ad3d35`.
+
+**The findings, kept apart:**
+1. **Computed results:** 5 of 5 correct verified results shown: D01, D02, F02, F06, and F07, which is not established
+   under its cutoff. Each matches gold exactly, and the bar was 5.
+2. **Interpretation and fallback:**
+   - two validated maxima interpretations (D02, F07);
+   - three facts-only fallbacks that preserve the correct computed result (D01, F02, F06), classified F. Each of their
+     drafts stated a wrong maximum, which the validator caught.
+   - **The controls held:** F07N and F08 were sent back as required, and R02 gave all four gold items.
+3. **The FAIL:** R02 says "The run/actual pair for the review yields a mean absolute error (MAE) of 149.81 MW". That
+   MAE is over 21 half-hour pairs, not the requested single pair, whose error is 27 MW. Both reviewers read it as H4
+   (the I-20 pattern), so it fails criterion 1.
+4. **Disputed separately:**
+   - the independent reviewer also counted R02's "one market notice is held" as untraceable, giving H4 = 2 under the
+     stricter reading;
+   - the report's `search_scope` records it, but the review packet does not carry `search_scope`;
+   - the developer disagrees on this count only, and the verdict does not depend on it.
+5. **A metadata finding, not a safety violation:** two net-interchange evidence items (D01 `ev0723`, F06 `ev0438`)
+   carry no item-level publication or availability times, though their pinned source rows do. That is why the frozen
+   kit refused, and why the owner approved the amendment.
+
+**Unchanged:** the frozen kit, every frozen hash, the application code and prompts, v1.0 (`f14db6d`), and every
+historical verdict. No fix, rerun or further evaluation has been made.
