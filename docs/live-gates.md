@@ -1,5 +1,27 @@
 # Live (OpenAI) path: gates L0–L6
 
+> **Current status (v2.0.0, 2026-10-04): Live is experimental.** This release does not certify Live reliability.
+> It is not an L3 result, and it is not evidence of generalisation.
+> - **L3: not passed.**
+>   - v4 met its own criteria on v1.0 code, but its full L3 rule is unverified.
+>   - Held-out v5 and v6 failed.
+>   - No L3 evaluation has run on later code.
+> - **Targeted checks after v6** (2026-10-02 to 2026-10-04; development evidence, each run once):
+>   - I-15–I-17: FAIL;
+>   - v12 routing extraction: FAIL;
+>   - gpt-5-mini against gpt-6.1-sol: does not support a switch;
+>   - demand-maxima acceptance: FAIL;
+>   - v13 routing-only: PASS, on what it accepts only (routing on a development sample);
+>   - v13 end to end: FAIL;
+>   - v15 routing diagnostic: FAIL (combined, as frozen).
+>
+>   Each verdict stands as recorded in its own section below.
+> - **This release's code** has had one Live check: the v15 routing diagnostic (routing only; supply 3/20, containment
+>   12/12). No end-to-end Live run has used route contract v15.
+> - **Summary and known limitations:** `RELEASE_NOTES.md`, v2.0.0.
+>
+> The v1.0 status note below is kept as it was last updated.
+
 > **Current status (v1.0, 2026-09-28): Live is experimental.**
 > - **Held-out v4** (20 independent cases, frozen, run once): Live met every pre-registered v4 criterion, narrowly.
 >   Gold labels 15/18 (bar 15); relevance 17/20 (bar 16, counting two answers with gaps).
