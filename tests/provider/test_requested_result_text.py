@@ -279,6 +279,9 @@ def _k07(*, extra: list[str] | None = None, faithful: bool = False, m0: str | No
                                                                         "half-hour starting 2026-08-06 17:00 AEST")
             d["missing_evidence"][1] = d["missing_evidence"][1].replace(
                 "half-hour ending 2026-08-06 17:00 AEST (2026-08-06T07:00:00Z)", "half-hour 2026-08-06 17:00–17:30 AEST")
+            # D27: the pair count of a 12-hour comparison under another run policy (the run asked for is not public
+            # by the cutoff) is a comparison the question did not ask for, so the faithful variant does not list it
+            d["observation_evidence_ids"] = [e for e in d["observation_evidence_ids"] if e != "ev0663"]
         if m0 is not None:
             d["missing_evidence"][0] = m0
         for line in extra or []:
@@ -292,7 +295,10 @@ def _k07(*, extra: list[str] | None = None, faithful: bool = False, m0: str | No
 
 def test_1_k07s_saved_draft_is_rejected_at_exactly_its_four_items_and_falls_back():
     res, fake = _replay("K07")
-    first = _first(res)
+    scope = [(c, d) for c, d in _first(res) if c == "FORECAST_SCOPE_NOT_PRIMARY"]
+    first = [(c, d) for c, d in _first(res) if c != "FORECAST_SCOPE_NOT_PRIMARY"]
+    # D27: also the 12-hour comparison's pair count it lists, a comparison the question did not ask for
+    assert [d.split(":")[0] for _, d in scope] == ["observation ev0663"]
     assert _items(first) == ["missing_evidence[0]", "missing_evidence[1]", "summary[1]", "uncertainties[1]"]
     assert all(c == "REQUESTED_INTERVAL_MISNAMED" for c, _ in first)
     assert all("ending 2026-08-06 17:00 AEST, but it is the half-hour from 2026-08-06T07:00:00Z to "

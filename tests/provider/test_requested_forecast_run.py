@@ -467,7 +467,12 @@ def test_a_mixed_run_answer_is_rejected():
     res, _ = _run(_base() + ONE_HALF_HOUR,
                   lambda outs: (_vals(_pair(outs, BOUND), "poe50") + _vals(_pair(outs, OTHER), "poe10", "poe90"), None))
     assert "FORECAST_RUN_SUBSTITUTED" in _codes(res) and res.report.validation["fallback_applied"]
-    assert {o.metric for o in res.report.observations} == {"opdemand_forecast_poe50"}  # only the bound run's value
+    # only the bound run's values: its POE50 and (D27) the computed answer's own comparison of it with the actual
+    obs = res.report.observations
+    assert not any(OTHER in r for o in obs for r in o.source_row_ids)
+    assert {o.metric for o in obs} <= {"opdemand_forecast_poe50", "opdemand_actual", "forecast_error_mw",
+                                       "forecast_error_pct"}
+    assert all(BOUND in r for o in obs if o.metric.startswith("opdemand_forecast") for r in o.source_row_ids)
 
 
 def test_all_three_values_of_the_run_asked_for_pass():
@@ -505,10 +510,16 @@ def test_a_one_half_hour_error_from_another_run_is_rejected():
     assert not any(o.metric == "mae_mw" for o in res.report.observations)  # not shown in the fallback
 
 
-def test_a_window_comparison_using_another_run_for_the_half_hour_is_rejected():
+def test_a_window_comparison_using_another_run_for_the_half_hour_is_not_shown():
+    """D27: a point request's answer is the controller's comparison of the run asked for, and ``forecast_comparison`` is
+    never built from the MAE the model names. The model's window comparison, which uses another run for the half-hour,
+    is therefore not shown at all (before D27 it was shown as the comparison and rejected, FORECAST_RUN_SUBSTITUTED)."""
     calls = _base() + [("compare_forecast_actual", {**WINDOW, "run_selector": "latest_before_target"})]
     res, _ = _run(calls, lambda outs: (_vals(_pair(outs, BOUND), "poe50"), outs[0]["mae_mw"]["evidence_id"]))
-    assert "FORECAST_RUN_SUBSTITUTED" in _codes(res) and res.report.forecast_comparison is None
+    window = next(r for r in res.records if r.name == "compare_forecast_actual" and r.origin == "model")
+    assert res.report.forecast_comparison is None
+    assert not any(o.evidence_id == window.view["mae_mw"]["evidence_id"] for o in res.report.observations)
+    assert res.report.answer and res.report.answer[0].kind == "forecast_point"
 
 
 @pytest.mark.parametrize("calls_extra,what", [
@@ -519,12 +530,18 @@ def test_window_figures_of_the_run_asked_for_or_of_other_half_hours_pass(calls_e
     res, _ = _run(_base() + calls_extra, lambda outs: (_vals(_pair(outs, BOUND), "poe50"),
                                                        outs[0]["mae_mw"]["evidence_id"]))
     assert not _codes(res), what
-    assert res.report.forecast_comparison is not None and res.report.validation["final_passed"]
+    # D27: the answer is the controller's comparison of the half-hour asked about; the window figures the model names
+    # are not shown as the comparison (before D27 they were, as forecast_comparison)
+    assert res.report.forecast_comparison is None and res.report.validation["final_passed"]
+    assert res.report.answer and res.report.answer[0].kind == "forecast_point"
 
 
 def test_y05s_fallback_no_longer_shows_the_window_error_of_the_other_run():
     res, _, _ = _replay("Y05")
-    assert {o.metric for o in res.report.observations} == {"opdemand_actual"}
+    obs, prim = res.report.observations, res.resolution.forecast_primary
+    # no window error: only the actual and (D27) the computed answer's own comparison of the run asked for
+    assert not any(o.metric in ("mae_mw", "mean_error_mw") for o in obs)
+    assert all(o.metric == "opdemand_actual" or o.evidence_id in prim["evidence_ids"] for o in obs)
 
 
 # -- 4. the comparison tool's call budget used up by the model

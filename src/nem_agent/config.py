@@ -15,7 +15,7 @@ MAX_RETRIEVED_CHARS = 12_000        # total characters of retrieved text passed 
 MAX_OPTIONAL_DIAGNOSTICS = 2        # optional tool calls allowed on top of the intent playbook
 MAX_MODEL_CALLS = 8                 # live path: model round trips per question
 MAX_REPAIR_ATTEMPTS = 1
-PROMPT_VERSION = "prompts/v13"      # directory under src/nem_agent/ read by the live controller
+PROMPT_VERSION = "prompts/v14"      # directory under src/nem_agent/ read by the live controller
 
 # Live-model prices in USD per 1M tokens (input, output), so budgets are always enforceable. Source: OpenAI API
 # pricing page (developers.openai.com/api/docs/pricing), standard tier, read 2026-09-25 and re-checked 2026-09-28.

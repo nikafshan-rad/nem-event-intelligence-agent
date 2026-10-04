@@ -492,20 +492,28 @@ def compare_forecast_actual(ctx: ToolContext, a: A.CompareArgs) -> ToolOutput:
         return max(cands, key=lambda r: r["published_at_utc"]) if cands else None
     all_actuals = _pick_actuals(arows, a.actual_revision, None)[0] if as_of is not None else actuals
     pairs, missing = [], []
+    # every target without a pair, with its reason, in full (``missing`` is truncated for the model): the typed
+    # comparison results list them (D27); not shown to the model
+    excluded: list[dict[str, str]] = []
     cut_by_as_of = 0  # targets left without a pair only by the cutoff: one would exist without it (I-20 coverage)
     margin = timedelta(minutes=int(ctx.selection.availability["margin_minutes"]))
     for t in targets:
         f = select(frows, t)
         act = actuals.get(t)
-        if (f is None or act is None) and as_of is not None and select(frows_all, t) is not None \
-                and all_actuals.get(t) is not None:
+        cut = (f is None or act is None) and as_of is not None and select(frows_all, t) is not None \
+            and all_actuals.get(t) is not None
+        if cut:
             cut_by_as_of += 1
         if f is None:
             missing.append(f"{_ts(t)}: no forecast run satisfying selector '{a.run_selector}' (availability margin {margin})")
+            excluded.append({"target_end_utc": _ts(t), "reason": "not_public_by_cutoff" if cut else
+                             "no_forecast_for_selection", "detail": missing[-1]})
             continue
         if act is None:
             missing.append(f"{_ts(t)}: no actual ({a.actual_revision}) " +
                            ("provably public by as_of" if as_of else "in snapshot"))
+            excluded.append({"target_end_utc": _ts(t), "reason": "not_public_by_cutoff" if cut else "no_actual",
+                             "detail": missing[-1]})
             continue
         f_id = _register_forecast(ctx, a.region, f, "poe50_mw")
         act_ev = ctx.registry.add(
@@ -547,7 +555,7 @@ def compare_forecast_actual(ctx: ToolContext, a: A.CompareArgs) -> ToolOutput:
         })
     if not pairs:
         return ToolOutput("unavailable", {"reason": "no aligned forecast/actual pairs", "details": missing[:10]},
-                          missing=missing[:20])
+                          data={"pairs": [], "excluded": excluded}, missing=missing[:20])
     errs = [p["error_mw"] for p in pairs]
     mae = statistics.fmean(abs(e) for e in errs)
     bias = statistics.fmean(errs)
@@ -586,7 +594,7 @@ def compare_forecast_actual(ctx: ToolContext, a: A.CompareArgs) -> ToolOutput:
                                                      "error_pct", "error_pct_evidence_id", "poe50_mw", "actual_mw", "run_id")},
         "pairs": pairs[:48],
     }
-    return ToolOutput("ok", view, data={"pairs": pairs}, missing=missing[:20],
+    return ToolOutput("ok", view, data={"pairs": pairs, "excluded": excluded}, missing=missing[:20],
                       source_row_ids=[p["poe50_evidence_id"] for p in pairs])
 
 

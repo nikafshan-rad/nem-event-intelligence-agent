@@ -41,11 +41,12 @@ from ..report import (
     SearchScope,
     Versions,
 )
+from ..results import ForecastResult
 from ..timeutil import half_hour_end_for, iso_utc, local_str, parse_iso
 from ..tools import openai_function_tools
 from ..tools.args import strict_json_schema
 from ..tools.impl import NOTICE_TIME_RE
-from . import demand_max, diagnostics
+from . import demand_max, diagnostics, forecast_compare
 from .dispatcher import Dispatcher
 from .playbook import PLAYBOOKS
 from .replay import forecast_focus
@@ -813,8 +814,7 @@ def _replayable(item: dict[str, Any]) -> dict[str, Any] | None:
 COST_BASIS = "ledger accounting at the configured list prices (cached input at the cached rate); not the billed amount"
 # two runs the question's rule cannot tell apart: the same latest issue time before the half-hour, or two equally near a
 # named issue time (I-16). Neither is chosen.
-TIED_RUNS = ("Two forecast runs fit the run the question asks for equally (the same issue time, or equally near the "
-             "time named), so it cannot be told which one is meant")
+TIED_RUNS = forecast_compare.TIED_RUNS
 
 
 class LiveController:
@@ -931,7 +931,10 @@ class LiveController:
             requested_forecast(res.request.question)
         if wanted is not None and res.region and self.d is not None:
             context["requested_forecast_run"] = self._requested_run(res, wanted)
-        if res.window and res.region and res.intent in ("forecast_review", "market_event_review"):
+        # D27: one requested half-hour is compared by the controller (the computed answer), so no window of half-hours
+        # is offered to compare in its place; decided from the resolved request, never from whether its run was found
+        point = forecast_compare.point_request(res)
+        if res.window and res.region and res.intent in ("forecast_review", "market_event_review") and point is None:
             lo, hi = forecast_focus(res)  # the same forecast-review scope the replay controller uses
             context["forecast_targets_utc"] = [iso_utc(lo), iso_utc(hi)]
             context["forecast_targets_local"] = [local_str(lo, res.region), local_str(hi, res.region)]
@@ -978,7 +981,7 @@ class LiveController:
             if change is not None:
                 items.append({"role": "user", "content": "Change computed by the controller (JSON):\n" +
                               json.dumps(change, indent=1, ensure_ascii=False)})
-            compared = self._requested_comparison(res, allowed, trace)
+            compared = self._forecast_primary(res, allowed, trace)
             if compared is not None:
                 items.append({"role": "user", "content": "Requested forecast run, compared by the controller (JSON):\n" +
                               json.dumps(compared, indent=1, ensure_ascii=False)})
@@ -1006,7 +1009,8 @@ class LiveController:
 
         first = validate(report, self.reg, as_of=res.as_of, window=res.window, records=self.d.records,
                          forecast_run=res.forecast_run, demand_max=res.demand_max,
-                         required_tools=pb.required, event_kind=res.kind, not_admitted=res.results_not_admitted)
+                         required_tools=pb.required, event_kind=res.kind, not_admitted=res.results_not_admitted,
+                         forecast_primary=res.forecast_primary)
         if first.critical and self.usage.model_calls < config.MAX_MODEL_CALLS:
             # scoped when every violation names a draft item: the model may change only those items
             targets, unmapped = (repair_targets(first, mrep, self._summary_origin) if isinstance(mrep, ModelReport)
@@ -1063,16 +1067,9 @@ class LiveController:
         else:
             # chosen by issue time, never by availability; under an as-of cutoff given with the request, a run not
             # public by then cannot be supplied: no older run stands in for it, and nothing about it is named
-            rows = self.d.store.query(
-                "SELECT run_id, MIN(issued_at_utc) AS issued_at_utc, MIN(published_at_utc) AS published_at_utc, "
-                "MAX(available_at_utc) AS available_at_utc FROM opdemand_forecast WHERE region=? AND target_end_utc=? "
-                "AND issued_at_utc < ? GROUP BY run_id ORDER BY issued_at_utc DESC LIMIT 2", [res.region, hh[1], hh[0]])
-            best = rows[0] if rows else None
-            out = {}
-            if len(rows) > 1 and rows[1]["issued_at_utc"] == rows[0]["issued_at_utc"]:  # not one run: none is chosen
-                best, out["unavailable"] = None, TIED_RUNS
-            if best is not None and res.as_of is not None and best["available_at_utc"] > res.as_of:
-                best = None
+            sel = forecast_compare.select_run(self.d.store, res.region, wanted, res.as_of)  # shared with the verifier
+            best = sel["best"]
+            out = {"unavailable": TIED_RUNS} if sel["tied"] else {}  # not one run: none is chosen
             out |= {"rule": "the last run issued before the half-hour starts (by issue time, not availability)",
                     "issued_at_utc": iso_utc(best["issued_at_utc"]) if best else None,
                     "published_at_utc": iso_utc(best["published_at_utc"]) if best else None,
@@ -1099,22 +1096,32 @@ class LiveController:
             "run.")
         return out
 
-    def _requested_comparison(self, res: Resolution, allowed: list[str], trace: Any) -> dict[str, Any] | None:
-        """The run the question asks for, compared with the actual for its half-hour by the controller after the tool
-        loop, so its values and evidence IDs are there to cite whatever run the model compared (I-9)."""
-        run = res.forecast_run
-        if self.d is None or not run or not run.get("run_id") or "compare_forecast_actual" not in allowed:
+    def _forecast_primary(self, res: Resolution, allowed: list[str], trace: Any) -> dict[str, Any] | None:
+        """The comparison the request asks for (D27), computed by the controller after the tool loop, verified and
+        recorded on the resolution: the point a bound run and half-hour name, or a forecast review's aggregate over its
+        focus window. It is the computed answer (``answer``); no other comparison is typed or rendered. For a point, the
+        run and its comparison are given to the model to cite, as before (I-9), but only when the verifier admitted
+        them; no message is added for an aggregate."""
+        if self.d is None or not res.region or forecast_compare.TOOL not in allowed:
             return None
-        hh = run["half_hour_utc"]
-        assert isinstance(hh, list) and res.region is not None
-        rec = self.d.call("compare_forecast_actual", {
-            "region": res.region, "target_start_utc": hh[0], "target_end_utc": hh[1], "run_selector": "run_id",
-            "run_id": run["run_id"], "as_of_utc": iso_utc(res.as_of) if res.as_of else None},
-            call_id="controller_requested_run", origin="controller")
-        trace.add("model", "requested_forecast_run", run_id=run["run_id"], status=rec.status)
-        pair = (rec.view.get("pairs") or [None])[0] if rec.status == "ok" else None
-        return {"run_id": run["run_id"], "issued_at_utc": run.get("issued_at_utc"), "half_hour_utc": hh,
-                "comparison": pair or {"status": rec.status, "reason": rec.blocked_reason or rec.missing[:3]},
+        point = forecast_compare.point_request(res)
+        if point is None:
+            if forecast_compare.window_review(res):
+                forecast_compare.submit(self.d, res, forecast_compare.compute(
+                    self.d, forecast_compare.window_identity(res, self.d.store.data_version)))
+            return None
+        r = forecast_compare.compute(self.d, forecast_compare.point_identity(res, point, self.d.store.data_version))
+        scope = forecast_compare.submit(self.d, res, r)
+        run = res.forecast_run
+        if not run or not run.get("run_id"):
+            return None
+        rec = next((x for x in self.d.records if x.call_id == forecast_compare.POINT_CALL_ID), None)
+        trace.add("model", "requested_forecast_run", run_id=run["run_id"], status=rec.status if rec else r.status)
+        pair = (rec.view.get("pairs") or [None])[0] if rec is not None and rec.status == "ok" and scope["admitted"] \
+            else None
+        return {"run_id": run["run_id"], "issued_at_utc": run.get("issued_at_utc"), "half_hour_utc": run["half_hour_utc"],
+                "comparison": pair or {"status": r.status if scope["admitted"] else "not verified",
+                                       "reason": r.reason or forecast_compare.NOT_VERIFIED.format("not admitted")},
                 "note": "For this half-hour, cite these evidence IDs (this run and the actual) and no other run's."}
 
     def _run_issued_at(self, region: str, issued: datetime, as_of: datetime | None = None) -> dict[str, Any]:
@@ -1124,15 +1131,8 @@ class LiveController:
         other run is chosen instead (I-9 review). Two runs equally near that time cannot be told apart: neither is
         chosen (I-16)."""
         assert self.d is not None
-        rows = self.d.store.query(
-            "SELECT run_id, MIN(issued_at_utc) AS issued_at_utc, MAX(available_at_utc) AS available_at_utc FROM "
-            "opdemand_forecast WHERE region=? AND issued_at_utc BETWEEN ? AND ? GROUP BY run_id",
-            [region, issued - timedelta(minutes=10), issued + timedelta(minutes=10)])
-        best = min(rows, key=lambda r: abs(r["issued_at_utc"] - issued)) if rows else None
-        tied = best is not None and sum(abs(r["issued_at_utc"] - issued) == abs(best["issued_at_utc"] - issued)
-                                        for r in rows) > 1
-        if tied or (best is not None and as_of is not None and best["available_at_utc"] > as_of):
-            best = None
+        sel = forecast_compare.select_run(self.d.store, region, ForecastRequest("issued_at", issued, None), as_of)
+        best, tied = sel["best"], sel["tied"]  # the lookup shared with the verifier (D27)
         return {"issued_at_utc_asked": iso_utc(issued), **({"unavailable": TIED_RUNS} if tied else {}),
                 "issued_at_utc": iso_utc(best["issued_at_utc"]) if best else None,
                 "run_id": best["run_id"] if best else None,
@@ -1439,16 +1439,19 @@ class LiveController:
         """The computed answer (D25): each computed maximum rendered from the investigation's verified-result registry
         (``render.render_result``), never from the binding, with a claim and an observation for each value it states,
         and each answer's own claims (one list per result, in order)."""
-        if not res.demand_max or not res.region or self.d is None:
+        if not (res.demand_max or res.forecast_primary) or not res.region or self.d is None:
             return None
         claims: list[NumericClaim] = []
         obs: list[Observation] = []
+        prefix = "controller_max_"
 
         def num(eid: str) -> str:
             ev = self.reg.get(eid)
             assert ev is not None and ev.value is not None and ev.valid_at_utc is not None
-            claims.append(NumericClaim(claim_id=f"controller_max_{eid}", text=ev.label or ev.metric, value=ev.value,
+            claims.append(NumericClaim(claim_id=f"{prefix}{eid}", text=ev.label or ev.metric, value=ev.value,
                                        unit=ev.unit, evidence_id=eid, rounding=0.005))
+            if not ev.source_row_ids:  # an aggregate's own value (D27: MAE, mean error, pair count): a claim only
+                return f"{ev.value:.4f}".rstrip("0").rstrip(".") + f" {ev.unit}"
             obs.append(Observation(metric=ev.metric, value=float(ev.value), unit=ev.unit, valid_at_utc=ev.valid_at_utc,
                                    valid_at_local=local_str(parse_iso(ev.valid_at_utc), res.region or ""),
                                    interval_minutes=ev.interval_minutes, evidence_id=eid,
@@ -1459,6 +1462,7 @@ class LiveController:
         own: list[list[NumericClaim]] = []
         for reported in self.d.results.reported():
             k = len(claims)
+            prefix = "controller_fc_" if isinstance(reported.result, ForecastResult) else "controller_max_"
             answers.append(render_result(reported, self.d.results, res.region, num))
             own.append(claims[k:])
         return answers, claims, obs, own
@@ -1698,11 +1702,16 @@ class LiveController:
                                      as_of_utc=filt.get("as_of_utc"), document_types=filt.get("doc_types"),
                                      results=int(v.get("n_results") or 0), market_notices=mn))
         fcomp = None
-        if m is not None and m.forecast_mae_evidence_id:
-            fcomp = _forecast_comparison(recs, m.forecast_mae_evidence_id)
-            if fcomp is None:
-                missing.append(f"model referenced forecast MAE evidence {m.forecast_mae_evidence_id}, which no "
-                               "compare_forecast_actual call returned")
+        named = m.forecast_mae_evidence_id if m is not None else None
+        if named and _forecast_comparison(recs, named) is None:
+            missing.append(f"model referenced forecast MAE evidence {named}, which no compare_forecast_actual call "
+                           "returned")
+        prim = res.forecast_primary
+        if prim is not None:  # D27: from the admitted aggregate the request asks for, never from the model's choice
+            if prim["admitted"] and prim["mae_evidence_id"]:
+                fcomp = _forecast_comparison(recs, prim["mae_evidence_id"])
+        elif named:
+            fcomp = _forecast_comparison(recs, named)
         ew = None
         if res.window and res.region:
             ew = EventWindow(start_utc=iso_utc(res.window[0]), end_utc=iso_utc(res.window[1]),

@@ -236,11 +236,17 @@ def test_a_fallback_is_labelled_and_never_counted_as_supplied(monkeypatch, tmp_p
     assert d["usability"]["D01"] == "F" and d["overrides"] and not d["criteria"]["5_fallback_classification"]["violations"]
 
 
-def test_a_regression_control_exports_format_1(monkeypatch, tmp_path, real_store, store_sel):
+def test_a_regression_control_exports_its_requested_point_as_format_2(monkeypatch, tmp_path, real_store, store_sel):
+    """D27 changed this outcome (it exported format 1, no computed answer, when the check ran; its frozen record is
+    unchanged): K07 asks about one run and half-hour, so the controller's comparison of them is its computed answer,
+    unavailable because the run is not provably public by the cutoff."""
     _, rec, _ = _export(monkeypatch, tmp_path, "R03", "K07")
     rep = rec["report"]
-    assert (rep["schema_version"], rep["answer"], rep["results"]) == ("1", [], [])
-    assert EXPORT.format_problems(rec) == [] and rec["display"]["summary_v1"] == rep["summary"]
+    assert rep["schema_version"] == "2" and [(a["kind"], a["status"]) for a in rep["answer"]] == [
+        ("forecast_point", "unavailable")]
+    assert [r["result"]["schema_version"] for r in rep["results"]] == ["forecast_result/1"]
+    assert EXPORT.format_problems(rec) == []
+    assert rec["display"]["summary_v1"] == [rep["answer"][0]["statement"], *rep["summary"]]  # read as format 1 (D25)
 
 
 def test_replay_mode_exports_the_cutoff_case_as_not_established(monkeypatch, tmp_path, real_store, store_sel):

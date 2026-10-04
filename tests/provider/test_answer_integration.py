@@ -211,7 +211,7 @@ def test_presentation_keeps_the_computed_answer_and_the_interpretation_status_ap
     normal = _replay("MC-dev-e2e-mini", "K11").report.model_dump()
     fallback = _replay("MC-dev-e2e-mini", "K09").report.model_dump()
     absent = _replay("MC-dev-e2e-mini", "K11", lambda d: {"status": "answered"}, no_repair=True).report.model_dump()
-    no_answer = _replay("MC-dev-e2e-mini", "K07").report.model_dump()
+    no_answer = _replay("live-check-p1-dev", "W18").report.model_dump()  # D27: K07 now has a computed answer
     replay = investigate(InvestigateRequest(question=_rec("L3-holdout-v6", "Z04")["question"], mode="replay"),
                          write_trace=False).report.model_dump()
     p = {k: result_provenance(r) for k, r in [("normal", normal), ("fallback", fallback), ("absent", absent),
@@ -267,7 +267,9 @@ def test_the_format_is_machine_detectable_and_the_primary_answer_obtainable_in_e
     for rep in (normal, fallback, replay):
         assert rep.schema_version == "2" and report_format(rep) == "2" and report_format(rep.model_dump()) == "2"
         assert rep.answer and rep.answer[0].statement not in rep.summary
-    for rep in (_replay("MC-dev-e2e-mini", "K07").report, _replay("live-check-p1-dev", "W18").report):
+    k07 = _replay("MC-dev-e2e-mini", "K07").report  # D27: a point request has the controller's comparison
+    assert k07.schema_version == "2" and [a.kind for a in k07.answer] == ["forecast_point"]
+    for rep in (_replay("live-check-p1-dev", "W18").report,):
         assert rep.schema_version == "1" and rep.answer == [] and summary_v1(rep) == rep.summary
     # a saved record (pre-D25, written by an exporter that keeps no format marker) is format 1
     saved = _rec("MC-dev-e2e-mini", "K11")

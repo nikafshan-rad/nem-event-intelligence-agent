@@ -385,7 +385,9 @@ def test_unknown_forecast_evidence_is_reported_not_invented(ev):
     fake = FakeModel(_route(ev, "forecast_review"), [_forecast_turn(ev)], report)
     res = investigate(InvestigateRequest(question="Did AEMO's demand forecast miss in SA1 on 2026-07-31?", mode="live"),
                       live_client=fake, write_trace=False)
-    assert res.report.forecast_comparison is None
+    # D27: the comparison shown is the controller's own (the review's aggregate primary), never the model's reference
+    shown = res.report.forecast_comparison
+    assert shown is None or shown.mae_evidence_id == res.resolution.forecast_primary["mae_evidence_id"] != "ev9999"
     assert "The forecast-versus-actual summary is not shown: the answer referred to a comparison that was not " \
         "returned." in res.report.missing_evidence  # since I-4 in plain words; the controller's line is kept
     assert any("ev9999" in r["original"] for r in res.report.validation["display_rewrites"])

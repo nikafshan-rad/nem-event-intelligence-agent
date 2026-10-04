@@ -991,3 +991,25 @@ Acceptance check recorded before implementation. One bounded offline PR; demand 
 - **Not claimed:**
   - that typed results make the free-text interpretation correct;
   - that the synthetic controls show generalisation.
+- **Amendment during implementation** (2026-10-04, written after the code; disclosed; the recorded text above is
+  unchanged):
+  - **A2 cannot be met as recorded.** Root cause 5 missed that Replay's question parser does not read K14's
+    half-hour ("ending at 8:00 am AEST, 31 July 2026": a clock with "am"). In Live, the routing model's quoted words
+    give it (D26). In Replay, K14's resolved request names the run by its issue time without a half-hour, so by this
+    decision's own rule it is a window review of that run (`run_id`). Binding the half-hour would change request
+    resolution (the question parser, which Live also reads). That is outside this migration and is not done.
+  - **A2 as tested instead:** the eight saved questions Replay resolves as one run and half-hour (held-out H05, V07,
+    V08, W07, W08, Y05, Y06, Z05). Each gets the point result of that run and half-hour, verified and equal to its
+    frozen gold (POE50, actual, forecast row). The requested run is recorded, every comparison covers the half-hour
+    only, and no aggregate is stated or shown.
+  - **K14 in Replay, a stated limitation:** the named run's aggregate over the 12-hour focus window, `partial` (17 of
+    24 half-hours paired; the run was issued after the window began), rendered as such. Nothing under another run
+    selection is stated; before, Replay's headline gave a 24-half-hour MAE under `latest_before_target`. The point
+    K14 asks about is not computed in Replay.
+  - **Two wordings of the controller's own statements corrected** (found by these controls; neither check changed):
+    - "(within 10 minutes)" was an untracked number (I-7);
+    - "one named run for every half-hour" claimed completeness for a partial window (I-20).
+  - **One validator input added:** the primary's target half-hour or window counts as an instant the request
+    produced, for the narrative-time check, as the request's window already does. An unavailable point may then state
+    its own half-hour when no tool returned it (a run not public by the cutoff is never compared). No other time is
+    admitted.
