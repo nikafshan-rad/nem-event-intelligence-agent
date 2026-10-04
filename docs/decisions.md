@@ -1404,3 +1404,85 @@ Acceptance check recorded before implementation. One bounded offline PR; demand 
       stated reason for sending back D05's 2 incorrect readings, which are counted as errors caught by code.
     - Results are in `docs/live-gates.md` and `artifacts/live/LC-route-v15-score/REPORT.md`. These are counts, not
       rates, and no rule was changed.
+
+## D30. Clause association in Live request resolution: proposed, paused (2026-10-04)
+- **Status: paused, not implemented.** The owner paused it on 2026-10-04 in favour of the direction in D31. No code,
+  prompt, contract or test was changed for it.
+- **What was proposed,** offline only, on a scratch prototype outside the repository:
+  - **R1:** replace D29's rule that the operation's and scope's quoted words must lie inside the model's requested
+    clause. Instead, they belong to the requested forecast unless they overlap another request's words, quoted
+    background or a declined request.
+  - **R2:** accept a Live operational-demand reading only when the question parser's existing demand evidence appears
+    outside quoted background and declined requests.
+- **Offline replay of the 34 saved v15 routing decisions,** with the frozen scorer (counts, not rates):
+  - **R1 and R2 together:**
+    - 7 of the 8 correct readings rejected by clause containment become usable. 5 score correct; D01 ×2 resolve
+      correctly but are flagged by the frozen GOLD's clause anchor.
+    - N07 is still sent back, by "noon".
+    - N03 ×2 and D08 are sent back as "which forecast".
+    - Supply moves from 3/20 to 10/20; containment stays 12/12.
+  - **R1 alone** accepts N03's two misreadings.
+  - **No other saved decision changes** (437 decisions), and no saved question changes in Replay (228 questions).
+- **Why it is paused:** both rules are further resolver heuristics, and R2 is a vocabulary condition. D31 changes the
+  approach instead. R2 is kept only as a candidate to measure in D31's evaluation.
+- **For any later implementation:** the v15 freeze pins `tests/provider/test_forecast_domain.py` by hash, and five of
+  its tests encode D29's rules.
+
+## D31. Direction for the next version: a one-call typed request plan and a deterministic compiler (2026-10-04)
+- **Status: direction only.** Nothing is implemented. No prompt, contract, evaluation protocol or paid run has been
+  prepared. The owner decisions listed below are open. v2.0.0 ships the D26–D29 resolver unchanged.
+- **The evidence** (counts from small samples, not rates):
+  - **v15 routing diagnostic (34 calls):** the model's errors were concentrated in one field. All three domain errors
+    read an unnamed forecast as operational demand (N03 ×2, D08). Code's lexical and quote-boundary checks lost 10 of
+    the 23 correct readings: 8 to clause containment, 1 to "noon" and 1 to N04's negation mis-resolution. They caught
+    none of the 5 incorrect readings for its actual error: 4 were sent back by clause containment for unrelated
+    reasons, and D08 was accepted.
+  - **Earlier checks show the same pattern:**
+    - vocabulary gaps (I-15–I-17; v12's Q11, Q12 and Q15) and span rules (K10, Q23) rejected correct readings;
+    - the model made no wrong binding in v12 (42 cases) or v13 (23 of 23 exact).
+- **The direction:**
+  - **One routing call, returning a typed plan.** `requested.forecasts` is a list of forecast mentions, each with:
+    - a stance: asked, declined or background;
+    - a kind (operational_demand, weather, price, other or not_stated) and the words naming it;
+    - an operation: forecast_value, compare_with_actual or not_stated;
+    - a scope and its words, which may be shared with another mention.
+
+    The forecast run, the demand maximum and the cutoff stay as in contract v13, and absent mentions are omitted.
+  - **The model decides what is meant. Code decides everything else:**
+    - admission, failing closed;
+    - locating the quoted words (provenance only, not proof of meaning);
+    - the plan's consistency;
+    - a stated-basis policy: an unnamed forecast kind is clarified, never assumed to be demand;
+    - time conversion;
+    - run availability under the cutoff;
+    - supported limits, permissions and tool eligibility;
+    - computation, verification and rendering, including a code-rendered statement of the reading, if approved.
+  - **Replaced, for the new contract only:**
+    - D29's clause containment and its lexical conflict rules;
+    - the lexical evidence checks on the model's operation;
+    - the parser's veto on the model's operation;
+    - lexical negation and quotation masks on model readings.
+
+    Decisions recorded under earlier contracts keep their resolver path, so replays and frozen material are
+    unchanged. Replay keeps its parser.
+  - **No second model call on current evidence:**
+    - verification by the same model is weakly supported;
+    - sampling misses consistent misreadings;
+    - at v15's truncation rate, two calls would both complete less often than one.
+
+    A second call may be studied only under conditions registered in advance.
+- **Evaluation** (designed later, as its own protocol):
+  - an independent writer and an independent reviewer;
+  - adversarial minimal pairs: incidental demand mentions, ambiguous forecast references, negation, quoted
+    background, shared scope, and mixed operations and kinds;
+  - supply controls;
+  - interpretation scored apart from resolution;
+  - false acceptance and unnecessary clarification reported separately;
+  - bounded development rounds, and a held-out set run once.
+- **Open owner decisions:**
+  - the stated-basis policy;
+  - whether answers state the code-rendered reading;
+  - the evaluation model: OpenAI's deprecations page, read 2026-10-04, lists `gpt-5-mini-2025-08-07` for shutdown
+    on 11 December 2026;
+  - evaluation sizes, bars and budget;
+  - whether routing truncation is addressed first.

@@ -9,6 +9,10 @@ kept separate.
 > Independent public-data project. It is not affiliated with AEMO or any employer, uses no private data, and does not
 > trade, bid or control anything. AEMO data and documents are attributed in [`data/SOURCES.md`](data/SOURCES.md).
 
+**Release v2.0.0 (2026-10-04):** see [`RELEASE_NOTES.md`](RELEASE_NOTES.md). Replay, which uses no language model,
+is the verified baseline. **Live (LLM) mode is experimental.** It has not passed L3, and this release is not
+evidence of Live reliability or of generalisation.
+
 ![Live investigation of the SA1 price spike on 31 July 2026, written by gpt-5-mini and checked by the validator](docs/img/ui_live_sa1.png)
 
 *A real **Live** run in the Streamlit app, captured 2026-09-28. The answer was written by gpt-5-mini through the
@@ -27,6 +31,8 @@ capture. The same question in Replay mode, which uses no language model and is l
 | 8 typed read-only tools, as-of rules, forecast-error arithmetic in code | built, verified | G2, `tests/tools` |
 | Hybrid RAG (SQLite FTS5 + model2vec embeddings), eligibility filters, injection handling | built, verified | G3, `tests/retrieval` |
 | Scripted replay controller, and a live OpenAI Responses API function-calling controller | Replay: verified. **Live: experimental**: it runs on the real API (gpt-5-mini, gates L0–L6), but its answer quality is not fully validated (see the next rows) | G4, `tests/provider`, [`docs/live-gates.md`](docs/live-gates.md) |
+| Typed computed answers: demand maxima (`analytical_result/1`) and forecast comparisons (`forecast_result/1`), computed and verified by code and rendered apart from the model's interpretation (report format "2") | built, verified offline. **Live: experimental.** Every computed result shown in the demand-maxima and v13 end-to-end Live checks matched gold (6 and 5), but both checks failed for other reasons | D24, D25, D27; `tests/provider`; [`RELEASE_NOTES.md`](RELEASE_NOTES.md) |
+| Request resolution before any tool: route contract v15 (prompts v16) for the forecast run, the demand maximum, and the forecast's operation, scope and kind | built, verified offline. **Live: experimental.** The v13 routing-only check passed on a development sample. The v15 routing diagnostic failed (supply 3/20; correct readings rejected by the resolver) | D26, D28, D29; [`docs/live-gates.md`](docs/live-gates.md) |
 | Independent validators (numbers, quotes, as-of, metrics, causality, injection) + approval-gated local write | built, verified | G5, `make safety` |
 | 40-case evaluation, two baselines, held-out split | built, measured (replay) | G6, [`artifacts/eval/report.md`](artifacts/eval/report.md) |
 | FastAPI + Streamlit UI + API smoke test | built, verified | G7, [`docs/demo.md`](docs/demo.md) |
@@ -258,6 +264,16 @@ every answer are in [`docs/live-gates.md`](docs/live-gates.md), L3.
   built from did not prevent failures on fresh v6 questions. For example, the forecast-run fix held on v5's Y05 and Y06,
   but fresh question Z05 still used the wrong forecast run.
 - **Live is not fully validated.** Replay results are never evidence of Live quality.
+- **Targeted checks after v6** (2026-10-02 to 2026-10-04; development evidence, each run once; none is an L3 result):
+  - I-15–I-17: FAIL;
+  - v12 routing extraction: FAIL;
+  - gpt-5-mini against gpt-6.1-sol: does not support a switch;
+  - demand-maxima acceptance: FAIL;
+  - v13 routing-only: PASS, on routing only and a development sample;
+  - v13 end to end: FAIL;
+  - v15 routing diagnostic: FAIL.
+
+  Details are in [`RELEASE_NOTES.md`](RELEASE_NOTES.md) (v2.0.0) and [`docs/live-gates.md`](docs/live-gates.md).
 - **Detailed reports:** [`docs/live-gates.md`](docs/live-gates.md) ("Results: held-out v5 and regression"; "Results:
   runs A, B and C"), with the per-case records in `artifacts/live/`.
 - **Post-v1.0 check (2026-09-29; not an L3 result):** after PRs #10–#14, the development case W20 now answers with
