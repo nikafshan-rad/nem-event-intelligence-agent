@@ -324,7 +324,6 @@ def test_2_k07_named_correctly_passes_and_a_faithful_repair_is_shown():
 @pytest.mark.parametrize("line", [
     "The previous half-hour, ending 2026-08-06 17:00 AEST, is not part of the question.",
     "The next half-hour, starting 2026-08-06 17:30 AEST, is not part of the question.",
-    "The half-hour ending 2026-08-06 17:00 AEST had a POE50 forecast of 9505.0 MW.",  # its own traced value
     "The half-hour ending 2026-08-06 15:00 AEST is outside the question.",  # another half-hour
     "The 5-minute interval ending 2026-08-06 17:00 AEST is not used.",
     "No run issued before 2026-08-06 17:00 AEST was public by the cutoff.",  # an issue time
@@ -335,9 +334,18 @@ def test_2_k07_named_correctly_passes_and_a_faithful_repair_is_shown():
 def test_2_neighbouring_half_hours_and_issue_times_pass(line):
     res, _ = _replay("K07", _k07(faithful=True, extra=[line]))
     assert res.report.validation["final_passed"] and not res.report.validation.get("repair_attempted"), _first(res)
-    if "9505.0" in line:
-        ev = res.registry.get("ev0424")
-        assert (ev.metric, ev.value, ev.valid_at_utc) == ("opdemand_forecast_poe50", 9505.0, HALF[0])
+
+
+def test_2_a_neighbouring_half_hours_own_value_is_not_stated_since_d28():
+    """It passed I-19 (its own traced value, named by its own half-hour) and still does; since D28 a one-half-hour
+    request states values of that half-hour only, so the neighbouring half-hour's POE50 is outside what it asks."""
+    res, _ = _replay("K07", _k07(faithful=True, extra=["The half-hour ending 2026-08-06 17:00 AEST had a POE50 "
+                                                        "forecast of 9505.0 MW."]))
+    ev = res.registry.get("ev0424")
+    assert (ev.metric, ev.value, ev.valid_at_utc) == ("opdemand_forecast_poe50", 9505.0, HALF[0])
+    first = _first(res)
+    assert not [d for c, d in first if c in I19]
+    assert [d.split(":")[0] for c, d in first if c == "FORECAST_SCOPE_NOT_PRIMARY"] == ["nb"]
 
 
 @pytest.mark.parametrize("extra,m0,item", [

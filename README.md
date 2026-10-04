@@ -170,6 +170,11 @@ Code, not the model, does everything else:
     `schema_version`, or reads `summary_v1`, handles every report. A reader that assumes every result is a demand
     maximum does not: the pre-D27 result model rejects a forecast result, whose fields differ. `forecast_comparison`
     is now filled only from the controller's verified aggregate, never from the model's choice;
+  - **What a forecast review asks for (D28).** Its operation (a forecast value, one half-hour compared with actual
+    demand, or a period compared) and its exact half-hour or period are resolved from the question before any tool:
+    a forecast value gets no comparison result, one half-hour never an aggregate, and a stated or unsupported period
+    is sent back for clarification rather than replaced by a default (a whole local day is used exactly; windows over
+    the forecast tools' 24 hours are sent back);
 - all arithmetic;
 - data access (no SQL, URLs or paths reach the model);
 - the as-of rules;

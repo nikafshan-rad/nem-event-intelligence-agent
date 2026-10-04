@@ -341,13 +341,16 @@ def test_ledger_counts_unsettled_reservations(monkeypatch):
                                            "input_tokens_details": {"cached_tokens": 1_000_000}}) == pytest.approx(0.025)
 
 
+DAY = ("2026-07-30T14:30:00Z", "2026-07-31T14:30:00Z")  # SA1's local day of 31 July (D28: the day asked about)
+
+
 def _forecast_turn(ev):
-    return [("get_forecast_runs", {"region": ev.region, "target_start_utc": "2026-07-30T11:00:00Z",
-                                   "target_end_utc": "2026-07-30T23:00:00Z", "as_of_utc": None, "max_runs": 4}),
-            ("get_actual_demand", {"region": ev.region, "start_utc": "2026-07-30T11:00:00Z",
-                                   "end_utc": "2026-07-30T23:00:00Z", "revision_policy": "latest_available", "as_of_utc": None}),
-            ("compare_forecast_actual", {"region": ev.region, "target_start_utc": "2026-07-30T11:00:00Z",
-                                         "target_end_utc": "2026-07-30T23:00:00Z", "run_selector": "latest_before_target",
+    return [("get_forecast_runs", {"region": ev.region, "target_start_utc": DAY[0],
+                                   "target_end_utc": DAY[1], "as_of_utc": None, "max_runs": 4}),
+            ("get_actual_demand", {"region": ev.region, "start_utc": DAY[0],
+                                   "end_utc": DAY[1], "revision_policy": "latest_available", "as_of_utc": None}),
+            ("compare_forecast_actual", {"region": ev.region, "target_start_utc": DAY[0],
+                                         "target_end_utc": DAY[1], "run_selector": "latest_before_target",
                                          "min_lead_hours": None, "run_id": None, "as_of_utc": None,
                                          "actual_revision": "latest_available", "actual_metric": "OPERATIONAL_DEMAND"}),
             ("retrieve_public_evidence", {"query": "operational demand definition", "region": None, "event_start_utc": None,
@@ -370,11 +373,16 @@ def test_forecast_context_and_comparison_built_from_the_named_mae(ev):
     res = investigate(InvestigateRequest(question="Did AEMO's demand forecast miss in SA1 on 2026-07-31?", mode="live"),
                       live_client=fake, write_trace=False)
     ctx = json.loads(fake.requests[1]["input"][0]["content"].split("\n", 1)[1])
-    assert ctx["forecast_targets_utc"] == ["2026-07-30T11:00:00Z", "2026-07-30T23:00:00Z"]
+    # D28: the forecast request gives the whole local day asked about (it was the 12-hour slice around the peak)
+    assert "forecast_targets_utc" not in ctx
+    assert (ctx["forecast_request"]["operation"], ctx["forecast_request"]["start_utc"], ctx["forecast_request"]["end_utc"],
+            ctx["forecast_request"]["half_hours"]) == ("window_comparison", *DAY, 48)
     assert ctx["event_peak_interval_end_local"].startswith("2026-07-31 02:05 ACST")
     assert ctx["peak_half_hour_end_utc"] == "2026-07-30T17:00:00Z"  # the half-hour containing the 16:35 UTC interval
     fc = res.report.forecast_comparison
-    assert fc is not None and fc.n_pairs == 24 and fc.mae_mw == pytest.approx(32.88, abs=0.01)
+    r = res.report.results[0].result
+    assert list(r.identity.window_utc) == list(DAY)
+    assert fc is not None and fc.n_pairs == len(r.pairs) and fc.mae_mw == r.mae_mw
     assert res.registry.get(fc.mae_evidence_id).value == fc.mae_mw  # copied from the tool, not from the model
 
 

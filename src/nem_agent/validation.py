@@ -838,7 +838,7 @@ def requested_max_violations(report: InvestigationReport, registry: EvidenceRegi
 
 
 def forecast_scope_violations(report: InvestigationReport, registry: EvidenceRegistry, records: list[Any] | None,
-                              primary: dict[str, Any]) -> list[Violation]:
+                              primary: dict[str, Any] | None, request: dict[str, Any] | None = None) -> list[Violation]:
     """``FORECAST_SCOPE_NOT_PRIMARY`` (D27): a numeric claim or observation whose evidence a forecast comparison
     registered, outside the scope of the comparison the request asks for (the primary). The scope is read from the
     evidence's metric and source rows (``forecast_compare.out_of_scope``), never from wording, value or case: per-pair
@@ -851,16 +851,31 @@ def forecast_scope_violations(report: InvestigationReport, registry: EvidenceReg
     from .agent import forecast_compare as fc
 
     calls = {r.call_id: r for r in records or [] if getattr(r, "name", None) == fc.TOOL and r.status in ("ok", "unavailable")}
-    rows = {x for pair in primary.get("pair_rows") or [] for x in pair}
+    rows = {x for pair in (primary or {}).get("pair_rows") or [] for x in pair}
+    target_end = (request or {}).get("target_utc", [None, None])[1] if (request or {}).get("target_utc") else None
     out: list[Violation] = []
     seen: set[str] = set()
+
+    def asked(ev: Any) -> str | None:
+        """D28: why the evidence is outside the operation and half-hour the request asks for, or None."""
+        if request is None:
+            return None
+        compared = ev.tool_call_id in calls and ev.metric in fc.PAIR_METRICS | fc.AGGREGATE_METRICS
+        if request["operation"] == "forecast_value" and compared:
+            return "the question asks what the forecast said, not how it compared with actual demand"
+        if target_end is not None and compared and ev.metric in fc.AGGREGATE_METRICS:
+            return "the question asks about one half-hour, not an aggregate"
+        if target_end is not None and ev.metric in fc.PAIR_METRICS and ev.valid_at_utc and \
+                parse_iso(ev.valid_at_utc) != parse_iso(target_end):
+            return "it belongs to another half-hour than the one the question asks about"
+        return None
 
     def check(where: str, eid: str) -> None:
         ev = registry.get(eid)
         if ev is None or where in seen:
             return
-        why = fc.out_of_scope(ev, primary, calls, registry)
-        if why is None and not primary["admitted"] and rows & set(ev.source_row_ids):
+        why = fc.out_of_scope(ev, primary, calls, registry) if primary else None
+        if why is None and primary and not primary["admitted"] and rows & set(ev.source_row_ids):
             why = "it carries the rows of the comparison the question asks for, which was not verified"
         if why:
             seen.add(where)
@@ -868,6 +883,12 @@ def forecast_scope_violations(report: InvestigationReport, registry: EvidenceReg
                                  f"{where}: {eid} ({ev.metric}) is outside the forecast comparison the question asks "
                                  f"for: {why}. The controller states that comparison in the computed answer; give no "
                                  "other comparison's values"))
+        elif (why := asked(ev)) is not None:
+            seen.add(where)
+            out.append(Violation("FORECAST_SCOPE_NOT_PRIMARY", "critical",
+                                 f"{where}: {eid} ({ev.metric}) is outside what the question asks for: {why}. Give "
+                                 "only the forecast values or the comparison it asks for, for its own half-hour or "
+                                 "period"))
     for c in report.numeric_claims:
         check(c.claim_id, c.evidence_id)
     for o in report.observations:
@@ -2075,9 +2096,11 @@ def validate(report: InvestigationReport, registry: EvidenceRegistry, *, as_of: 
              forecast_run: dict[str, Any] | None = None, demand_max: list[dict[str, Any]] | None = None,
              required_tools: tuple[str, ...] = (), event_kind: str | None = None,
              approval_records: Sequence[Any] = (), not_admitted: list[Any] | None = None,
-             forecast_primary: dict[str, Any] | None = None) -> ValidationResult:
+             forecast_primary: dict[str, Any] | None = None,
+             forecast_request: dict[str, Any] | None = None) -> ValidationResult:
     """``approval_records``: approval records (``approvals.Approval``) that belong to this answer. An investigation
-    never has one, so the service passes none and every action claim fails."""
+    never has one, so the service passes none and every action claim fails. ``forecast_request``: the operation and
+    the half-hour or period a forecast review asks for (D28, ``forecast_compare.request_scope``)."""
     res = ValidationResult()
     V = res.violations
     as_of = as_of or (parse_iso(report.as_of) if report.as_of else None)
@@ -2172,6 +2195,7 @@ def validate(report: InvestigationReport, registry: EvidenceRegistry, *, as_of: 
     # the target half-hour or window of the forecast comparison the request asks for (D27): produced by the request,
     # as the window is, also when no tool returned it (a run not public by the cutoff is never compared)
     known |= {parse_iso(t) for t in (forecast_primary or {}).get("target_utc") or ()}
+    known |= {parse_iso(t) for k in ("target_utc", "window_utc") for t in (forecast_request or {}).get(k) or ()}
     for where, text in _narratives(report) + _hypothesis_tests(report):
         for sentence in SENTENCE_RE.split(QUOTED_RE.sub(" ", text)):
             times = []
@@ -2514,9 +2538,9 @@ def validate(report: InvestigationReport, registry: EvidenceRegistry, *, as_of: 
         V.extend(unadmitted_result_violations(report, registry, not_admitted, result_texts,
                                               lambda s: number_spans(s, chunk_ids, titles(s))))
     # -- the forecast comparison the request asks for (D27): no value of another comparison in the interpretation
-    if forecast_primary:
+    if forecast_primary or forecast_request:
         res.checks_run.append("forecast_scope")
-        V.extend(forecast_scope_violations(report, registry, records, forecast_primary))
+        V.extend(forecast_scope_violations(report, registry, records, forecast_primary, forecast_request))
     # -- the half-hour a forecast-run request names, named by its own end or start (I-19)
     if forecast_run and forecast_run.get("half_hour_utc"):
         res.checks_run.append("requested_interval")
@@ -2880,6 +2904,15 @@ def interpretation_status(report: InvestigationReport, fallback: bool) -> str:
     return "withheld: it failed validation (facts-only fallback)" if fallback else "validated"
 
 
+def _forecast_request_scope(res: Any) -> dict[str, Any] | None:
+    """The forecast request a resolution holds (D28), as the validator reads it; None for a resolution without one."""
+    if res is None or getattr(res, "requests", None) is None:
+        return None
+    from .agent import forecast_compare
+
+    return forecast_compare.request_scope(res)
+
+
 def validate_and_finalize(report: InvestigationReport, registry: EvidenceRegistry, records: list[Any], res: Any,
                           trace: Any) -> InvestigationReport:
     from .agent.playbook import PLAYBOOKS
@@ -2892,8 +2925,10 @@ def validate_and_finalize(report: InvestigationReport, registry: EvidenceRegistr
     maxima = getattr(res, "demand_max", None)
     unadmitted = getattr(res, "results_not_admitted", None)
     primary = getattr(res, "forecast_primary", None)
+    asked = _forecast_request_scope(res)
     first = validate(report, registry, as_of=as_of, window=window, records=records, required_tools=req, event_kind=kind,
-                     forecast_run=run, demand_max=maxima, not_admitted=unadmitted, forecast_primary=primary)
+                     forecast_run=run, demand_max=maxima, not_admitted=unadmitted, forecast_primary=primary,
+                     forecast_request=asked)
     info: dict[str, Any] = {"initial": first.as_dict(), "fallback_applied": False,
                             "repair_attempted": bool(report.validation.get("repair_attempted"))}
     final = report
@@ -2902,7 +2937,7 @@ def validate_and_finalize(report: InvestigationReport, registry: EvidenceRegistr
         final = facts_only(report, registry, first, as_of, maxima, diag=fb, forecast_primary=primary)
         second = validate(final, registry, as_of=as_of, window=window, records=records, required_tools=req,
                           event_kind=kind, forecast_run=run, demand_max=maxima, not_admitted=unadmitted,
-                          forecast_primary=primary)
+                          forecast_primary=primary, forecast_request=asked)
         # a kept result must also pass the fallback's own validation (I-21): one named there is not kept
         named_kept = frozenset(r["answer_index"] for r in fb.get("result_retained", []) for v in second.critical
                                if v.detail.startswith((f"answer[{r['fallback_answer_index']}]",
@@ -2913,7 +2948,7 @@ def validate_and_finalize(report: InvestigationReport, registry: EvidenceRegistr
                                forecast_primary=primary)
             second = validate(final, registry, as_of=as_of, window=window, records=records, required_tools=req,
                               event_kind=kind, forecast_run=run, demand_max=maxima, not_admitted=unadmitted,
-                              forecast_primary=primary)
+                              forecast_primary=primary, forecast_request=asked)
         info.update(fallback_applied=True, after_fallback=second.as_dict())
         if fb.get("result_retained") or fb.get("result_not_retained"):
             # diagnostics only, outside the displayed answer: the controller's result kept or not, and every model

@@ -218,9 +218,10 @@ class _S(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-# The routing contract of prompts v13 (D26): the intent, the region and date, the clarification fields, and the
-# question's own words for each request and for the as-of cutoff. The model computes no timestamp: code converts every
-# time from the quoted words. A decision recorded under v12 is read through the adapter (``contract`` "v12"; its
+# The routing contract v14 (prompts v15, D28; v13 of D26 with the forecast request): the intent, the region and date,
+# the clarification fields, and the question's own words for each request and for the as-of cutoff. The model computes
+# no timestamp: code converts every time from the quoted words. A decision recorded under v13 has no forecast request
+# ("not reported"; ``contract`` "v13"); one recorded under v12 is read through the adapter (``contract`` "v12"; its
 # timestamps are not read, and its cutoff timestamp is detection only). No docstring: it would enter the schema.
 class RouteDecision(_S):
     intent: Literal["market_event_review", "forecast_review", "source_explanation"] | None
@@ -238,7 +239,7 @@ class RouteDecision(_S):
     # the forecast run and demand maximum the question asks for, with the question's own words for each (I-18, D26);
     # absent in routes recorded before prompts v12: "not reported", never "no requirement"
     requested: RoutedRequest | None = None
-    _contract: str = PrivateAttr(default="v13")
+    _contract: str = PrivateAttr(default="v14")
     _legacy_cutoff: bool = PrivateAttr(default=False)
 
     @model_validator(mode="wrap")
@@ -255,7 +256,10 @@ class RouteDecision(_S):
             except ValueError:  # an unparsable cutoff was dropped under v12 too
                 dec._legacy_cutoff = False
             return dec
-        return handler(data)
+        dec = handler(data)
+        if isinstance(data, dict) and isinstance(data.get("requested"), dict) and "forecast" not in data["requested"]:
+            dec._contract = "v13"  # recorded before the forecast request: not reported
+        return dec
 
     @property
     def contract(self) -> str:
@@ -263,7 +267,8 @@ class RouteDecision(_S):
 
     def routed(self) -> Routed:
         """What the resolver reads from this decision."""
-        return Routed(self.requested, self.as_of_text, "v12" if self._contract == "v12" else "v13", self._legacy_cutoff)
+        contract = self._contract if self._contract in ("v12", "v13") else "v14"
+        return Routed(self.requested, self.as_of_text, contract, self._legacy_cutoff)  # type: ignore[arg-type]
 
 
 def checked_route(dec: RouteDecision) -> RouteDecision:
@@ -926,16 +931,21 @@ class LiveController:
         measures = requested_measures(res.request.question)
         if measures:  # say which tool field holds each measure the question names (held-out H02, H03, H14)
             context["requested_measures"] = measures
-        # the run a bound request names (I-18); a resolution built elsewhere (tests) falls back to the question parser
+        # the run a bound request names (I-18), for the half-hour the request asks about (D28); a resolution built
+        # elsewhere (tests) falls back to the question parser
         wanted = res.requests.forecast_run.forecast_request() if res.requests is not None else \
             requested_forecast(res.request.question)
+        wanted = forecast_compare.point_request(res) or wanted
         if wanted is not None and res.region and self.d is not None:
             context["requested_forecast_run"] = self._requested_run(res, wanted)
-        # D27: one requested half-hour is compared by the controller (the computed answer), so no window of half-hours
-        # is offered to compare in its place; decided from the resolved request, never from whether its run was found
-        point = forecast_compare.point_request(res)
-        if res.window and res.region and res.intent in ("forecast_review", "market_event_review") and point is None:
-            lo, hi = forecast_focus(res)  # the same forecast-review scope the replay controller uses
+        # D28: what the forecast review asks for, its operation and its exact half-hour or period, decided from the
+        # resolved request (never from whether a run was found); nothing else is offered to compare in its place
+        if res.intent == "forecast_review":
+            fr = forecast_compare.request_context(res)
+            if fr is not None:
+                context["forecast_request"] = fr
+        elif res.window and res.region and res.intent == "market_event_review":  # an event review, as before
+            lo, hi = forecast_focus(res)  # the same scope the replay controller uses for an event review
             context["forecast_targets_utc"] = [iso_utc(lo), iso_utc(hi)]
             context["forecast_targets_local"] = [local_str(lo, res.region), local_str(hi, res.region)]
             context["forecast_note"] = ("A forecast review compares the 24 half-hours around the event peak: use "
@@ -1010,7 +1020,7 @@ class LiveController:
         first = validate(report, self.reg, as_of=res.as_of, window=res.window, records=self.d.records,
                          forecast_run=res.forecast_run, demand_max=res.demand_max,
                          required_tools=pb.required, event_kind=res.kind, not_admitted=res.results_not_admitted,
-                         forecast_primary=res.forecast_primary)
+                         forecast_primary=res.forecast_primary, forecast_request=forecast_compare.request_scope(res))
         if first.critical and self.usage.model_calls < config.MAX_MODEL_CALLS:
             # scoped when every violation names a draft item: the model may change only those items
             targets, unmapped = (repair_targets(first, mrep, self._summary_origin) if isinstance(mrep, ModelReport)

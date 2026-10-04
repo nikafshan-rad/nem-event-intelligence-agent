@@ -45,10 +45,13 @@ def _route_events(res) -> list[dict]:
 
 
 def _targets(fake) -> list[str] | None:
-    """The forecast targets the model was given in its context (None when no tool loop ran)."""
+    """The forecast targets the model was given in its context (None when no tool loop ran): since D28 the half-hour or
+    period the forecast request asks about."""
     if len(fake.requests) < 2:
         return None
-    return json.loads(fake.requests[1]["input"][0]["content"].split("\n", 1)[1]).get("forecast_targets_utc")
+    ctx = json.loads(fake.requests[1]["input"][0]["content"].split("\n", 1)[1])
+    fr = ctx.get("forecast_request")
+    return [fr["start_utc"], fr["end_utc"]] if fr else ctx.get("forecast_targets_utc")
 
 
 def _covers(span, target) -> bool:

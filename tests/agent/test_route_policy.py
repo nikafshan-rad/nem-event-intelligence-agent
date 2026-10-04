@@ -60,8 +60,11 @@ def test_as_of_forecast_question_is_a_forecast_review_even_when_it_names_an_even
     dec = decision(as_of_utc="2026-07-30T08:00:00Z")
     res, status, notes = applied("As of 2026-07-30T08:00:00Z, what did the demand forecasts say for the SA1 event on "
                                  "2026-07-31?", dec, selection)
-    assert status == "ok" and res.intent == "forecast_review"
+    assert res.intent == "forecast_review"
     assert any("as-of question about forecasts" in n for n in notes)
+    # D28: what it asks about is the SA1 event's window, 24.5 hours: over the forecast tools' 24 hours, so it is sent
+    # back rather than reviewed over part of it
+    assert status == "needs_clarification" and res.requests.forecast.missing == ["window_limit"]
 
 
 def test_neighbours_keep_their_intent(selection):

@@ -34,7 +34,7 @@ from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from ..timeutil import UTC, iso_utc, local_day_window, parse_iso, region_zone
+from ..timeutil import UTC, half_hour_end_for, iso_utc, local_day_window, parse_iso, region_zone
 from .request import (
     _EVENT_WINDOW_RE,
     _SUB_WINDOW_RE,
@@ -99,9 +99,30 @@ class RoutedMaximum(_M):
     window_text: str | None = Field(description="the question's exact words naming the window, copied verbatim")
 
 
+# What a forecast review asks about AEMO's forecasts, and the question's own words for it and for its half-hour or
+# period (route contract v14, D28). Code converts every time from those words.
+class RoutedForecast(_M):
+    operation: Literal["none", "forecast_value", "single_interval_comparison", "window_comparison", "unclear"] = Field(
+        description="what a forecast_review question asks about the forecasts: forecast_value = what a forecast said "
+                    "(its values, or which run), not compared with actual demand; single_interval_comparison = a "
+                    "forecast compared with actual demand for one half-hour; window_comparison = forecasts compared "
+                    "with actual demand over a period; none = not a forecast question; unclear = whether the forecast "
+                    "is compared with actual demand cannot be told")
+    operation_text: str | None = Field(description="the question's exact words asking for it, copied verbatim")
+    scope: Literal["half_hour", "event_peak_half_hour", "whole_local_day", "event", "explicit",
+                   "unspecified"] | None = Field(
+        description="the half-hour or period asked about: half_hour = one stated half-hour; event_peak_half_hour = a "
+                    "price event's peak half-hour; whole_local_day = one whole local calendar day; event = a price "
+                    "event's window; explicit = a stated start and end")
+    scope_text: str | None = Field(
+        description="the question's exact words naming the half-hour or period, copied verbatim")
+
+
 class RoutedRequest(_M):
     forecast_run: RoutedForecastRun
     maximum: RoutedMaximum
+    # route contract v14 (D28); absent from a decision recorded before it: "not reported"
+    forecast: RoutedForecast | None = None
 
 
 def requested_from_v12(r: RoutedRequestV12) -> RoutedRequest:
@@ -121,7 +142,7 @@ class Routed:
     contract it was given in. ``legacy_cutoff``: a v12 decision gave a cutoff timestamp, which is detection only."""
     requested: RoutedRequest | None
     as_of_text: str | None = None
-    contract: Literal["v13", "v12"] = "v13"
+    contract: Literal["v14", "v13", "v12"] = "v14"
     legacy_cutoff: bool = False
 
 
@@ -235,18 +256,60 @@ class CutoffRequest:
 
 
 @dataclass
+class ForecastAnalysis:
+    """What a forecast review asks for (D28): its operation (``forecast_value``, ``single_interval_comparison`` or
+    ``window_comparison``) and its scope, one half-hour (``half_hour``, ``event_peak_half_hour``: ``target``) or a
+    period (``whole_local_day``, ``event``, ``explicit``: ``window``), as UTC bounds on the half-hour grid. Resolved like
+    the other requests: absent, bound, unresolved (``missing``) or in conflict (``conflicts``)."""
+    status: Status = "absent"
+    operation: str | None = None
+    scope: str | None = None
+    target: tuple[datetime, datetime] | None = None
+    window: tuple[datetime, datetime] | None = None
+    provenance: dict[str, Source] = field(default_factory=dict)
+    detected_by: list[str] = field(default_factory=list)
+    missing: list[str] = field(default_factory=list)
+    conflicts: list[str] = field(default_factory=list)
+    spans: list[Span] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
+
+    @property
+    def bounds(self) -> tuple[datetime, datetime] | None:
+        return self.target or self.window
+
+    @property
+    def intervals(self) -> int | None:
+        """The half-hours in the bounds, derived from them (a whole local day has 46, 48 or 50)."""
+        b = self.bounds
+        return None if b is None else round((b[1] - b[0]) / timedelta(minutes=30))
+
+    def as_dict(self) -> dict[str, Any]:
+        b = self.bounds
+        return {"status": self.status, "operation": self.operation, "scope": self.scope,
+                "target_utc": [iso_utc(t) for t in self.target] if self.target else None,
+                "window_utc": [iso_utc(t) for t in self.window] if self.window else None,
+                "half_hours": self.intervals if b else None,
+                "provenance": {k: v.as_dict() for k, v in self.provenance.items()}, "detected_by": self.detected_by,
+                "missing": self.missing, "conflicts": self.conflicts, "spans": [x.as_dict() for x in self.spans],
+                "notes": self.notes}
+
+
+@dataclass
 class RequestResolution:
     routed: Literal["reported", "not reported"] = "not reported"
     forecast_run: RunRequest = field(default_factory=RunRequest)
     maximum: MaxRequest = field(default_factory=MaxRequest)
     cutoff: CutoffRequest = field(default_factory=CutoffRequest)
-    contract: str | None = None  # the routing contract the reading was given in ("v13", or "v12" via the adapter)
+    contract: str | None = None  # the routing contract the reading was given in ("v14", "v13", or "v12" via the adapter)
     # question wording that conflicts with an authoritative request field: shown with the answer
     notes: list[str] = field(default_factory=list)
+    # the operation and scope a forecast review asks for (D28)
+    forecast: ForecastAnalysis = field(default_factory=lambda: ForecastAnalysis())
 
     def as_dict(self) -> dict[str, Any]:
         return {"routed": self.routed, "contract": self.contract, "forecast_run": self.forecast_run.as_dict(),
-                "maximum": self.maximum.as_dict(), "cutoff": self.cutoff.as_dict(), "notes": self.notes}
+                "maximum": self.maximum.as_dict(), "cutoff": self.cutoff.as_dict(), "notes": self.notes,
+                "forecast": self.forecast.as_dict()}
 
 
 # ------------------------------------------------------------------------------------------------ reading times
@@ -1074,6 +1137,32 @@ CUTOFF_CLARIFICATION = (
     "cutoff is assumed. Give it with its date and time zone.")
 
 
+# a time's own zone and date written right after it ("6 pm AEST on 6 August 2026")
+_TIME_QUALIFIERS_RE = re.compile(
+    rf"(?:\s*,?\s*(?:(?:on\s+)?(?:\d{{4}}-\d\d-\d\d(?!T)|\d{{1,2}}(?:st|nd|rd|th)?\s+{_MONTH_NAME}\b\.?(?:,?\s+20\d\d)?|"
+    rf"{_MONTH_NAME}\.?\s+\d{{1,2}}(?:st|nd|rd|th)?\b(?:,?\s+20\d\d)?)|(?:in\s+)?(?:UTC|GMT|AEST|AEDT|ACST|ACDT|"
+    r"NEM\s+time|market\s+time|local\s+time)\b))*", re.I)
+
+
+_LEAD_DATE_RE = re.compile(
+    rf"(?:\bon\s+)?(?:\b\d{{4}}-\d\d-\d\d(?!T)|\b\d{{1,2}}(?:st|nd|rd|th)?\s+{_MONTH_NAME}\b\.?(?:,?\s+20\d\d)?|"
+    rf"\b{_MONTH_NAME}\.?\s+\d{{1,2}}(?:st|nd|rd|th)?\b(?:,?\s+20\d\d)?)\s*,?\s*$", re.I)
+
+
+def _cutoff_words_end(q: str, start: int) -> int:
+    """Where the question parser's cutoff words end: after the first time of their clause, with that time's own zone
+    and date (D28: the clause used to end at any colon, so "As of 2026-07-30T14:35:00Z" held only "As of 2026-07-30T14"
+    and the cutoff's own time was read as unaccounted for), or at the end of the clause (a comma, a colon outside a
+    time, a semicolon, a dash, a bracket or a question mark) when it states no time."""
+    clause = re.split(r"[,?;(—–]|(?<!\d):(?!\d)| - ", q[start:])[0][:80]
+    times = _time_expressions(clause)
+    if not times:
+        return start + len(clause)
+    end = start + times[0][1]
+    m = _TIME_QUALIFIERS_RE.match(q, end)
+    return m.end() if m else end
+
+
 def resolve_cutoff(q: str, given_as_of: str | None, region: str | None, day: date | None,
                    routed: Routed | None) -> CutoffRequest:
     """The as-of cutoff (D26): the request field when given (authoritative); else the question parser's reading and
@@ -1084,8 +1173,8 @@ def resolve_cutoff(q: str, given_as_of: str | None, region: str | None, day: dat
 
     out = CutoffRequest()
     m = AS_OF_Q_RE.search(q)
-    if m:  # the parser's as-of words, up to the first comma, colon, semicolon, dash, bracket or question mark
-        end = m.end() + len(re.split(r"[,?;:(—–]| - ", q[m.end():])[0][:80])
+    if m:  # the parser's as-of words through the time they state, with that time's own zone and date
+        end = _cutoff_words_end(q, m.end())
         out.spans.append(Span("cutoff", q[m.start():end], ((m.start(), end),), "question"))
     model_t: datetime | None = None
     model_src: Source | None = None
@@ -1202,6 +1291,414 @@ def _fields(conflicts: list[str]) -> str:
     return " and ".join(names) or "request"
 
 
+# ------------------------------------------------------------------------------------------------ the forecast request
+# D28: what a forecast review asks for, its operation and its half-hour or period. The routing model's reading (route
+# contract v14) is used only when its quoted words are located once in the question, are not another role's words or
+# quoted background, and show the reading by themselves; the question parser reads positive phrasings only. The bounded
+# vocabularies below detect a reading's evidence and its conflicts: an absence proves nothing (no comparison word never
+# makes a request forecast-only), and grounded words do not by themselves prove a reading (every check still applies).
+
+SINGLE_SCOPES = ("half_hour", "event_peak_half_hour")
+PERIOD_SCOPES = ("whole_local_day", "event", "explicit")
+# a comparison of a forecast with actual demand asked for
+_COMPARISON_RE = re.compile(
+    r"\b(?:compar(?:e|es|ed|ing|ison|isons)|versus|vs\.?|against\s+(?:the\s+|what\s+)?(?:actual\w*|measured|recorded|"
+    r"outturn|happened)|errors?|miss(?:ed|es)?|accura(?:te|cy)|inaccura(?:te|cy)|perform(?:ed|s|ance)?|how\s+(?:close|"
+    r"well|far\s+off)|stack(?:ed|s)?\s+up|turn(?:ed|s)?\s+out|higher\s+or\s+lower|lower\s+or\s+higher|"
+    r"differ(?:ed|s|ence|ences)?|bias(?:ed)?|deviat\w*|mae|mean\s+absolute\s+error|over-?forecast\w*|under-?forecast\w*|"
+    r"track(?:ed|s)?\s+actual\w*|off\s+by)\b", re.I)
+# actual demand asked for: with a forecast, a comparison
+_ACTUAL_RE = re.compile(r"\b(?:actual(?:ly|s)?|outturn)\b", re.I)
+# actual demand mentioned for whether it was published, not asked for ("had any actual demand been published")
+_ACTUAL_CONTEXT_RE = re.compile(
+    r"\b(?:actual(?:ly|s)?|outturn)\b(?:\s+[\w'’-]+){0,6}?\s+(?:had|has|have|was|were|is|are|been)\b(?:\s+(?:not|yet|"
+    r"already|been|then))*\s+(?:published|available|public|released|out|known)\b|\b(?:before|until|till|once|when|"
+    r"after|whether)\s+(?:any\s+|the\s+)?(?:actual(?:ly|s)?|outturn)\b[^.?;]{0,40}?\b(?:published|available|public|"
+    r"released|out|known)\b", re.I)
+# a comparison declined ("without comparing it with actual demand", "not how it compared", "no actuals")
+_NEGATED_RE = re.compile(
+    r"\b(?:not|no|never|without|rather\s+than|instead\s+of|don['’]?t|do\s+not|does\s+not|doesn['’]?t|nor|need\s+not|"
+    r"needn['’]?t|leave\s+out|ignor(?:e|ing)|exclud(?:e|ing))\b(?:\s+[\w'’-]+){0,4}?\s+(?:compar\w*|against|versus|vs\.?|"
+    r"actual\w*|outturn|errors?|accura\w*)\b[^.?;,]{0,40}", re.I)
+# what a forecast said asked for
+_VALUE_RE = re.compile(
+    r"\bwhat\b(?:\s+[\w'’-]+){0,3}?\s+(?:did|does|do|was|were|is|are|had|has)\b[^?.;]{0,100}?\b(?:forecasts?|"
+    r"forecasted|runs?|poe\s?\d\d|median|figures?|values?|predictions?|projections?|expect\w*|predict\w*|project\w*|"
+    r"show\w*|give|gave|say|said)\b|\bwhich\b[^?.;]{0,80}?\b(?:forecasts?|runs?)\b|\bwhat\s+was\s+known\b|"
+    r"\b(?:forecasts?|runs?|it)\b[^?.;]{0,60}?\b(?:say|says|said|predict(?:ed|s)?|project(?:ed|s)?|expect(?:ed|s)?|"
+    r"forecast(?:ed|s)?|give|gives|gave|show(?:ed|s)?)\b|\bhow\s+much\b[^?.;]{0,80}?\b(?:forecast(?:ed|s)?|predict(?:ed|s)?|"
+    r"project(?:ed|s)?|expect(?:ed|s)?)\b|\b(?:predicted|projected|forecast|expected)\b[^?.;]{0,40}?\bby\b[^?.;]{0,40}?"
+    r"\b(?:runs?|forecasts?)\b|\b(?:give|show|pull|get|report|list|provide|tell)\s+(?:me\s+|us\s+)?(?:[\w'’-]+\s+){0,6}?"
+    r"(?:forecasts?|poe\s?\d\d|projections?|predictions?)\b|\bpoe\s?10\b[^?.;]{0,40}?\bpoe\s?90\b", re.I)
+_QUOTED_RE = re.compile(r"[\"“]([^\"“”]{3,})[\"”]")  # quoted background: context, never the request's own words
+_PEAK_HALF_HOUR_RE = re.compile(r"\b(?:peak|highest)\s+(?:(?:demand|price)\s+)?half[- ]hour\b|\bhalf[- ]hour\s+(?:of|"
+                                r"at)\s+(?:the\s+)?(?:[\w'’-]+\s+)?peak\b", re.I)
+# a date's role, from the words right before it: a run's issue or publication date, or the analysis's own
+_RUN_DATE_LEAD_RE = re.compile(r"\b(?:issued|published|released|produced|prepared|made|created)\s+(?:on\s+|at\s+)?$",
+                               re.I)
+_ANALYSIS_DATE_LEAD_RE = re.compile(r"(?:^|\b(?:on|for|over|across|throughout|during|in|whole\s+of|all\s+of|"
+                                    r"entire))\s*(?:the\s+)?$", re.I)
+_DATE_OCC_RE = re.compile(
+    rf"\b20\d\d-\d\d-\d\d\b(?!T)|\b\d{{1,2}}(?:st|nd|rd|th)?\s+{_MONTH_NAME}\b\.?(?:,?\s+20\d\d)?|"
+    rf"\b{_MONTH_NAME}\.?\s+\d{{1,2}}(?:st|nd|rd|th)?\b(?:,?\s+20\d\d)?", re.I)
+_PAREN_RE = re.compile(r"\s*\(([^()]{1,90})\)")
+
+
+def _blank(text: str, matches: Sequence[re.Match[str]]) -> str:
+    for m in matches:
+        text = text[:m.start()] + " " * (m.end() - m.start()) + text[m.end():]
+    return text
+
+
+_FORECAST_VERB_RE = re.compile(r"\b(?:expect|predict|project)(?:s|ed|ing)?\b", re.I)
+
+
+def _asks_about_forecasts(text: str) -> bool:
+    """A forecast is asked about: a forecast or run word, or a forecasting verb ("what did AEMO expect")."""
+    return bool(_FC_WORD_RE.search(text) or _RUN_ONLY_RE.search(text) or _FORECAST_VERB_RE.search(text))
+
+
+def question_operation(q: str, masked: str) -> tuple[str | None, Span | None, list[str]]:
+    """The operation the question's own words ask for, read from positive phrasings only (D28): ``comparison``
+    (comparison words, or actual demand asked for with a forecast) or ``forecast_value`` (what a forecast said); None
+    when neither is shown. ``masked``: the question without other roles' words and quoted background. A declined
+    comparison and a mention of actual demand's availability are not requests; a comparison both asked for and
+    declined is a conflict. Returns the reading, its words and any conflict."""
+    neg = list(_NEGATED_RE.finditer(masked))
+    text = _blank(masked, neg + list(_ACTUAL_CONTEXT_RE.finditer(masked)))
+    cmp_m, act_m, val_m = _COMPARISON_RE.search(text), _ACTUAL_RE.search(text), _VALUE_RE.search(text)
+    fc = _asks_about_forecasts(masked)
+    m, op = None, None
+    if cmp_m or (act_m and (val_m or fc)):
+        m, op = cmp_m or act_m, "comparison"
+    elif val_m and fc:
+        m, op = val_m, "forecast_value"
+    sp = Span("operation", q[m.start():m.end()], ((m.start(), m.end()),), "question") if m else None
+    conflicts = (["operation: a comparison with actual demand is both asked for and declined"]
+                 if op == "comparison" and neg else [])
+    return op, sp, conflicts
+
+
+def _model_operation(model: RoutedForecast | None, q: str, other: list[Span]) -> tuple[str | None, Span | None,
+                                                                                       str | None]:
+    """The routing model's operation when grounded and evidenced by its own words; else None, with why not."""
+    if model is None or model.operation == "none":
+        return None, None, None
+    if model.operation == "unclear":
+        return "unclear", None, None
+    sp = span("operation", model.operation_text, q)
+    if sp is None or sp.located is None:
+        return None, sp, "operation: the routing model's words are not located once in the question"
+    if any(_overlap(sp, o) for o in other):
+        return None, sp, f"operation: '{sp.text}' are another role's words or quoted background"
+    clean = _blank(sp.text, list(_NEGATED_RE.finditer(sp.text)) + list(_ACTUAL_CONTEXT_RE.finditer(sp.text)))
+    if model.operation != "forecast_value" and not (_COMPARISON_RE.search(clean) or _ACTUAL_RE.search(clean)):
+        return None, sp, f"operation: '{sp.text}' shows no comparison with actual demand"
+    if model.operation == "forecast_value" and not (_FC_WORD_RE.search(sp.text) or _RUN_ONLY_RE.search(sp.text) or
+                                                    _VALUE_RE.search(sp.text)):
+        return None, sp, f"operation: '{sp.text}' names no forecast"
+    return model.operation, sp, None
+
+
+def _date_roles(q: str, held: list[tuple[int, int]]) -> tuple[list[tuple[date, tuple[int, int]]], list[str]]:
+    """The dates that scope the requested analysis, with their words, and the dates whose role is not shown (D28). A
+    date in another role's words (the cutoff's, the run's, the target half-hour's) or in quoted background is that
+    role's; one right after an issue or publication word is a run's; one right after an analysis word ("on", "for",
+    "over", "across", "throughout", "during", "in", "the whole of") or at the question's start scopes the analysis; any
+    other date's role is not shown."""
+    analysis: list[tuple[date, tuple[int, int]]] = []
+    ambiguous: list[str] = []
+    for m in _DATE_OCC_RE.finditer(q):
+        a, b = m.span()
+        if any(x <= a and b <= y for x, y in held):
+            continue
+        d = _day_of(m.group(0), q)
+        before = q[:a]
+        if _RUN_DATE_LEAD_RE.search(before):
+            continue
+        if d is not None and _ANALYSIS_DATE_LEAD_RE.search(before):
+            analysis.append((d, (a, b)))
+        else:
+            ambiguous.append(m.group(0))
+    return analysis, ambiguous
+
+
+def _restates(text: str, instants: set[datetime], region: str | None) -> bool:
+    """Whether a bracket restates one of the instants: its ISO time is one of them, or its one clock is one of them in
+    the zone the bracket names (any NEM zone when it names none), on the day it names when it names one."""
+    if (iso := _ISO_RE.search(text)) is not None:
+        return parse_iso(iso.group(1)) in instants
+    clocks = _clocks(text)
+    if len(clocks) != 1:
+        return False
+    _, _, hh, mm, ap = clocks[0]
+    zones = [tz for tz, _ in _zones(text, region)] or [timezone(timedelta(minutes=o)) for o in sorted(set(_FIXED.values()))]
+    full = set(_dates(text))
+    md = {(MONTHS[(g[1] or g[2])[:3].lower()], int(g[0] or g[3])) for g in _DAY_MONTH_RE.findall(text)}
+    for t in instants:
+        for tz in zones:
+            loc = t.astimezone(tz)
+            if (loc.hour, loc.minute) == (_h24(hh, ap), mm) and (not full or loc.date() in full) and \
+                    (not md or (loc.month, loc.day) in md):
+                return True
+    return False
+
+
+def _restatements(q: str, held: list[tuple[tuple[int, int], set[datetime]]], region: str | None
+                  ) -> list[tuple[int, int]]:
+    """A bracket right after held words that restates their time ("ends at 2026-07-30T21:30:00Z (7:30 am AEST on 31
+    July)"): held too. A bracket that states another instant is not."""
+    out = []
+    for (_, y), instants in held:
+        m = _PAREN_RE.match(q, y)
+        if m is not None and instants and _restates(m.group(1), instants, region):
+            out.append((m.start(1), m.end(1)))
+    return out
+
+
+def _with_dates(q: str, a: int, b: int) -> tuple[int, int]:
+    """Words widened to the zone and date written right after them, and a date right before them ("on 2026-07-30
+    from 21:00 to 21:30 UTC"): a date written with a time is that time's date."""
+    m = _TIME_QUALIFIERS_RE.match(q, b)
+    lead = _LEAD_DATE_RE.search(q[:a])
+    return (lead.start() if lead else a), (m.end() if m else b)
+
+
+def _instants_in(text: str, q: str, region: str | None) -> set[datetime]:
+    out = {parse_iso(m.group(1)) for m in _ISO_RE.finditer(text)}
+    t, _ = _first_instant(text, q, region)
+    return out | ({t} if t is not None else set())
+
+
+def _on_grid(b: tuple[datetime, datetime]) -> bool:
+    return all(t.second == 0 and t.microsecond == 0 and t.minute in (0, 30) for t in b) and b[1] > b[0]
+
+
+def resolve_forecast(q: str, req: InvestigateRequest, region: str | None, event: Any, routed: Routed | None,
+                     run: RunRequest, cutoff: CutoffRequest, target: tuple[datetime, datetime] | None,
+                     target_source: Source | None, target_words: list[tuple[int, int]]) -> ForecastAnalysis:
+    """The operation and scope a forecast review asks for (D28), from the request's window fields, the question parser
+    and the routing model's grounded reading, each checked (``docs/decisions.md`` D28):
+
+    - **the operation:** the model's reading, evidenced by its own words, or the parser's positive reading; readings
+      that disagree, or a comparison both asked for and declined, are a conflict; none is unresolved, never a default;
+    - **the scope:** the request's window (authoritative); a half-hour the question or the run pins; an event's peak
+      half-hour or window (a held event); a whole local day, from a date that scopes the analysis (not a run's, a
+      target's or a cutoff's date); or an explicit start and end the model's words give. Distinct scopes are a
+      conflict, none is unresolved, and a period that only dates a pinned half-hour is that half-hour's;
+    - **every time** the question names must be held by a role's words (the cutoff's, the run's, the target's, the
+      scope's, or a bracket restating one of them), else the scope is unresolved;
+    - **supported windows only:** bounds on the half-hour grid, at most the forecast tools' 24 hours (a 25-hour DST
+      day or a 24.5-hour event window is sent back), never clipped;
+    - **consistency:** a comparison of one half-hour is a single-interval comparison, of a period a window
+      comparison."""
+    from .. import config
+
+    out = ForecastAnalysis(detected_by=["intent"])
+    model = routed.requested.forecast if routed is not None and routed.requested is not None else None
+    background = [Span("background", m.group(0), ((m.start(), m.end()),), "question") for m in _QUOTED_RE.finditer(q)]
+    run_words = [sp for sp in run.spans if sp.role == "run_selection" or (sp.role == "run_half_hour" and run.half_hour)]
+    if (mi := ISSUED_AT_RE.search(q)) is not None:
+        run_words.append(Span("run_selection", mi.group(0), (mi.span(),), "question"))
+    other = list(cutoff.spans) + run_words + background
+    # -- the operation: read without the cutoff's words and quoted background (a run's words may say what is asked:
+    # "what the forecast run issued at 16:57 projected")
+    p_op, p_span, p_conflicts = question_operation(q, _masked(q, list(cutoff.spans) + background))
+    if p_op is None and run.status == "bound" and run.selection in ("last_issued_before", "issued_at"):
+        # one forecast run asked for by its rule, and no comparison asked for: what that run said (a positive reading,
+        # never an absence; comparison words would have made it a comparison)
+        p_op = "forecast_value"
+        p_span = next((sp for sp in run_words if sp.role == "run_selection"), None)
+    m_op, m_span, why = _model_operation(model, q, other)
+    out.notes += [why] if why else []
+    out.spans += [x for x in (m_span, p_span) if x is not None]
+    out.detected_by += [s for s, hit in (("route_model", m_op is not None), ("question", p_op is not None)) if hit]
+    if m_op is None and p_op is None and not _asks_about_forecasts(_masked(q, list(cutoff.spans) + background)):
+        return ForecastAnalysis()  # no forecast is asked about (actual demand, a price): no forecast request
+    if m_op == "unclear":
+        out.status, out.missing = "unresolved", ["operation"]
+        return out
+    m_cls = None if m_op is None else "forecast_value" if m_op == "forecast_value" else "comparison"
+    if p_conflicts or (m_cls and p_op and m_cls != p_op):
+        out.status = "conflict"
+        out.conflicts = p_conflicts or ["operation: what the forecast said, or how it compared with actual demand"]
+        return out
+    cls = m_cls or p_op
+    if cls is None:
+        out.status, out.missing = "unresolved", ["operation"]
+        return out
+    out.provenance["operation"] = (Source("route_model", str(m_span.text)) if m_cls and m_span is not None else
+                                   Source("question", str(p_span.text if p_span else q), "question parser"))
+    # -- the scope
+    tw = [Span("target", q[a:b], ((a, b),), "question") for a, b in (_with_dates(q, x, y) for x, y in target_words)]
+    # every role's words, with the instants they state; a bracket right after them restating one is held too
+    roles = [(sp, _instants_in(sp.text, q, region) | (set(target) if target and sp in tw else set()) |
+              ({cutoff.as_of} if sp.role == "cutoff" and cutoff.as_of else set()) |
+              ({run.issued_at} if sp.role == "run_selection" and run.issued_at else set()))
+             for sp in list(cutoff.spans) + run_words + tw if sp.located is not None]
+    restated = [Span("restatement", q[a:b], ((a, b),), "question")
+                for a, b in _restatements(q, [(sp.located, inst) for sp, inst in roles if sp.located], region)]
+    readings: list[tuple[str, tuple[datetime, datetime], Source, list[Span]]] = []
+    if target is not None:
+        readings.append(("half_hour", target, target_source or Source("question", q, "question parser"), tw))
+    scope_text = _masked(q, other + tw)
+    if (pk := _PEAK_HALF_HOUR_RE.search(scope_text)) is not None:
+        if event is not None:
+            end = half_hour_end_for(parse_iso(event.peak_interval_end_utc))
+            readings.append(("event_peak_half_hour", (end - timedelta(minutes=30), end),
+                             Source("question", pk.group(0), f"the peak half-hour of {event.event_id}"),
+                             [Span("scope", pk.group(0), (pk.span(),), "question")]))
+        else:
+            out.notes.append("scope: a peak half-hour is named, but no price event is held for it")
+    if (ev := _EVENT_WINDOW_RE.search(scope_text)) is not None and event is not None:
+        readings.append(("event", (parse_iso(event.window_start_utc), parse_iso(event.window_end_utc)),
+                         Source("question", ev.group(0), f"the window of {event.event_id}"),
+                         [Span("scope", ev.group(0), (ev.span(),), "question")]))
+    m_scope = span("scope", model.scope_text, q) if model is not None and model.scope in SINGLE_SCOPES + PERIOD_SCOPES \
+        else None  # its own date is that scope's, never a separate analysis date
+    analysis, ambiguous = _date_roles(q, [sp.located for sp in other + tw + restated + ([m_scope] if m_scope else [])
+                                          if sp.located is not None])
+    days = sorted({d for d, _ in analysis})
+    if len(days) > 1:
+        out.status = "conflict"
+        out.conflicts = ["scope: several dates are given for the analysis"]
+        return out
+    if days and region:
+        words = [Span("scope", q[a:b], ((a, b),), "question") for d, (a, b) in analysis]
+        readings.append(("whole_local_day", local_day_window(days[0], region),
+                         Source("question", words[0].text, f"whole local day {days[0]} in {region}"), words))
+    out.notes += [f"scope: the role of the date '{d}' is not shown" for d in ambiguous]
+    run_model = routed.requested.forecast_run if routed is not None and routed.requested is not None else None
+    if target is None and run_model is not None and run_model.half_hour_text and \
+            (sp := span("scope", run_model.half_hour_text, q)) is not None and sp.located is not None and \
+            not any(_overlap(sp, o) for o in list(cutoff.spans) + background):
+        hh, _, conv = half_hour_from_text(sp.text, q, region)  # the routing model's quoted half-hour, read by code
+        if hh is not None:
+            readings.append(("half_hour", hh, Source("route_model", sp.text, conv), [sp]))
+    if model is not None and model.scope in SINGLE_SCOPES + PERIOD_SCOPES:
+        sp = span("scope", model.scope_text, q)
+        fail = None
+        if sp is None or sp.located is None:
+            fail = "the routing model's words are not located once in the question"
+        elif any(_overlap(sp, o) for o in list(cutoff.spans) + background +
+                 [r for r in run_words if r.role == "run_selection"]):
+            fail = f"'{sp.text}' are another role's words or quoted background"
+        else:
+            text, got = sp.text, None
+            if model.scope == "half_hour":
+                hh, _, conv = half_hour_from_text(text, q, region)
+                got = (hh, conv) if hh is not None else None
+            elif model.scope == "event_peak_half_hour" and event is not None and _PEAK_HALF_HOUR_RE.search(text):
+                end = half_hour_end_for(parse_iso(event.peak_interval_end_utc))
+                got = ((end - timedelta(minutes=30), end), f"the peak half-hour of {event.event_id}")
+            elif model.scope == "whole_local_day" and _day_span_ok(text) and region:
+                d = _day_of(text, q)
+                got = (local_day_window(d, region), f"whole local day {d} in {region}") if d is not None else None
+            elif model.scope == "event" and event is not None and _EVENT_WORD_RE.search(text):
+                got = ((parse_iso(event.window_start_utc), parse_iso(event.window_end_utc)),
+                       f"the window of {event.event_id}")
+            elif model.scope == "explicit":
+                w, conv = window_from_text(text, q, region)
+                got = (w, conv) if w is not None else None
+            if got is None:
+                fail = f"'{text}' does not give a {model.scope.replace('_', ' ')} that code can read"
+            else:
+                readings.append((model.scope, got[0], Source("route_model", text, got[1]), [sp]))
+        if fail:
+            out.notes.append(f"scope: {fail}")
+    chosen: tuple[str, tuple[datetime, datetime], Source, list[Span]]
+    if req.window_start_utc and req.window_end_utc:  # the request's window is authoritative
+        chosen = ("explicit", (parse_iso(req.window_start_utc), parse_iso(req.window_end_utc)),
+                  Source("request", "window_start_utc, window_end_utc"), [])
+    else:
+        singles = [r for r in readings if r[0] in SINGLE_SCOPES]
+        periods = [r for r in readings if r[0] in PERIOD_SCOPES]
+        if len({r[1] for r in singles}) > 1:
+            out.status, out.conflicts = "conflict", ["scope: two different half-hours"]
+            return out
+        if singles:
+            t = singles[0][1]
+            # a period that only dates the half-hour ("on 31 July ... the half-hour ending 8:00": its local or UTC
+            # date, or the event that holds it) is the half-hour's; another stated period is another scope
+            def dates_it(p: tuple[str, tuple[datetime, datetime], Source, list[Span]]) -> bool:
+                if p[0] == "event":
+                    return p[1][0] <= t[0] and t[1] <= p[1][1]
+                if p[0] != "whole_local_day" or not region:
+                    return False
+                day = p[1][0].astimezone(region_zone(region)).date()  # the day the period is
+                inner = (t[0], t[1] - timedelta(minutes=1))
+                return day in {x.astimezone(region_zone(region)).date() for x in inner} | {x.date() for x in inner}
+            if not all(dates_it(p) for p in periods):
+                out.status, out.conflicts = "conflict", ["scope: a half-hour and a period"]
+                return out
+            chosen = next((r for r in singles if r[2].source == "route_model"), singles[0])
+        elif periods:
+            distinct = {r[1] for r in periods}
+            evs = [r for r in periods if r[0] == "event"]
+            if len(distinct) > 1 and evs and all(r[0] in ("event", "whole_local_day") for r in periods) and \
+                    all(event is not None and r[1][0] <= half_hour_end_for(parse_iso(event.peak_interval_end_utc))
+                        <= r[1][1] for r in periods):
+                chosen = evs[0]  # an event named on its date: the date identifies the event
+            elif len(distinct) > 1:
+                out.status, out.conflicts = "conflict", ["scope: " + " or ".join(sorted({r[0] for r in periods}))]
+                return out
+            else:
+                chosen = next((r for r in periods if r[2].source == "route_model"), periods[0])
+        else:
+            out.status, out.missing = "unresolved", ["scope"]
+            return out
+    kind, bounds, src, words = chosen
+    out.spans += [w for w in words if w not in out.spans]
+    # every time the question names must be held by a role's words, or restate one (a time no role holds may be the
+    # half-hour asked about or narrow the period: D26's rule, here for a forecast review)
+    held = [sp.located for sp in other + tw + restated + [w for r in readings for w in r[3]] + words
+            if sp.located is not None]
+    loose = [q[a:b] for a, b in _time_expressions(q)
+             if not any(x <= a and b - (q[b - 1] == ".") <= y for x, y in held)]  # "3:57 pm." ends a sentence
+    if loose:
+        out.status, out.missing = "unresolved", ["scope"]
+        out.notes.append(f"scope: the question names {', '.join(repr(t) for t in loose)}, which no role's words hold")
+        return out
+    if kind in PERIOD_SCOPES and _narrows(_masked(_masked(q, other + tw), words)):
+        out.status, out.missing = "unresolved", ["scope"]
+        out.notes.append("scope: other words narrow the period")
+        return out
+    if not _on_grid(bounds) or bounds[1] - bounds[0] > timedelta(hours=config.MAX_FORECAST_TARGET_HOURS):
+        out.status, out.missing = "unresolved", ["window_limit"]
+        out.notes.append(f"scope: ({iso_utc(bounds[0])}, {iso_utc(bounds[1])}] is not whole half-hours within "
+                         f"{config.MAX_FORECAST_TARGET_HOURS} hours")
+        return out
+    single = kind in SINGLE_SCOPES
+    op = "forecast_value" if cls == "forecast_value" else "single_interval_comparison" if single else "window_comparison"
+    if m_op is not None and m_op != op:
+        out.status = "conflict"
+        out.conflicts = [f"operation: {m_op.replace('_', ' ')} (the routing model) for a "
+                         f"{'half-hour' if single else 'period'}"]
+        return out
+    out.status, out.operation, out.scope = "bound", op, kind
+    out.target, out.window = (bounds, None) if single else (None, bounds)
+    out.provenance["scope"] = src
+    return out
+
+
+FORECAST_OPERATION_CLARIFICATION = (
+    "Is the question asking what AEMO's forecast said, or how the forecast compared with actual demand? It cannot be "
+    "told from the question, so nothing is compared or given in its place.")
+FORECAST_OPERATION_CONFLICT = (
+    "The question can be read as asking what the forecast said and as asking how it compared with actual demand. "
+    "Which is meant? Neither is assumed.")
+FORECAST_SCOPE_CLARIFICATION = (
+    "Which half-hour or period is the forecast question about? Give one half-hour, one whole local day, a price event, "
+    "or a start and an end, with the date and time zone. No default period is reviewed in its place.")
+FORECAST_SCOPE_CONFLICT = (
+    "The forecast question can be read as asking about two different half-hours or periods. Which is meant? Neither is "
+    "assumed.")
+# the field only: no time, number or quotation for the answer checks to read
+FORECAST_LIMIT_CLARIFICATION = (
+    "The period asked about is longer than a forecast comparison covers (at most one day), or is not made of whole "
+    "half-hours. Give a period of whole half-hours within one day. Nothing is compared over part of it.")
+
+
 def clarifications(r: RequestResolution) -> list[str]:
     """For each detected request that is not bound: a clarification naming what is missing or which readings
     conflict. A maximum's missing date is left to the resolver's own question."""
@@ -1218,6 +1715,13 @@ def clarifications(r: RequestResolution) -> list[str]:
                    else START_OR_END_CLARIFICATION if miss == {"start_or_end"}
                    else TIME_ZONE_CLARIFICATION if miss == {"time_zone"}
                    else NAMED_RUN_HALF_HOUR_CLARIFICATION if fr.selection == "issued_at" else HALF_HOUR_CLARIFICATION)
+    fa = r.forecast  # D28: what a forecast review asks for, its operation and its half-hour or period
+    if fa.status == "conflict":
+        out.append(FORECAST_OPERATION_CONFLICT if any(c.startswith("operation") for c in fa.conflicts)
+                   else FORECAST_SCOPE_CONFLICT)
+    elif fa.status == "unresolved":
+        out.append(FORECAST_OPERATION_CLARIFICATION if "operation" in fa.missing else FORECAST_LIMIT_CLARIFICATION
+                   if "window_limit" in fa.missing else FORECAST_SCOPE_CLARIFICATION)
     if mx.status == "conflict":
         out.append(f"The {_fields(mx.conflicts)} of the demand peak asked about can be read in two ways: the "
                    "question's wording and the routing model's reading disagree. Which is meant? Neither is chosen.")
