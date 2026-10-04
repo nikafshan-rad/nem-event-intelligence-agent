@@ -34,7 +34,7 @@ capture. The same question in Replay mode, which uses no language model and is l
 | Typed computed answers: demand maxima (`analytical_result/1`) and forecast comparisons (`forecast_result/1`), computed and verified by code and rendered apart from the model's interpretation (report format "2") | built, verified offline. **Live: experimental.** Every computed result shown in the demand-maxima and v13 end-to-end Live checks matched gold (6 and 5), but both checks failed for other reasons | D24, D25, D27; `tests/provider`; [`RELEASE_NOTES.md`](RELEASE_NOTES.md) |
 | Request resolution before any tool: route contract v15 (prompts v16) for the forecast run, the demand maximum, and the forecast's operation, scope and kind | built, verified offline. **Live: experimental.** The v13 routing-only check passed on a development sample. The v15 routing diagnostic failed (supply 3/20; correct readings rejected by the resolver) | D26, D28, D29; [`docs/live-gates.md`](docs/live-gates.md) |
 | Independent validators (numbers, quotes, as-of, metrics, causality, injection) + approval-gated local write | built, verified | G5, `make safety` |
-| 40-case evaluation, two baselines, held-out split | built, measured (replay) | G6, [`artifacts/eval/report.md`](artifacts/eval/report.md) |
+| 40-case evaluation, two baselines, held-out split | built, measured (replay) | G6; v2.0.0: [`artifacts/release/v2.0.0/eval/report.md`](artifacts/release/v2.0.0/eval/report.md) (2026-09-28: [`artifacts/eval/report.md`](artifacts/eval/report.md)) |
 | FastAPI + Streamlit UI + API smoke test | built, verified | G7, [`docs/demo.md`](docs/demo.md) |
 | Approved-bytes store: builds that restore every approved publisher file, verified by SHA-256, without contacting AEMO/NASA | built, verified 2026-09-27 (fresh machine, no cache) | [`docs/pinned-store.md`](docs/pinned-store.md) |
 | Separate day-ahead quantile experiment (our model, not AEMO's) | built, measured | G8, [`artifacts/ml/report.md`](artifacts/ml/report.md) |
@@ -220,29 +220,46 @@ approving the exact content hash. Details: [`docs/architecture.md`](docs/archite
 
 ## Measured results (replay; code/data/corpus versions are in each report)
 
-Held-out split = 21 of 40 cases (split by event group; no event group appears in both splits).
+Held-out split = 21 of 40 cases (split by event group; no event group appears in both splits). These figures were
+measured on the v2.0.0 release code against the frozen gold
+([`artifacts/release/v2.0.0/eval/report.md`](artifacts/release/v2.0.0/eval/report.md)).
 
 | Metric | System | Baseline: table (no LLM, no RAG) | Baseline: retrieval-only |
 | --- | --- | --- | --- |
-| Status matches expectation | 20/21 | 15/20 | 18/20 |
+| Status matches expectation | 18/21 | 15/20 | 18/20 |
 | Unanswerable cases safely handled | 2/2 | 0/2 | 0/2 |
-| Required-tool recall (answerable) | 43/43 | n/a | n/a |
-| Numeric traceability (accepted reports) | 96/96 | 881/881 (raw tool values) | 0/0 |
-| Citation validity (accepted reports) | 51/51 | 0/0 | 100/100 |
+| Required-tool recall (answerable) | 39/39 | n/a | n/a |
+| Numeric traceability (accepted reports) | 95/95 | 881/881 (raw tool values) | 0/0 |
+| Citation validity (accepted reports) | 53/53 | 0/0 | 100/100 |
 | Gold numbers found (from independent SQL) | 13/13 | 13/13 | 0/13 |
-| Forecast gold (MAE, pairs, as-of run) | 5/5 | 3/5 | 0/5 |
+| Forecast gold (MAE, pairs, as-of run) | 1/5 | 3/5 | 0/5 |
 | Gold citation found (document cases) | 3/4 | 0/1 | 2/4 |
-| As-of leakage (items) | **0** | 1,167 | 7 |
+| As-of leakage (items) | **0** | 2,130 | 7 |
 | Unauthorized writes | 0 | 0 | 0 |
 
+**Changes since the 2026-09-28 measurement** (the earlier figures are in
+[`artifacts/eval/report.md`](artifacts/eval/report.md); the frozen gold is unchanged):
+- **Forecast gold, 5/5 → 1/5 (test) and 0/5 (dev).** A forecast review now compares the whole local day the question
+  names, while the gold encodes an earlier 12-hour slice (D28).
+- **Status, 20/21 → 18/21.**
+  - FC02 does not say which forecast it means, so it is sent back (D29).
+  - AMB06's 24.5-hour event window is over the forecast tools' 24 hours, so it is sent back (D28).
+
+  Both are sent back by design.
+- **Other figures changed with later code** and are reported as measured: required-tool recall (43/43 → 39/39),
+  traceability (96/96 → 95/95; still 100%), citation validity (51/51 → 53/53; still 100%), and the table baseline's
+  as-of leakage (1,167 → 2,130). D28 and D29 record the forecast-gold, status and routing changes; metric changes
+  against the frozen gold are reported, never forced either way.
+
 - Retrieval (15 hand-reviewed queries): **Recall@5 = 16/21**, Hit@5 = 15/15, MRR@5 = 0.830 (`artifacts/eval/retrieval_eval.json`,
-  `make retrieval-eval`). It was 17/21 before AEMO revised SO_OP_3705 on 2026-09-23, which shifted keyword-search
-  statistics (docs/decisions.md D20).
-- Safety suite: 22/22 SYNTHETIC corruptions of real reports detected, 0 critical violations left after the pipeline,
+  `make retrieval-eval`; unchanged on the v2.0.0 code). It was 17/21 before AEMO revised SO_OP_3705 on 2026-09-23,
+  which shifted keyword-search statistics (docs/decisions.md D20).
+- Safety suite: 24/24 SYNTHETIC corruptions of real reports detected, 0 critical violations left after the pipeline,
   0 unauthorized writes, exactly 1 write for a valid distinct approval (`artifacts/g5_safety_summary.json`).
-- Scripted router (test): 19/20 correct, macro-F1 0.92 (0.83 originally; the as-of forecast rule fixed AMB06 and
-  the notice rule fixed ADV02). **Known failure**: DOC04 ("How does AEMO produce the 10% and 90% POE demand
-  forecasts?") is routed to a forecast review and asks for a region instead of answering from SO_OP_3710.
+- Scripted router (test): 17/20 correct, macro-F1 0.82 (0.92 on 2026-09-28; 0.83 originally).
+  - **Sent back by design** (a clarification counts as a routing miss): FC02 and AMB06.
+  - **Known failure:** DOC04 ("How does AEMO produce the 10% and 90% POE demand forecasts?") is routed to a forecast
+    review and asks for a region instead of answering from SO_OP_3710.
 - Separate experiment, SA1 day-ahead demand, 6 monthly rolling-origin folds, 8,408 test half-hours: linear quantile
   model MAE **159.7 MW** vs seasonal-naive 173.6 MW and persistence 185.3 MW; q10–q90 coverage 0.796 (target 0.80).
   This is this project's model, not an AEMO forecast.
@@ -414,6 +431,8 @@ Fixed during the evaluation, each with tests:
 
 1. `What happened around the SA1 price spike on 2026-07-31?`
 2. `As of 2026-07-30T14:35:00Z, what did the latest issued forecast say for the SA1 peak half-hour on 2026-07-31?`
+   Since D29 this is sent back with "Which forecast is the question about?", because it does not say what is
+   forecast. Ask about "the latest issued operational demand forecast" to get the as-of forecast review.
 3. `Did low wind cause the SA1 price spike on 2026-07-31?` (answers with observations and hedged hypotheses, not a cause)
 
 ## Privacy, attribution, licence
