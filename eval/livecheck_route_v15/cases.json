@@ -1,0 +1,231 @@
+{
+ "version": "livecheck_route_v15/1",
+ "questions": 17,
+ "configurations": 17,
+ "calls": 34,
+ "cases": [
+  {
+   "config": "D01",
+   "group": "familiar",
+   "set": "supply",
+   "tests": "named run; forecast and actual for one half-hour",
+   "source": {
+    "file": "eval/livecheck_i15_17/cases.json",
+    "case_id": "K14"
+   },
+   "question": "Take the forecast run issued at 2026-07-30T18:56:59Z. For Tasmania's half-hour ending at 8:00 am AEST, 31 July 2026, which POE10, POE50 and POE90 operational demand values did it give, and how much operational demand was actually recorded in that half-hour?",
+   "request": {},
+   "repeats": 2
+  },
+  {
+   "config": "D02",
+   "group": "familiar",
+   "set": "supply",
+   "tests": "last run issued before a half-hour; forecast and actual",
+   "source": {
+    "file": "eval/livecheck_i15_17/cases.json",
+    "case_id": "K06"
+   },
+   "question": "Taking South Australia's 7:30-8:00 am half-hour (Adelaide time, ACST) on 20 August 2026: what POE10, POE50 and POE90 operational demand values were in the final forecast run issued ahead of it, and what operational demand was actually measured?",
+   "request": {},
+   "repeats": 2
+  },
+  {
+   "config": "D03",
+   "group": "familiar",
+   "set": "supply",
+   "tests": "window comparison over a day",
+   "source": {
+    "file": "eval/cases.json",
+    "case_id": "FC04"
+   },
+   "question": "How accurate were the operational demand forecasts for NSW1 on 31 July 2026?",
+   "request": {},
+   "repeats": 2
+  },
+  {
+   "config": "D04",
+   "group": "familiar",
+   "set": "supply",
+   "tests": "a stated window, used exactly",
+   "source": {
+    "file": "tests/provider/test_forecast_request.py",
+    "case_id": null
+   },
+   "question": "How did the operational demand forecasts compare with actual demand in SA1 between 18:00 and 21:00 ACST on 31 July 2026?",
+   "request": {},
+   "repeats": 2
+  },
+  {
+   "config": "D05",
+   "group": "familiar",
+   "set": "supply",
+   "tests": "target, window and cutoff separation",
+   "source": {
+    "file": "eval/holdout_v5/cases.json",
+    "case_id": "Y07"
+   },
+   "question": "As of 2026-08-19T20:00:00Z, looking only at runs already public, what was the newest Victorian operational demand forecast for the 23:00 to 23:30 UTC half-hour, at POE10, POE50 and POE90?",
+   "request": {},
+   "repeats": 2
+  },
+  {
+   "config": "D06",
+   "group": "familiar",
+   "set": "supply",
+   "tests": "mixed: a demand forecast and a weather expectation",
+   "source": {
+    "file": "eval/holdout_v2/cases.json",
+    "case_id": "H06"
+   },
+   "question": "As of 2026-08-19T21:00:00Z, what did the latest available AEMO forecast expect Victorian operational demand to be for the half-hour ending 2026-08-19T23:30:00Z, and was cold weather expected to push demand up that morning?",
+   "request": {},
+   "repeats": 2
+  },
+  {
+   "config": "D07",
+   "group": "familiar",
+   "set": "supply",
+   "tests": "mixed: a demand forecast and a temperature expectation",
+   "source": {
+    "file": "eval/holdout_v6/cases.json",
+    "case_id": "Z07"
+   },
+   "question": "For South Australia's half-hour closing 2026-07-29T08:00:00Z, what POE50 operational demand did AEMO's newest forecast run show as of 2026-07-29T05:00:00Z, and what temperature was then expected for Adelaide at that time?",
+   "request": {},
+   "repeats": 2
+  },
+  {
+   "config": "D08",
+   "group": "familiar",
+   "set": "ambiguity",
+   "tests": "an ambiguous forecast reference",
+   "source": {
+    "file": "eval/cases.json",
+    "case_id": "FC02"
+   },
+   "question": "As of 2026-07-30T14:35:00Z, what did the latest issued forecast say for the SA1 peak half-hour on 2026-07-31?",
+   "request": {},
+   "repeats": 2
+  },
+  {
+   "config": "D09",
+   "group": "familiar",
+   "set": "containment",
+   "tests": "weather only",
+   "source": {
+    "file": "tests/provider/test_forecast_domain.py",
+    "case_id": null
+   },
+   "question": "What was the weather forecast for Adelaide on 31 July 2026?",
+   "request": {},
+   "repeats": 2
+  },
+  {
+   "config": "D10",
+   "group": "familiar",
+   "set": "supply",
+   "tests": "demand-maximum regression control",
+   "source": {
+    "file": "eval/livecheck_maxima/cases.json",
+    "case_id": "F07"
+   },
+   "question": "Based only on data published by noon Brisbane time on Sunday 5 October 2025, what was the highest operational demand in Queensland over that entire local day, and at what time?",
+   "request": {
+    "as_of_utc": "2025-10-05T02:00:00Z"
+   },
+   "repeats": 2
+  },
+  {
+   "config": "N01",
+   "group": "fresh",
+   "set": "containment",
+   "tests": "a temperature forecast only, asking for its highest value",
+   "source": {
+    "file": "eval/livecheck_route_v15/WRITER_OUTPUT.json",
+    "case_id": "N01"
+   },
+   "question": "I'm adding some weather colour to a write-up on Brisbane. What maximum temperature was forecast for the city on 13 August 2026?",
+   "request": {},
+   "repeats": 2
+  },
+  {
+   "config": "N02",
+   "group": "fresh",
+   "set": "containment",
+   "tests": "AEMO's price forecasts only, for a past day",
+   "source": {
+    "file": "eval/livecheck_route_v15/WRITER_OUTPUT.json",
+    "case_id": "N02"
+   },
+   "question": "Could you pull AEMO's predispatch price forecasts for South Australia? The day I care about is 29 July 2026, and I want to see what the pre-dispatch runs were projecting for the regional spot price that evening.",
+   "request": {},
+   "repeats": 2
+  },
+  {
+   "config": "N03",
+   "group": "fresh",
+   "set": "containment",
+   "tests": "a genuinely ambiguous reference to the forecasts",
+   "source": {
+    "file": "eval/livecheck_route_v15/WRITER_OUTPUT.json",
+    "case_id": "N03"
+   },
+   "question": "I'm reviewing how 10 August 2026 played out in New South Wales. How far off were the forecasts on the day, compared with what actually happened?",
+   "request": {},
+   "repeats": 2
+  },
+  {
+   "config": "N04",
+   "group": "fresh",
+   "set": "supply",
+   "tests": "negation: a weather forecast declined, the operational demand forecast asked",
+   "source": {
+    "file": "eval/livecheck_route_v15/WRITER_OUTPUT.json",
+    "case_id": "N04"
+   },
+   "question": "Leave the weather forecast out of this one. For Victoria, I want AEMO's operational demand forecast values for a single half-hour on 17 August 2026: the one ending at 18:30 AEST. What did they show?",
+   "request": {},
+   "repeats": 2
+  },
+  {
+   "config": "N05",
+   "group": "fresh",
+   "set": "containment",
+   "tests": "negation: the operational demand forecast declined, a weather forecast asked",
+   "source": {
+    "file": "eval/livecheck_route_v15/WRITER_OUTPUT.json",
+    "case_id": "N05"
+   },
+   "question": "I don't need AEMO's operational demand forecast for this. What did the weather forecasters expect for Hobart on 2 August 2026, particularly wind and rain?",
+   "request": {},
+   "repeats": 2
+  },
+  {
+   "config": "N06",
+   "group": "fresh",
+   "set": "containment",
+   "tests": "quoted background about a demand forecast; a temperature or weather forecast asked",
+   "source": {
+    "file": "eval/livecheck_route_v15/WRITER_OUTPUT.json",
+    "case_id": "N06"
+   },
+   "question": "For context, someone in our operations team told me \"AEMO's demand forecast for South Australia came in well below the actuals.\" What minimum temperature had been forecast for Adelaide on 14 August 2026?",
+   "request": {},
+   "repeats": 2
+  },
+  {
+   "config": "N07",
+   "group": "fresh",
+   "set": "supply",
+   "tests": "quoted background about a weather forecast; the demand forecast compared with actual demand",
+   "source": {
+    "file": "eval/livecheck_route_v15/WRITER_OUTPUT.json",
+    "case_id": "N07"
+   },
+   "question": "A colleague's note says \"the Bureau was calling for a cold, drizzly morning across Brisbane.\" How did AEMO's operational demand forecast for Queensland compare with actual operational demand between 06:00 and noon AEST on 4 August 2026?",
+   "request": {},
+   "repeats": 2
+  }
+ ]
+}

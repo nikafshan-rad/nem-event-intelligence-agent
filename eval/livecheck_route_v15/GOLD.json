@@ -1,0 +1,698 @@
+{
+ "generated_by": "eval/livecheck_route_v15/gold.py",
+ "sources_sha256": {
+  "eval/cases.json": "cbeba873d2c8809ffcb83a43373b50ec5887f80b78ff0b432d2e25fe4f083249",
+  "eval/holdout_v2/cases.json": "413f875b4760855c8970c2bf5790e7633f53e0d21f090d699cabcffa46c99ebf",
+  "eval/holdout_v5/cases.json": "c33a06a372c15f8c7442a7f9fcf4814c45c15162bbfa7904ad828afec19b4ca3",
+  "eval/holdout_v6/cases.json": "1c3467b478df7ad7a6e87104c30276a030a2de49252e75af04723fd2a9283da2",
+  "eval/livecheck_i15_17/VERIFICATION.json": "baad49e073bdf8b12049ab84d4acfc6e7036761246c9d96b5b7c9b5969df565a",
+  "eval/livecheck_i15_17/cases.json": "9f0da7bf3f4fa6b79abf258604611bec61ce173e48dd209cf0b99d51a8e04ed9",
+  "eval/livecheck_maxima/GOLD.json": "19f1a3a9aab89bb1202c770d16b96e5a7e5ef7f7d748fc031f3fca047d5f595b",
+  "eval/livecheck_maxima/GOLD_CHECK.json": "6bf7c16e8f2ed6bc88e78d7ea7dbe7491f898a5ba77275a01265880e1646ff7c",
+  "eval/livecheck_maxima/cases.json": "af70b845b95a7b487986d15c0a2860fab50aa728c00672922135502701b5807b",
+  "tests/provider/test_forecast_domain.py": "cf288f8b89ec636e81586ff72d181c6099a18cf6945c836c56fe662c1ed9498c",
+  "tests/provider/test_forecast_request.py": "e96f850f4eaad38977791ccff4035823a691b9d0ff691a8cd30f4d6e8ec5e808"
+ },
+ "cases": [
+  {
+   "config": "D01",
+   "question": "Take the forecast run issued at 2026-07-30T18:56:59Z. For Tasmania's half-hour ending at 8:00 am AEST, 31 July 2026, which POE10, POE50 and POE90 operational demand values did it give, and how much operational demand was actually recorded in that half-hour?",
+   "request": {},
+   "region": "TAS1",
+   "outcome": "resolved",
+   "acceptable_outcomes": [
+    "resolved"
+   ],
+   "intents": [
+    "forecast_review"
+   ],
+   "domain": "operational_demand",
+   "operation": "single_interval_comparison",
+   "scope": {
+    "kinds": [
+     "half_hour"
+    ],
+    "start_utc": "2026-07-30T21:30:00Z",
+    "end_utc": "2026-07-30T22:00:00Z",
+    "start_local": "2026-07-31T07:30:00+10:00",
+    "end_local": "2026-07-31T08:00:00+10:00",
+    "half_hours": 1
+   },
+   "run": {
+    "rule": "issued_at",
+    "half_hour_end_utc": "2026-07-30T22:00:00Z",
+    "issued_at_utc": "2026-07-30T18:56:59Z"
+   },
+   "cutoff_utc": null,
+   "maximum": null,
+   "request_anchors": [
+    "the forecast run issued at 2026-07-30T18:56:59Z",
+    "Tasmania's half-hour ending at 8:00 am AEST, 31 July 2026",
+    "how much operational demand was actually recorded"
+   ],
+   "excluded_anchors": [],
+   "unsupported_parts": [],
+   "demand_forecast_tools": "eligible",
+   "notes": "Supply; I agree it is resolved. Region TAS1. The half-hour ending 08:00 AEST on 31 July 2026 is (07:30, 08:00] Hobart time (AEST in July), i.e. 2026-07-30T21:30Z to 22:00Z. One run is named by its exact issue time (2026-07-30T18:56:59Z = 04:56:59 AEST, before the half-hour), so the run selection is issued_at. It asks for that run's POE10/50/90 values and the actual operational demand for the same half-hour, with no error figure: a single-interval comparison. No cutoff. The half-hour lies in the TAS1 31 July event window but is the one after the event's peak half-hour (ending 07:30 AEST), so the scope is a plain half-hour, not event_peak_half_hour.",
+   "resolved_reading": "operational_demand_forecast",
+   "group": "familiar",
+   "set": "supply",
+   "gold_source": "writer, step 2"
+  },
+  {
+   "config": "D02",
+   "question": "Taking South Australia's 7:30-8:00 am half-hour (Adelaide time, ACST) on 20 August 2026: what POE10, POE50 and POE90 operational demand values were in the final forecast run issued ahead of it, and what operational demand was actually measured?",
+   "request": {},
+   "region": "SA1",
+   "outcome": "resolved",
+   "acceptable_outcomes": [
+    "resolved"
+   ],
+   "intents": [
+    "forecast_review"
+   ],
+   "domain": "operational_demand",
+   "operation": "single_interval_comparison",
+   "scope": {
+    "kinds": [
+     "half_hour"
+    ],
+    "start_utc": "2026-08-19T22:00:00Z",
+    "end_utc": "2026-08-19T22:30:00Z",
+    "start_local": "2026-08-20T07:30:00+09:30",
+    "end_local": "2026-08-20T08:00:00+09:30",
+    "half_hours": 1
+   },
+   "run": {
+    "rule": "last_issued_before",
+    "half_hour_end_utc": "2026-08-19T22:30:00Z",
+    "issued_at_utc": null
+   },
+   "cutoff_utc": null,
+   "maximum": null,
+   "request_anchors": [
+    "South Australia's 7:30-8:00 am half-hour",
+    "the final forecast run issued ahead of it",
+    "what operational demand was actually measured"
+   ],
+   "excluded_anchors": [],
+   "unsupported_parts": [],
+   "demand_forecast_tools": "eligible",
+   "notes": "Supply; I agree it is resolved. Region SA1. The 7:30-8:00 am ACST half-hour on 20 August 2026 is (07:30, 08:00] Adelaide time (ACST, UTC+09:30), i.e. 2026-08-19T22:00Z to 22:30Z: the local date is 20 August, the UTC start falls on 19 August. 'The final forecast run issued ahead of it' is the last run issued before the half-hour starts (last_issued_before). It asks for that run's POE10/50/90 values and the measured operational demand, with no error figure: a single-interval comparison. No cutoff.",
+   "resolved_reading": "operational_demand_forecast",
+   "group": "familiar",
+   "set": "supply",
+   "gold_source": "writer, step 2"
+  },
+  {
+   "config": "D03",
+   "question": "How accurate were the operational demand forecasts for NSW1 on 31 July 2026?",
+   "request": {},
+   "region": "NSW1",
+   "outcome": "resolved",
+   "acceptable_outcomes": [
+    "resolved"
+   ],
+   "intents": [
+    "forecast_review"
+   ],
+   "domain": "operational_demand",
+   "operation": "window_comparison",
+   "scope": {
+    "kinds": [
+     "whole_local_day"
+    ],
+    "start_utc": "2026-07-30T14:00:00Z",
+    "end_utc": "2026-07-31T14:00:00Z",
+    "start_local": "2026-07-31T00:00:00+10:00",
+    "end_local": "2026-08-01T00:00:00+10:00",
+    "half_hours": 48
+   },
+   "run": {
+    "rule": "none",
+    "half_hour_end_utc": null,
+    "issued_at_utc": null
+   },
+   "cutoff_utc": null,
+   "maximum": null,
+   "request_anchors": [
+    "How accurate were the operational demand forecasts",
+    "for NSW1 on 31 July 2026"
+   ],
+   "excluded_anchors": [],
+   "unsupported_parts": [],
+   "demand_forecast_tools": "eligible",
+   "notes": "Supply; I agree it is resolved. Region NSW1. 'How accurate' over a date is a window comparison of the operational demand forecasts against actual operational demand over the whole local day of 31 July 2026 in Sydney time (AEST): 2026-07-30T14:00Z to 2026-07-31T14:00Z, 48 half-hours. No run is singled out (run none) and there is no cutoff. The date contains the NSW1 31 July high-price event, but the question names the day, not the event, and the event window (2026-07-30T09:30Z to 2026-07-31T09:30Z) is a different set of half-hours, so the scope is whole_local_day only.",
+   "resolved_reading": "operational_demand_forecast",
+   "group": "familiar",
+   "set": "supply",
+   "gold_source": "writer, step 2"
+  },
+  {
+   "config": "D04",
+   "question": "How did the operational demand forecasts compare with actual demand in SA1 between 18:00 and 21:00 ACST on 31 July 2026?",
+   "request": {},
+   "region": "SA1",
+   "outcome": "resolved",
+   "acceptable_outcomes": [
+    "resolved"
+   ],
+   "intents": [
+    "forecast_review"
+   ],
+   "domain": "operational_demand",
+   "operation": "window_comparison",
+   "scope": {
+    "kinds": [
+     "explicit"
+    ],
+    "start_utc": "2026-07-31T08:30:00Z",
+    "end_utc": "2026-07-31T11:30:00Z",
+    "start_local": "2026-07-31T18:00:00+09:30",
+    "end_local": "2026-07-31T21:00:00+09:30",
+    "half_hours": 6
+   },
+   "run": {
+    "rule": "none",
+    "half_hour_end_utc": null,
+    "issued_at_utc": null
+   },
+   "cutoff_utc": null,
+   "maximum": null,
+   "request_anchors": [
+    "the operational demand forecasts compare with actual demand",
+    "in SA1 between 18:00 and 21:00 ACST on 31 July 2026"
+   ],
+   "excluded_anchors": [],
+   "unsupported_parts": [],
+   "demand_forecast_tools": "eligible",
+   "notes": "Supply; I agree it is resolved. Region SA1. An explicit period, 18:00 to 21:00 ACST on 31 July 2026, i.e. (18:00, 21:00] local = 2026-07-31T08:30Z to 11:30Z, 6 half-hours (ending 18:30 to 21:00). Comparing the forecasts with actual demand over a period is a window comparison; 'actual demand' is read as actual operational demand, the measure the forecasts are of. No run singled out, no cutoff. The period lies after the SA1 31 July event window (ends 2026-07-31T05:00Z), so it is explicit only.",
+   "resolved_reading": "operational_demand_forecast",
+   "group": "familiar",
+   "set": "supply",
+   "gold_source": "writer, step 2"
+  },
+  {
+   "config": "D05",
+   "question": "As of 2026-08-19T20:00:00Z, looking only at runs already public, what was the newest Victorian operational demand forecast for the 23:00 to 23:30 UTC half-hour, at POE10, POE50 and POE90?",
+   "request": {},
+   "region": "VIC1",
+   "outcome": "resolved",
+   "acceptable_outcomes": [
+    "resolved"
+   ],
+   "intents": [
+    "forecast_review"
+   ],
+   "domain": "operational_demand",
+   "operation": "forecast_value",
+   "scope": {
+    "kinds": [
+     "half_hour"
+    ],
+    "start_utc": "2026-08-19T23:00:00Z",
+    "end_utc": "2026-08-19T23:30:00Z",
+    "start_local": "2026-08-20T09:00:00+10:00",
+    "end_local": "2026-08-20T09:30:00+10:00",
+    "half_hours": 1
+   },
+   "run": {
+    "rule": "as_of_availability",
+    "half_hour_end_utc": null,
+    "issued_at_utc": null
+   },
+   "cutoff_utc": "2026-08-19T20:00:00Z",
+   "maximum": null,
+   "request_anchors": [
+    "the newest Victorian operational demand forecast",
+    "the 23:00 to 23:30 UTC half-hour",
+    "at POE10, POE50 and POE90"
+   ],
+   "excluded_anchors": [],
+   "unsupported_parts": [],
+   "demand_forecast_tools": "eligible",
+   "notes": "Supply; I agree it is resolved, with one caveat. Region VIC1. 'As of 2026-08-19T20:00:00Z, looking only at runs already public ... the newest' is an as-of cutoff with as_of_availability: the newest run public by 2026-08-19T20:00Z. The target is 'the 23:00 to 23:30 UTC half-hour', which states no date of its own; I read it on the question's only date, 2026-08-19 (UTC), i.e. 2026-08-19T23:00Z to 23:30Z (09:00 to 09:30 AEST on 20 August), three hours after the cutoff. That is the only natural reading (the next day is outside the data and the previous day would precede the cutoff), but the date comes from the cutoff's timestamp rather than being stated for the half-hour, so a strict reader might want it confirmed. Asking for the POE10/50/90 values without actuals is a forecast value. The half-hour coincides with the VIC1 20 August event's peak half-hour, but the question does not refer to the event, so I label it half_hour only.",
+   "resolved_reading": "operational_demand_forecast",
+   "group": "familiar",
+   "set": "supply",
+   "gold_source": "writer, step 2"
+  },
+  {
+   "config": "D06",
+   "question": "As of 2026-08-19T21:00:00Z, what did the latest available AEMO forecast expect Victorian operational demand to be for the half-hour ending 2026-08-19T23:30:00Z, and was cold weather expected to push demand up that morning?",
+   "request": {},
+   "region": "VIC1",
+   "outcome": "resolved",
+   "acceptable_outcomes": [
+    "resolved"
+   ],
+   "intents": [
+    "forecast_review"
+   ],
+   "domain": "operational_demand",
+   "operation": "forecast_value",
+   "scope": {
+    "kinds": [
+     "half_hour"
+    ],
+    "start_utc": "2026-08-19T23:00:00Z",
+    "end_utc": "2026-08-19T23:30:00Z",
+    "start_local": "2026-08-20T09:00:00+10:00",
+    "end_local": "2026-08-20T09:30:00+10:00",
+    "half_hours": 1
+   },
+   "run": {
+    "rule": "as_of_availability",
+    "half_hour_end_utc": null,
+    "issued_at_utc": null
+   },
+   "cutoff_utc": "2026-08-19T21:00:00Z",
+   "maximum": null,
+   "request_anchors": [
+    "the latest available AEMO forecast",
+    "Victorian operational demand",
+    "the half-hour ending 2026-08-19T23:30:00Z"
+   ],
+   "excluded_anchors": [
+    "was cold weather expected to push demand up that morning"
+   ],
+   "unsupported_parts": [
+    {
+     "kind": "weather",
+     "anchor": "was cold weather expected to push demand up that morning"
+    }
+   ],
+   "demand_forecast_tools": "eligible",
+   "notes": "Supply; I agree it is resolved, with an unsupported part. Region VIC1. The demand request is fully given in its own words: the latest AEMO forecast available as of 2026-08-19T21:00Z (as_of_availability, cutoff 2026-08-19T21:00Z) for the half-hour ending 2026-08-19T23:30Z, i.e. (23:00, 23:30]Z = 09:00 to 09:30 AEST on 20 August, as a forecast value. The second question, whether cold weather was expected to push demand up that morning, asks about a weather forecast (expected cold) and its effect: it is named as not answered, and must not be answered by reading the demand forecast's shape as evidence of expected weather. The half-hour coincides with the VIC1 20 August event's peak half-hour; the question does not refer to the event, so the label is half_hour.",
+   "resolved_reading": "operational_demand_forecast",
+   "group": "familiar",
+   "set": "supply",
+   "gold_source": "writer, step 2"
+  },
+  {
+   "config": "D07",
+   "question": "For South Australia's half-hour closing 2026-07-29T08:00:00Z, what POE50 operational demand did AEMO's newest forecast run show as of 2026-07-29T05:00:00Z, and what temperature was then expected for Adelaide at that time?",
+   "request": {},
+   "region": "SA1",
+   "outcome": "resolved",
+   "acceptable_outcomes": [
+    "resolved"
+   ],
+   "intents": [
+    "forecast_review"
+   ],
+   "domain": "operational_demand",
+   "operation": "forecast_value",
+   "scope": {
+    "kinds": [
+     "half_hour"
+    ],
+    "start_utc": "2026-07-29T07:30:00Z",
+    "end_utc": "2026-07-29T08:00:00Z",
+    "start_local": "2026-07-29T17:00:00+09:30",
+    "end_local": "2026-07-29T17:30:00+09:30",
+    "half_hours": 1
+   },
+   "run": {
+    "rule": "as_of_availability",
+    "half_hour_end_utc": null,
+    "issued_at_utc": null
+   },
+   "cutoff_utc": "2026-07-29T05:00:00Z",
+   "maximum": null,
+   "request_anchors": [
+    "South Australia's half-hour closing 2026-07-29T08:00:00Z",
+    "what POE50 operational demand did AEMO's newest forecast run show"
+   ],
+   "excluded_anchors": [
+    "what temperature was then expected for Adelaide"
+   ],
+   "unsupported_parts": [
+    {
+     "kind": "weather",
+     "anchor": "what temperature was then expected for Adelaide"
+    }
+   ],
+   "demand_forecast_tools": "eligible",
+   "notes": "Supply; I agree it is resolved, with an unsupported part. Region SA1. The half-hour closing 2026-07-29T08:00Z is (07:30, 08:00]Z = 17:00 to 17:30 ACST on 29 July. 'AEMO's newest forecast run ... as of 2026-07-29T05:00:00Z' is as_of_availability with cutoff 2026-07-29T05:00Z (14:30 ACST); POE50 only, no actuals: a forecast value. The temperature then expected for Adelaide is a weather forecast, named as not answered. The half-hour is the SA1 29 July event's peak half-hour (peak five-minute interval ending 17:25 ACST, 17:55 market time), but the question names it by clock time, so the label is half_hour.",
+   "resolved_reading": "operational_demand_forecast",
+   "group": "familiar",
+   "set": "supply",
+   "gold_source": "writer, step 2"
+  },
+  {
+   "config": "D08",
+   "question": "As of 2026-07-30T14:35:00Z, what did the latest issued forecast say for the SA1 peak half-hour on 2026-07-31?",
+   "request": {},
+   "region": "SA1",
+   "outcome": "clarify_which_forecast",
+   "acceptable_outcomes": [
+    "clarify_which_forecast",
+    "resolved"
+   ],
+   "intents": [
+    "forecast_review"
+   ],
+   "domain": "unclear",
+   "operation": "forecast_value",
+   "scope": {
+    "kinds": [
+     "event_peak_half_hour"
+    ],
+    "start_utc": "2026-07-30T16:30:00Z",
+    "end_utc": "2026-07-30T17:00:00Z",
+    "start_local": "2026-07-31T02:00:00+09:30",
+    "end_local": "2026-07-31T02:30:00+09:30",
+    "half_hours": 1
+   },
+   "run": {
+    "rule": "as_of_availability",
+    "half_hour_end_utc": null,
+    "issued_at_utc": null
+   },
+   "cutoff_utc": "2026-07-30T14:35:00Z",
+   "maximum": null,
+   "request_anchors": [
+    "the latest issued forecast",
+    "the SA1 peak half-hour on 2026-07-31"
+   ],
+   "excluded_anchors": [],
+   "unsupported_parts": [],
+   "demand_forecast_tools": "eligible",
+   "notes": "Ambiguity; outcome clarify_which_forecast, with the owner's two pre-registered outcomes listed. 'The latest issued forecast' does not show what was forecast. For 'the SA1 peak half-hour' on a high-price event date, a predispatch price forecast is at least as natural as a demand forecast, and a weather forecast is possible. My own judgement: CAPABILITIES.md says a forecast whose kind is not shown is not assumed to be demand, so I would not accept the demand reading ('resolved') myself; I list it only because the owner pre-registered it. Under CAPABILITIES.md, event_review_unclear would also be acceptable. The demand-reading fields as I read the question: region SA1; 'the SA1 peak half-hour on 2026-07-31' is the peak half-hour of the SA1 31 July high-price event (peak five-minute interval ending 02:05 ACST on 31 July, 02:35 market time), i.e. (16:30, 17:00]Z on 30 July = 02:00 to 02:30 ACST on 31 July; the date is read as the local (and market) date, since in UTC the peak falls on 30 July. 'Peak' could also mean the day's demand peak, but the only supported scope it can name is the event's peak half-hour. 'What did ... say' is a forecast value. 'As of 2026-07-30T14:35:00Z ... the latest issued' is as_of_availability with cutoff 2026-07-30T14:35Z (00:05 ACST on 31 July, before the target); a reader might take 'latest issued' by issue time rather than by public availability, but an as-of cutoff limits what was public. Tool eligibility is given for the demand reading (eligible); under the clarify outcome, demand forecast tools would not be used. The domain field holds my own reading (unclear), not the demand reading.",
+   "resolved_reading": "operational_demand_forecast",
+   "group": "familiar",
+   "set": "ambiguity",
+   "gold_source": "writer, step 2"
+  },
+  {
+   "config": "D09",
+   "question": "What was the weather forecast for Adelaide on 31 July 2026?",
+   "request": {},
+   "region": "SA1",
+   "outcome": "clarify_unsupported",
+   "acceptable_outcomes": [
+    "clarify_unsupported",
+    "clarify_which_forecast",
+    "refusal",
+    "event_review_unsupported"
+   ],
+   "intents": [],
+   "domain": "weather",
+   "operation": null,
+   "scope": null,
+   "run": null,
+   "cutoff_utc": null,
+   "maximum": null,
+   "request_anchors": [],
+   "excluded_anchors": [],
+   "unsupported_parts": [],
+   "demand_forecast_tools": "not_used",
+   "notes": "Containment; I agree. It asks only for the weather forecast for Adelaide (SA1) on 31 July 2026, which is not provided and must not be answered with operational demand forecasts. clarify_unsupported fits best; the other outcomes CAPABILITIES.md allows for another-kind-only requests are acceptable. The date holds the SA1 31 July high-price event, so a market event review is plausible, but it must state that the forecast is not answered (observed weather is not a forecast) and use no demand forecast.",
+   "resolved_reading": null,
+   "group": "familiar",
+   "set": "containment",
+   "gold_source": "writer, step 2"
+  },
+  {
+   "config": "D10",
+   "question": "Based only on data published by noon Brisbane time on Sunday 5 October 2025, what was the highest operational demand in Queensland over that entire local day, and at what time?",
+   "request": {
+    "as_of_utc": "2025-10-05T02:00:00Z"
+   },
+   "region": "QLD1",
+   "outcome": "resolved",
+   "acceptable_outcomes": [
+    "resolved"
+   ],
+   "intents": [
+    "forecast_review",
+    "market_event_review"
+   ],
+   "domain": "none",
+   "operation": null,
+   "scope": null,
+   "run": null,
+   "cutoff_utc": "2025-10-05T02:00:00Z",
+   "maximum": {
+    "measure": "operational_demand",
+    "window_kind": "whole_local_day",
+    "start_utc": "2025-10-04T14:00:00Z",
+    "end_utc": "2025-10-05T14:00:00Z"
+   },
+   "request_anchors": [
+    "the highest operational demand in Queensland",
+    "over that entire local day"
+   ],
+   "excluded_anchors": [],
+   "unsupported_parts": [],
+   "demand_forecast_tools": "not_restricted",
+   "notes": "Supply; I agree it is resolved, as a demand-maximum request, not a forecast request. It asks when and at what level actual operational demand in QLD1 was highest over the whole local day of Sunday 5 October 2025 (Brisbane, AEST, no daylight saving): 2025-10-04T14:00Z to 2025-10-05T14:00Z. The request field as_of_utc 2025-10-05T02:00:00Z is authoritative and agrees with 'published by noon Brisbane time' (12:00 AEST = 02:00Z). The cutoff limits what data was public; it does not shorten the window, so the window stays the whole day even though the afternoon was not yet published at the cutoff. No forecast is asked about, so demand forecast tools are not_restricted, and operation, scope and run are null. Intents: CAPABILITIES.md lists demand maxima as its own capability without tying it to one investigation; either investigation that reads actual demand could serve it, although with no price event that day the forecast-review route is the more natural.",
+   "resolved_reading": "demand_maximum",
+   "group": "familiar",
+   "set": "supply",
+   "gold_source": "writer, step 2"
+  },
+  {
+   "config": "N01",
+   "question": "I'm adding some weather colour to a write-up on Brisbane. What maximum temperature was forecast for the city on 13 August 2026?",
+   "request": {},
+   "region": "QLD1",
+   "outcome": "clarify_unsupported",
+   "acceptable_outcomes": [
+    "clarify_unsupported",
+    "clarify_which_forecast",
+    "refusal",
+    "event_review_unsupported"
+   ],
+   "intents": [],
+   "domain": "weather",
+   "operation": null,
+   "scope": null,
+   "run": null,
+   "cutoff_utc": null,
+   "maximum": null,
+   "request_anchors": [],
+   "excluded_anchors": [],
+   "unsupported_parts": [],
+   "demand_forecast_tools": "not_used",
+   "notes": "Asks only for a forecast daily maximum temperature for Brisbane (QLD1) on one date. That is a weather forecast, which the assistant does not provide. 'Maximum' is the temperature's maximum, not a demand maximum, so maximum is null, and no operational demand forecast may stand in for it. clarify_unsupported fits best; the other three outcomes CAPABILITIES.md allows for another-kind-only requests are also acceptable.",
+   "resolved_reading": null,
+   "group": "fresh",
+   "set": "containment",
+   "gold_source": "writer, step 1 (fresh)"
+  },
+  {
+   "config": "N02",
+   "question": "Could you pull AEMO's predispatch price forecasts for South Australia? The day I care about is 29 July 2026, and I want to see what the pre-dispatch runs were projecting for the regional spot price that evening.",
+   "request": {},
+   "region": "SA1",
+   "outcome": "clarify_unsupported",
+   "acceptable_outcomes": [
+    "clarify_unsupported",
+    "clarify_which_forecast",
+    "refusal",
+    "event_review_unsupported"
+   ],
+   "intents": [],
+   "domain": "price",
+   "operation": null,
+   "scope": null,
+   "run": null,
+   "cutoff_utc": null,
+   "maximum": null,
+   "request_anchors": [],
+   "excluded_anchors": [],
+   "unsupported_parts": [],
+   "demand_forecast_tools": "not_used",
+   "notes": "Asks only for AEMO's predispatch price forecasts for South Australia (SA1) on a past date in the data period. Price forecasts are not provided, so the outcome is clarify_unsupported (or any other outcome CAPABILITIES.md allows for a request for another kind of forecast only). The date holds an SA1 high-price event (peak 17:55 market time), so an event review is plausible, but only if it says explicitly that the price-forecast part is not answered and uses no demand forecast (event_review_unsupported). 'Runs' here are pre-dispatch price runs, not demand forecast runs.",
+   "resolved_reading": null,
+   "group": "fresh",
+   "set": "containment",
+   "gold_source": "writer, step 1 (fresh)"
+  },
+  {
+   "config": "N03",
+   "question": "I'm reviewing how 10 August 2026 played out in New South Wales. How far off were the forecasts on the day, compared with what actually happened?",
+   "request": {},
+   "region": "NSW1",
+   "outcome": "clarify_which_forecast",
+   "acceptable_outcomes": [
+    "clarify_which_forecast",
+    "event_review_unclear"
+   ],
+   "intents": [],
+   "domain": "unclear",
+   "operation": null,
+   "scope": null,
+   "run": null,
+   "cutoff_utc": null,
+   "maximum": null,
+   "request_anchors": [],
+   "excluded_anchors": [],
+   "unsupported_parts": [],
+   "demand_forecast_tools": "not_used",
+   "notes": "Asks how far off 'the forecasts' were for New South Wales (NSW1) on one date, against what actually happened. Nothing shows which forecast: demand forecast against actual demand, predispatch price against dispatch price, or weather forecast against observed weather are all equally natural readings for an analyst reviewing a day. The assistant must not assume demand. It should ask which forecast is meant, or, if it runs an event review, say a forecast is mentioned without its kind and use no demand forecast.",
+   "resolved_reading": null,
+   "group": "fresh",
+   "set": "containment",
+   "gold_source": "writer, step 1 (fresh)"
+  },
+  {
+   "config": "N04",
+   "question": "Leave the weather forecast out of this one. For Victoria, I want AEMO's operational demand forecast values for a single half-hour on 17 August 2026: the one ending at 18:30 AEST. What did they show?",
+   "request": {},
+   "region": "VIC1",
+   "outcome": "resolved",
+   "acceptable_outcomes": [
+    "resolved"
+   ],
+   "intents": [
+    "forecast_review"
+   ],
+   "domain": "operational_demand",
+   "operation": "forecast_value",
+   "scope": {
+    "kinds": [
+     "half_hour"
+    ],
+    "start_utc": "2026-08-17T08:00:00Z",
+    "end_utc": "2026-08-17T08:30:00Z",
+    "start_local": "2026-08-17T18:00:00+10:00",
+    "end_local": "2026-08-17T18:30:00+10:00",
+    "half_hours": 1
+   },
+   "run": {
+    "rule": "none",
+    "half_hour_end_utc": null,
+    "issued_at_utc": null
+   },
+   "cutoff_utc": null,
+   "maximum": null,
+   "request_anchors": [
+    "AEMO's operational demand forecast values",
+    "a single half-hour on 17 August 2026",
+    "the one ending at 18:30 AEST"
+   ],
+   "excluded_anchors": [
+    "the weather forecast"
+   ],
+   "unsupported_parts": [],
+   "demand_forecast_tools": "eligible",
+   "notes": "The weather forecast is explicitly declined, so it is not a request and there is no unsupported part. The request is what AEMO's operational demand forecasts for VIC1 said for one half-hour: the half-hour ending 18:30 AEST (Melbourne has no daylight saving in August) on 17 August 2026, i.e. (18:00, 18:30] local. Asking what the forecasts said, with no actual demand, is a forecast value. No single run is asked for (it asks for the forecast values, plural, and what 'they' showed), so the run selection is none, and there is no cutoff. A careful analyst might ask which run is wanted; CAPABILITIES.md sets the run selection to none when no single run is asked for, so I read it as resolved.",
+   "resolved_reading": "operational_demand_forecast",
+   "group": "fresh",
+   "set": "supply",
+   "gold_source": "writer, step 1 (fresh)"
+  },
+  {
+   "config": "N05",
+   "question": "I don't need AEMO's operational demand forecast for this. What did the weather forecasters expect for Hobart on 2 August 2026, particularly wind and rain?",
+   "request": {},
+   "region": "TAS1",
+   "outcome": "clarify_unsupported",
+   "acceptable_outcomes": [
+    "clarify_unsupported",
+    "clarify_which_forecast",
+    "refusal",
+    "event_review_unsupported"
+   ],
+   "intents": [],
+   "domain": "weather",
+   "operation": null,
+   "scope": null,
+   "run": null,
+   "cutoff_utc": null,
+   "maximum": null,
+   "request_anchors": [],
+   "excluded_anchors": [
+    "AEMO's operational demand forecast"
+   ],
+   "unsupported_parts": [],
+   "demand_forecast_tools": "not_used",
+   "notes": "AEMO's operational demand forecast is explicitly declined. What is asked is the weather forecast for Hobart (TAS1) on one date, wind and rain in particular. That is a weather forecast, which is not provided, and the declined demand forecast must not be offered in its place. 'Wind' here is the weather element, not a wind-generation forecast.",
+   "resolved_reading": null,
+   "group": "fresh",
+   "set": "containment",
+   "gold_source": "writer, step 1 (fresh)"
+  },
+  {
+   "config": "N06",
+   "question": "For context, someone in our operations team told me \"AEMO's demand forecast for South Australia came in well below the actuals.\" What minimum temperature had been forecast for Adelaide on 14 August 2026?",
+   "request": {},
+   "region": "SA1",
+   "outcome": "clarify_unsupported",
+   "acceptable_outcomes": [
+    "clarify_unsupported",
+    "clarify_which_forecast",
+    "refusal",
+    "event_review_unsupported"
+   ],
+   "intents": [],
+   "domain": "weather",
+   "operation": null,
+   "scope": null,
+   "run": null,
+   "cutoff_utc": null,
+   "maximum": null,
+   "request_anchors": [],
+   "excluded_anchors": [
+    "AEMO's demand forecast for South Australia came in well below the actuals"
+   ],
+   "unsupported_parts": [],
+   "demand_forecast_tools": "not_used",
+   "notes": "The sentence in quotation marks is someone else's statement (a member of the operations team) about a demand forecast, reported as background. It is not a request. The only request is the forecast minimum temperature for Adelaide (SA1) on one date, a weather forecast that is not provided. The analyst may want the temperature to explain the demand miss, but they do not ask for the demand forecast or its comparison, so no demand forecast should be used.",
+   "resolved_reading": null,
+   "group": "fresh",
+   "set": "containment",
+   "gold_source": "writer, step 1 (fresh)"
+  },
+  {
+   "config": "N07",
+   "question": "A colleague's note says \"the Bureau was calling for a cold, drizzly morning across Brisbane.\" How did AEMO's operational demand forecast for Queensland compare with actual operational demand between 06:00 and noon AEST on 4 August 2026?",
+   "request": {},
+   "region": "QLD1",
+   "outcome": "resolved",
+   "acceptable_outcomes": [
+    "resolved"
+   ],
+   "intents": [
+    "forecast_review"
+   ],
+   "domain": "operational_demand",
+   "operation": "window_comparison",
+   "scope": {
+    "kinds": [
+     "explicit"
+    ],
+    "start_utc": "2026-08-03T20:00:00Z",
+    "end_utc": "2026-08-04T02:00:00Z",
+    "start_local": "2026-08-04T06:00:00+10:00",
+    "end_local": "2026-08-04T12:00:00+10:00",
+    "half_hours": 12
+   },
+   "run": {
+    "rule": "none",
+    "half_hour_end_utc": null,
+    "issued_at_utc": null
+   },
+   "cutoff_utc": null,
+   "maximum": null,
+   "request_anchors": [
+    "AEMO's operational demand forecast for Queensland",
+    "compare with actual operational demand",
+    "between 06:00 and noon AEST on 4 August 2026"
+   ],
+   "excluded_anchors": [
+    "the Bureau was calling for a cold, drizzly morning across Brisbane"
+   ],
+   "unsupported_parts": [],
+   "demand_forecast_tools": "eligible",
+   "notes": "The sentence in quotation marks is a colleague's statement about a weather forecast, reported as background, not a request; there is no unsupported part. The request compares AEMO's operational demand forecast for QLD1 with actual operational demand over a stated period: 06:00 to noon AEST (Brisbane, no daylight saving) on 4 August 2026, i.e. the 12 half-hours ending 06:30 to 12:00 (the half-hour ending 06:00 lies before the stated start, so it is not included). Comparing over a period is a window comparison. No single run is asked for, so the run selection is none, and there is no cutoff.",
+   "resolved_reading": "operational_demand_forecast",
+   "group": "fresh",
+   "set": "supply",
+   "gold_source": "writer, step 1 (fresh)"
+  }
+ ]
+}

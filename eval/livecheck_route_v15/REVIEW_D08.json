@@ -1,0 +1,42 @@
+{
+ "config": "D08",
+ "question": "As of 2026-07-30T14:35:00Z, what did the latest issued forecast say for the SA1 peak half-hour on 2026-07-31?",
+ "request": {},
+ "region": "SA1",
+ "outcome": "resolved",
+ "acceptable_outcomes": [
+  "resolved",
+  "clarify_which_forecast",
+  "event_review_unclear"
+ ],
+ "intents": [
+  "forecast_review"
+ ],
+ "domain": "operational_demand",
+ "operation": "forecast_value",
+ "scope": {
+  "kinds": [
+   "event_peak_half_hour"
+  ],
+  "start_utc": "2026-07-30T16:30:00Z",
+  "end_utc": "2026-07-30T17:00:00Z",
+  "start_local": "2026-07-31T02:00:00+09:30",
+  "end_local": "2026-07-31T02:30:00+09:30",
+  "half_hours": 1
+ },
+ "run": {
+  "rule": "as_of_availability",
+  "half_hour_end_utc": null,
+  "issued_at_utc": null
+ },
+ "cutoff_utc": "2026-07-30T14:35:00Z",
+ "maximum": null,
+ "request_anchors": [
+  "what did the latest issued forecast say",
+  "SA1 peak half-hour on 2026-07-31"
+ ],
+ "excluded_anchors": [],
+ "unsupported_parts": [],
+ "demand_forecast_tools": "eligible",
+ "notes": "This record is the operational-demand reading, as instructed. My blind reading (out/review.json) chose clarify_which_forecast because the question does not show the forecast's kind. Under the demand reading, the question asks what a forecast said, with no comparison to actuals, so it is a forecast_value. 'As of 2026-07-30T14:35:00Z ... the latest issued forecast' is an as-of cutoff with the newest run, so the run rule is as_of_availability and the cutoff is 2026-07-30T14:35:00Z (00:05 ACST on 31 July). No other request, declined request or quoted background is present. TARGET HALF-HOUR: the question's words alone do NOT determine it uniquely, because 'peak' is unqualified. It could mean the price event's peak or the day's demand peak. Together with CAPABILITIES.md it is determined uniquely. The only 'peak half-hour' CAPABILITIES defines is a price event's: the half-hour containing the event's peak five-minute price interval. The kit holds exactly one SA1 event on 31 July, SA1-20260731T0235-hi, whether the date is read in Adelaide time or NEM market time. Its peak interval is (16:30, 16:35]Z, so the target is (2026-07-30T16:30Z, 17:00Z], which is 02:00-02:30 ACST on 31 July (02:30-03:00 AEST market time). Reading the date as UTC gives no SA1 event peak on 31 July, so that reading yields no target. I accept only this event peak half-hour as the resolved target. I would not accept the day's demand-peak half-hour. It is not a scope CAPABILITIES supports. It is defined by data, not by the question: which measure, actual or forecast, which run, which POE. At the cutoff (00:05 ACST) not one half-hour of 31 July had completed, so the actual peak was unknowable. Answering for it would mean picking a half-hour (or the whole day) the question does not name. An assistant that reads 'peak' as the demand peak should ask rather than resolve. The scope label is event_peak_half_hour only, because the question names no clock time."
+}
