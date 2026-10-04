@@ -1061,3 +1061,146 @@ Acceptance check recorded before implementation. One bounded offline PR; demand 
     - the frozen routing-v12 scorer's label for K14 read without a routing model (a test record): `PARTIAL` (bound
       without its half-hour) becomes `SENT_BACK`, a supply miss, never wrong and no containment miss;
     - nothing else.
+
+## D28. The forecast request contract: the operation and scope a forecast review asks for (2026-10-04)
+- **Context:** an offline investigation after D27 (no paid call) found two gaps in D27's no-substitution principle.
+  - **A forecast value becomes a comparison.** 11 of 28 saved forecast reviews (FC02, FC08, H04, H06, V05, V06, W05,
+    Y07, Y08, ADV03, AMB06) get a forecast/actual aggregate as their computed answer, though most ask only what a
+    forecast said. FC08's answer says "the comparison asked for cannot be given".
+  - **A stated or day scope becomes the 12-hour slice.**
+    - "between 18:00 and 21:00 ACST on 31 July" is compared over 11:00–23:00Z on 30 July;
+    - a question about one day is compared over 12 hours around the event peak, partly on another day.
+  - This entry was written before any code of the change.
+- **Root causes:**
+  1. **No operation is represented.** The routing contract (v13) and the resolved request carry no operation.
+     `forecast_compare.window_review` promotes an aggregate for every forecast review without a point request.
+     route.md defines a forecast review as what forecasts "said and how they compared".
+  2. **The scope is lost.**
+     - A forecast review's window is the event's window or the local day, and a stated time range is never read.
+     - `forecast_focus` then takes a 12-hour slice around the event peak, clipping explicit request windows too.
+     - A target half-hour pinned in an as-of question (`res.target`) is never read by primary selection.
+  3. **A cutoff changes the request.** The question's as-of words make the run request "as_of_availability" and skip
+     the half-hour, so a question-text cutoff and a request-field cutoff resolve differently.
+  4. **The cutoff's words end at the first colon** (`structured.resolve_cutoff`). "As of 2026-07-30T14:35:00Z" holds
+     only "As of 2026-07-30T14", so the cutoff's own time is unread: "As of 18:00 AEST …" is already wrongly sent back
+     for a maximum, and a scope rule would send back 10 answerable as-of forecast questions.
+  5. **A known wrong target is displayed.**
+     - **Replay:** the as-of view states the event-peak half-hour's value even when another half-hour is resolved:
+       asked for the half-hour ending 18:30Z, it states 17:00Z, 1,525 MW, "answered".
+     - **Live:** the context passes the event's peak half-hour but never the resolved target.
+- **Decision** (the owner's scope decisions and clarifications, 2026-10-04):
+  - **The contract** (`RequestResolution.forecast`, resolved for forecast reviews like the run and maximum
+    requests, with provenance):
+    - **operation:** forecast value, single-interval comparison, window comparison, or unclear;
+    - **scope:** a half-hour, an event's peak half-hour, a whole local day, an event window, or an explicit start
+      and end, each converted to UTC by code;
+    - beside the existing run and cutoff requests.
+  - **Reading it** (route contract v14; prompts v15; still one routing call):
+    - the routing model adds `requested.forecast`: `operation`, `operation_text`, `scope` and `scope_text`, copying
+      the question's own words;
+    - the question parser reads only positive phrasings, never an absence. Replay has no model, so the parser is
+      its only reader, as for every request role since D26;
+    - lexical cues detect conflicts and missing requirements only. The absence of a comparison word never makes a
+      request forecast-only, and grounded quotes do not by themselves prove a reading.
+  - **Deterministic checks:** any failure sends the request back before any tool, with a clarification naming the
+    field and carrying no time or quotation.
+    1. **Grounding:** each quote must occur once in the question. It must be outside other roles' words and outside
+       quoted background text.
+    2. **Operation evidence:**
+       - a comparison needs comparison or actual-value words in its quote that are not negated, and not a mention of
+         actual demand's availability;
+       - a forecast value needs a forecast word in its quote, and no comparison request elsewhere in the question;
+       - conflicting readings (the model's against the parser's, or a negation against a request) are a conflict.
+    3. **Scope:**
+       - **Separate roles:** a date that belongs to the run's issue, a target half-hour or the cutoff is never an
+         analysis date.
+       - **Whole local day:** it needs grounded evidence that a date scopes the requested analysis: one date,
+         attached to the analysis ("on", "for", "over", …) or named as a whole day, with no conflicting or
+         narrowing scope. A date's role that remains ambiguous is sent back.
+       - **Event:** needs event words and a held event.
+       - **An event's peak half-hour:** needs peak and half-hour words and a held event.
+       - **Explicit:** needs request fields, or a start and end that code reads.
+       - **A half-hour:** needs the question's pinned half-hour or the run's; readings that disagree are a conflict.
+    4. **No unread time:** every clock or ISO time must be held by a role's words. Those are the cutoff's (now with
+       its own time), the run's issue time, the target half-hour (with a bracketed restatement of the same instant)
+       or the scope.
+    5. **Consistency:** a single-interval comparison needs a half-hour scope, and a window comparison a period.
+    6. **Supported windows:**
+       - every window is used exactly, with its interval count derived from its UTC bounds on the half-hour grid;
+       - this includes 23-hour DST days (46 half-hours);
+       - a window over the forecast tools' 24-hour bound (a 25-hour DST day, a 24.5-hour event window, a long
+         request window), or off the grid, is sent back;
+       - no window is clipped, and the 12-hour slice is never used for a forecast review.
+    7. **One cutoff meaning:**
+       - the request field, the question's words and the model's words give the same cutoff semantics, differing
+         only in provenance;
+       - a cutoff filters what was public: it never changes the operation, the scope or a requested run rule, and
+         never substitutes another run;
+       - under any cutoff, an unnamed run is the newest public by it.
+  - **Primary selection** (from the resolved operation and scope):
+    - **Forecast value:** no comparison result.
+    - **Single-interval comparison with a named run:** `forecast_point`, as in D27.
+    - **Single-interval comparison without a named run:** no computed answer, and never an aggregate.
+    - **Window comparison:** `forecast_aggregate` over exactly the resolved window. The run is the named one if the
+      question names one; else, under any cutoff, the newest public; else the latest available before each
+      half-hour.
+    - **Unclear, unresolved, conflicting or over the limit:** a clarification before any tool.
+  - **Statements** (`FORECAST_SCOPE_NOT_PRIMARY`, extended; provenance only):
+    - **Forecast value:** no value from a comparison tool call may be stated.
+    - **Single half-hour scope:** forecast, actual and error values must be at that half-hour, and no aggregate may
+      be stated.
+    - **Window comparison:** the D27 rule.
+    - The facts-only fallback drops the same evidence.
+  - **Context and narrative:**
+    - **Live:** `forecast_targets_utc` and the "24 half-hours around the event peak" note are replaced by
+      `forecast_request`, holding the operation, scope, target or window, interval count and cutoff.
+    - **Replay:** it plans its calls over the resolved half-hour or window, and states the resolved target's value
+      (or that none was public). It states the event peak's value only when the scope is the peak half-hour, and
+      the aggregate sentence only with an aggregate primary.
+    - **The cutoff's words:** they run through the time they state and that time's own zone and date. A cutoff read
+      by the question parser holds its words.
+  - **Interim, not in this slice:**
+    - **Forecast values and single-interval comparisons without a named run:** no computed answer. Tools run as now,
+      and the interpretation is validated as before and held to the statement rules.
+    - **Forecast-only typed results and default-policy typed points:** later slices.
+  - **Compatibility:**
+    - **Saved decisions:** v13 and v12 routing decisions are read with `forecast` not reported. Their operation and
+      scope come from the question parser, labelled with that provenance.
+    - **Unchanged:** `forecast_result/1`, the report format, maxima, frozen records, gold, gates, hashes and
+      historical verdicts.
+    - **Metrics:** current-code metric changes against frozen gold are reported, never forced either way.
+    - **Frozen runners** refuse prompts v15, as expected.
+- **Acceptance criteria** (offline; development evidence only; no Live claim):
+  1. **The contract:**
+     - every check works, with paraphrase and negative controls for each operation and scope kind:
+       - analysis dates, run-issue dates, target dates, cutoff dates, multiple dates and narrower periods;
+       - negation, quoted background text, contextual mentions of actual demand, and conflicting operations;
+     - unclear, unresolved, conflicting and over-limit requests are sent back with no tool call.
+  2. **One cutoff meaning:** the same request with its cutoff in the request field, in the question's words or in
+     the model's words resolves to the same operation, scope, run rule and cutoff.
+  3. **Selection:**
+     - every rule above holds, with no comparison result for a forecast value;
+     - no aggregate for a single interval;
+     - no default window for a stated window that is not read.
+  4. **Windows:**
+     - every window used is exact. Its interval count is checked against an independent calculation from the
+       pinned data for real days, and against synthetic fixtures for a 23-hour and a 25-hour DST day;
+     - window aggregates match an independent recomputation from pinned source rows.
+  5. **Targets:** Replay and Live state only the resolved target's values; the reproduction states the 18:30Z
+     value.
+  6. **The cutoff's words:** "As of 18:00 AEST …" resolves like "As of 6 pm AEST …", and saved cutoff spans hold
+     their own times.
+  7. **Preservation:**
+     - R02's point result and the rejection of its misleading aggregate sentence;
+     - the eight Replay point questions and K14 (Amendment 2);
+     - maxima, byte-identical;
+     - frozen records, gold, hashes and verdicts;
+     - the real ledger (USD 9.227365) and v1.0 (`f14db6d`).
+  8. **The scan:** every saved question and saved routing decision is resolved before and after, and every change
+     is listed.
+  9. **The suites:** the full suite, lint and typecheck pass. The Replay evaluation and safety suite are run, and
+     every gate and metric change is reported honestly; no gate is assumed to pass.
+- **Not claimed:**
+  - that the routing model reads the operation correctly under prompts v15 (that needs its own Live check);
+  - that the question parser covers every phrasing;
+  - that the synthetic controls show generalisation.
