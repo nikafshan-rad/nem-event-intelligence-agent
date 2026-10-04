@@ -531,8 +531,8 @@ def test_prompts_v12_described_the_new_fields_and_v13_keeps_the_other_prompts():
     pr = ROOT / "src" / "nem_agent" / "prompts"
     v11, v12, v13 = pr / "v11", pr / "v12", pr / "v13"
     # D27: v14 differs from v13 only in one synthesis bullet; D28: v15 adds the forecast request to route.md and
-    # corrects that bullet (tests/provider/test_forecast_request.py)
-    assert config.PROMPT_VERSION == "prompts/v15"
+    # corrects that bullet (tests/provider/test_forecast_request.py); D29: v16 adds the forecast domain to route.md
+    assert config.PROMPT_VERSION == "prompts/v16"
     for name in ("synthesis.md", "system.md"):
         assert (v11 / name).read_bytes() == (v12 / name).read_bytes() == (v13 / name).read_bytes()
     route = (v12 / "route.md").read_text()

@@ -99,7 +99,7 @@ WINDOW = ["How accurate were SA1's operational demand forecasts on 31 July 2026?
 SINGLE = ["For SA1's half-hour ending 2026-07-30T17:00:00Z, how close did the forecast land to the actual operational demand?",
           "Was actual operational demand higher or lower than the forecast in NSW1 for the half-hour ending 2026-07-30T21:30:00Z?",
           "Forecast versus actual operational demand for TAS1, half-hour ending 2026-07-30T22:00:00Z?",
-          "What was the forecast error for VIC1's half-hour ending 2026-08-19T23:30:00Z?",
+          "What was the operational demand forecast error for VIC1's half-hour ending 2026-08-19T23:30:00Z?",
           "How did the forecast compare with actual demand for QLD1's half-hour ending 2026-07-29T08:30:00Z?"]
 
 
@@ -136,13 +136,15 @@ def test_asking_for_the_actual_too_makes_a_comparison(q):
     # absence of a comparison word is not "forecast value": nothing is read
     ("SA1 operational demand forecasts on 31 July 2026?", "unresolved", None, FORECAST_OPERATION_CLARIFICATION),
     # a declined comparison is not a request; declined and asked for is a conflict
-    ("What did the forecasts say for SA1 on 31 July 2026? Do not compare them with actual demand.", "bound",
+    ("What did the operational demand forecasts say for SA1 on 31 July 2026? Do not compare them with actual demand.",
+     "bound",
      "forecast_value", None),
-    ("How accurate were SA1's forecasts on 31 July 2026, without comparing them with actual demand?", "conflict", None,
+    ("How accurate were SA1's operational demand forecasts on 31 July 2026, without comparing them with actual demand?",
+     "conflict", None,
      FORECAST_OPERATION_CONFLICT),
     # quoted background is context, never the request
-    ('A notice said "actual demand exceeded the forecast by 200 MW". What did the forecasts say for SA1 on '
-     '31 July 2026?', "bound", "forecast_value", None),
+    ('A notice said "actual demand exceeded the forecast by 200 MW". What did the operational demand forecasts say '
+     'for SA1 on 31 July 2026?', "bound", "forecast_value", None),
     # actual demand mentioned for its availability is not asked for
     ("As of 2026-07-30T12:00:00Z, what was the latest forecast for SA1's half-hour ending 2026-07-30T17:00:00Z, and "
      "had any actual operational demand for it been published by then?", "bound", "forecast_value", None),
@@ -155,13 +157,15 @@ def test_negation_background_and_context(q, status, op, clar):
 
 
 def test_the_routing_models_reading_is_checked_not_trusted():
-    q = "What did the forecast say for SA1 on 31 July 2026, and how did actual demand turn out?"
+    q = "What did the operational demand forecast say for SA1 on 31 July 2026, and how did actual demand turn out?"
     # a forecast-value reading against a comparison asked for in the question: a conflict
-    _, fa = _fa(q, _routed("forecast_value", "What did the forecast say", "whole_local_day", "on 31 July 2026"))
+    _, fa = _fa(q, _routed("forecast_value", "What did the operational demand forecast say", "whole_local_day",
+                           "on 31 July 2026"))
     assert fa.status == "conflict"
     # a comparison whose quoted words show none: not evidenced, so the question parser's reading stands
-    q2 = "What did the forecast say for SA1 on 31 July 2026?"
-    _, fa = _fa(q2, _routed("window_comparison", "What did the forecast say", "whole_local_day", "on 31 July 2026"))
+    q2 = "What did the operational demand forecast say for SA1 on 31 July 2026?"
+    _, fa = _fa(q2, _routed("window_comparison", "What did the operational demand forecast say", "whole_local_day",
+                            "on 31 July 2026"))
     assert (fa.status, fa.operation) == ("bound", "forecast_value") and any("shows no comparison" in n for n in fa.notes)
     # words that are not in the question, or are quoted background, are not a reading
     _, fa = _fa(q2, _routed("window_comparison", "how accurate it was", "whole_local_day", "on 31 July 2026"))
@@ -170,7 +174,7 @@ def test_the_routing_models_reading_is_checked_not_trusted():
     res, fa = _fa(q2, _routed("unclear", None, "whole_local_day", "on 31 July 2026"))
     assert fa.status == "unresolved" and FORECAST_OPERATION_CLARIFICATION in res.reasons
     # a single-interval reading for a period: a conflict
-    _, fa = _fa("How accurate were SA1's forecasts on 31 July 2026?",
+    _, fa = _fa("How accurate were SA1's operational demand forecasts on 31 July 2026?",
                 _routed("single_interval_comparison", "How accurate", "whole_local_day", "on 31 July 2026"))
     assert fa.status == "conflict"
 
@@ -193,24 +197,24 @@ def test_a_question_about_no_forecast_has_no_forecast_request():
 # ------------------------------------------------------------------------------------------------ the scope: dates
 def test_dates_by_role():
     # an analysis date: the whole local day
-    res, fa = _fa("How accurate were SA1's forecasts on 31 July 2026?")
+    res, fa = _fa("How accurate were SA1's operational demand forecasts on 31 July 2026?")
     assert fa.window == _day(date(2026, 7, 31), "SA1") and fa.intervals == 48
     # a run's publication date is not an analysis date
-    res, fa = _fa("How did the forecast published on 30 July 2026 perform against actual demand in SA1?")
+    res, fa = _fa("How did the demand forecast published on 30 July 2026 perform against actual demand in SA1?")
     assert fa.status == "unresolved" and FORECAST_SCOPE_CLARIFICATION in res.reasons
     # a target's date is the target's
-    res, fa = _fa("What was the forecast error for SA1's half-hour ending 17:30 ACST on 31 July 2026?")
+    res, fa = _fa("What was the demand forecast error for SA1's half-hour ending 17:30 ACST on 31 July 2026?")
     assert (fa.scope, fa.target) == ("half_hour", (T("2026-07-31T07:30:00Z"), T("2026-07-31T08:00:00Z")))
     # a cutoff's date is the cutoff's
     res, fa = _fa("As of 6 pm ACST on 30 July 2026, how accurate had SA1's operational demand forecasts been?")
     assert fa.status == "unresolved" and FORECAST_SCOPE_CLARIFICATION in res.reasons
     # several dates: sent back by the existing check, before the forecast request is read
-    res, fa = _fa("How accurate were SA1's forecasts on 30 July 2026 and on 31 July 2026?")
+    res, fa = _fa("How accurate were SA1's demand forecasts on 30 July 2026 and on 31 July 2026?")
     assert res.status == "needs_clarification" and fa.status == "absent"
     assert any(r.startswith("Several dates are mentioned") for r in res.reasons)
     # a half-hour and a period that does not hold it: a conflict
-    res, fa = _fa("For TAS1's half-hour ending 2026-08-07T03:00:00Z, how did the forecast compare with actual demand "
-                  "during the price event on 6 August 2026?")
+    res, fa = _fa("For TAS1's half-hour ending 2026-08-07T03:00:00Z, how did the demand forecast compare with actual "
+                  "demand during the price event on 6 August 2026?")
     assert fa.status == "conflict" and FORECAST_SCOPE_CONFLICT in res.reasons
     # a date whose role is not shown: sent back
     res, fa = _fa("SA1 operational demand forecasts versus actual demand, 31 July 2026.")
@@ -249,7 +253,7 @@ def test_event_scopes():
     res, fa = _fa("How accurate were SA1's operational demand forecasts during the price event on 31 July 2026?")
     assert fa.status == "unresolved" and fa.missing == ["window_limit"] and FORECAST_LIMIT_CLARIFICATION in res.reasons
     # an event's peak half-hour (the held event's)
-    res, fa = _fa("What did AEMO's forecasts say for SA1's peak half-hour on 31 July 2026?")
+    res, fa = _fa("What did AEMO's demand forecasts say for SA1's peak half-hour on 31 July 2026?")
     assert (fa.scope, fa.target) == ("event_peak_half_hour", (T("2026-07-30T16:30:00Z"), T("2026-07-30T17:00:00Z")))
 
 
@@ -361,8 +365,9 @@ def test_forecast_values_and_unnamed_runs_get_no_comparison_result(real_store):
 
 
 def test_the_resolved_target_is_stated_never_the_event_peak(real_store):
-    """The reproduction: asked for the half-hour ending 18:30Z, Replay stated the event peak's (17:00Z)."""
-    q = ("As of 2026-07-30T14:35:00Z, what did the latest issued forecast say for SA1's half-hour ending "
+    """The reproduction: asked for the half-hour ending 18:30Z, Replay stated the event peak's (17:00Z). (Since D29 the
+    question names the demand forecast: Replay sends back a forecast whose domain it cannot establish.)"""
+    q = ("As of 2026-07-30T14:35:00Z, what did the latest issued demand forecast say for SA1's half-hour ending "
          "2026-07-30T18:30:00Z on 2026-07-31?")
     res = investigate(InvestigateRequest(question=q), write_trace=False)
     stated = {o.valid_at_utc for o in res.report.observations if o.metric.startswith("opdemand_forecast")}
@@ -506,7 +511,7 @@ def test_prompts_v15_extend_routing_and_correct_one_synthesis_bullet():
     from nem_agent import config
 
     v14, v15 = ROOT / "src/nem_agent/prompts/v14", ROOT / "src/nem_agent/prompts/v15"
-    assert config.PROMPT_VERSION == "prompts/v15"
+    assert config.PROMPT_VERSION == "prompts/v16"  # D29: v16 adds the forecast domain (test_forecast_domain.py)
     assert (v14 / "system.md").read_bytes() == (v15 / "system.md").read_bytes()
 
     def changed(name: str) -> list[str]:

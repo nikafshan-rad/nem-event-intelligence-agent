@@ -26,7 +26,11 @@ from nem_agent.agent import forecast_compare as fc
 from nem_agent.agent.dispatcher import Dispatcher
 from nem_agent.agent.live import RouteDecision, checked_route
 from nem_agent.agent.request import ForecastRequest, InvestigateRequest, Resolution
-from nem_agent.agent.structured import NAMED_RUN_HALF_HOUR_CLARIFICATION, ForecastAnalysis
+from nem_agent.agent.structured import (
+    FORECAST_DOMAIN_CLARIFICATION,
+    NAMED_RUN_HALF_HOUR_CLARIFICATION,
+    ForecastAnalysis,
+)
 from nem_agent.evidence import EvidenceRegistry
 from nem_agent.render import render_result
 from nem_agent.report import InvestigationReport, NumericClaim
@@ -301,11 +305,16 @@ def test_fc_cases_in_replay_follow_the_forecast_request(cid, real_store):
     a forecast value (FC02, FC08) gets no comparison result, and states the forecast for the frozen gold's peak target;
     a window comparison is an aggregate over exactly the whole local day asked about, under the gold's run selection
     (its values are checked against an independent recomputation in ``test_forecast_request.py``). No day-ahead view
-    is stated."""
+    is stated. Since D29 a question that does not show what is forecast (FC02: "the latest issued forecast") is sent
+    back in Replay, before any tool."""
     case = FC_CASES[cid]
     g = case["expected"]["gold_forecast"]
     res = investigate(InvestigateRequest(question=case["question"], **case.get("request", {})), write_trace=False)
     asked = res.resolution.requests.forecast
+    if asked.missing == ["domain"]:
+        assert res.resolution.status == "needs_clarification" and res.records == [] and res.report.results == []
+        assert FORECAST_DOMAIN_CLARIFICATION in res.resolution.reasons
+        return
     if asked.operation == "forecast_value":
         assert cid in ("FC02", "FC08") and res.report.answer == [] and res.report.forecast_comparison is None
         pr = g["peak_target_latest_eligible_run"]

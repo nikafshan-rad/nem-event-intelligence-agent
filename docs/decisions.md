@@ -1241,3 +1241,160 @@ Acceptance check recorded before implementation. One bounded offline PR; demand 
     - test answerable accepted 17/18 → 16/18, status 20/21 → 19/21, routing 19 → 18 (AMB06 sent back);
     - numeric traceability (96/96) and citation validity (55/55) stay at 100%.
     - The safety suite's output is identical.
+
+## D29. The forecast domain: only a resolved operational-demand request enters the demand workflow (2026-10-04)
+- **Context: a post-merge finding.** D28 was merged as `ef73555`. The owner's integration review then found an
+  acceptance failure.
+  - **The failure:** a weather-only or temperature-only forecast question ("What was the weather forecast for
+    Adelaide on 31 July 2026?") is routed as a forecast review. D28 resolves it as an operational-demand forecast
+    value, and Replay states a demand POE50.
+  - **AMB06** (weather forecast and demand forecasts) recorded its weather clause as the evidence for its operation.
+    Its outcome (sent back: a 24.5-hour event window) was right only because it also asks about demand forecasts.
+  - D28's text is unchanged; this entry discloses the finding. It was written before any code of the correction.
+- **Root cause:**
+  - D28 records the operation and the scope, but not the forecast's domain (what is forecast).
+  - Its evidence check accepts any forecast word, so another domain's forecast establishes a demand request.
+  - Replay's keyword router sends weather-forecast questions to forecast review, which predates D28.
+  - Nothing in code requires the operational-demand workflow, or its demand-forecast tools, to serve a resolved
+    operational-demand request.
+- **Decision** (the owner's direction, 2026-10-04: structured requests, typed verified results and deterministic
+  rendering; no growing keyword lists and no case rules):
+  - **The domain is part of the structured request.** Route contract v15 (prompts v16, still one routing call) adds
+    to `requested.forecast`:
+    - **`domain`:** `operational_demand`, `weather`, `price`, `other`, `unclear`, or `none` (no forecast asked);
+    - **`request_text`:** the words of the requested forecast clause: what is forecast, what is asked, its period;
+    - **`unsupported_text`:** the words of any forecast of another kind that the question also asks for.
+
+    Recognising a domain adds no forecasting in it.
+  - **One clause:** the domain, the operation and the scope belong to the same requested clause. The operation's and
+    the scope's quotes must lie in `request_text`. Verbatim words establish provenance, not semantic correctness.
+  - **Code checks consistency:**
+    - **Grounding:** `request_text` must be located once, and must not be quoted background or follow a negation.
+    - **Conflict:** the question parser's positive reading of that clause as another domain conflicts with the
+      model's.
+    - **Not reported:** a missing domain (every historical decision) is "not reported", never operational demand.
+  - **Replay** (no model) uses its existing bounded parser, with no new vocabulary. A domain is established only
+    positively:
+    - **Operational demand:** a forecast word near a demand word or a POE term, or a bound forecast-run request
+      (the runs held are AEMO's operational-demand runs).
+    - **Weather or price:** a forecast word near a weather or price word.
+    - **Ignored:** negated mentions and quoted background.
+    - **Both:** a mixed question that Replay cannot split into clauses, so it is sent back.
+    - **Neither:** unclear, so it is sent back.
+  - **Tool eligibility, enforced by code:**
+    - **A forecast review** enters the operational-demand workflow (D27, D28) only with a resolved
+      `operational_demand` request:
+      - another domain is sent back as not supported, before any tool;
+      - an unclear domain, or none, is sent back for clarification.
+    - **A mixed question:** the demand request is resolved only when its own clause gives its operation and scope
+      unambiguously, and a note shown with the answer names the part not answered. Otherwise it is sent back.
+    - **An event review** is unchanged, except when the question asks for a forecast of another domain. Then the
+      demand-forecast tools (`get_forecast_runs`, `compare_forecast_actual`) are ineligible: the dispatcher blocks
+      them, Replay does not plan them, Live does not offer them, and the note names the part not answered.
+  - **Unchanged:**
+    - D28's operation, scope and cutoff;
+    - the result registry, verifier and renderer;
+    - demand maxima (a maximum asked for is the request);
+    - named runs and K14 (Amendment 2);
+    - all validation of the model's drafts and repairs.
+
+    No substitution: no other domain, run, target, operation or window is used in place of the request.
+- **Acceptance criteria** (offline; scripted tests show design properties, not real-model extraction quality):
+  1. **Domain coverage**, through fake-transport Live and Replay, with paraphrases across regions, dates and
+     wording:
+     - **Demand-only questions:** resolve as before.
+     - **Weather-only, temperature-only, price-only and other-domain questions:** never execute a demand-forecast
+       tool and never show a demand value.
+     - **Mixed questions:** resolve their demand clause only when it is unambiguous, and name the unanswered part.
+       Otherwise they are sent back.
+     - **Ambiguous references:** sent back.
+     - **Negation and quoted background:** never authorise a demand operation.
+  2. **Incorrect scripted domain readings:** each is contained, or is listed as a limitation the deterministic
+     checks cannot detect.
+  3. **Missing fallback tests are added:** a rejected wrong-target value and an unrequested error value are absent
+     from the shown fallback, while the original drafts and violations stay in diagnostics.
+  4. **Preservation:**
+     - R02's point result, and the rejection of its misleading aggregate sentence;
+     - named-run and cutoff behaviour;
+     - demand maxima.
+  5. **The scan:** every saved question and saved routing decision is resolved before and after, and every changed
+     resolution, displayed outcome and current-code metric is listed.
+  6. **Historical scoring** stays reproducible. Frozen gold, thresholds, protocols, records and verdicts are
+     unchanged.
+  7. **The suites:** the full suite, lint and typecheck pass. The Replay evaluation and safety suite are run, and
+     their results are reported honestly.
+  8. **Unchanged:** the real ledger (USD 9.227365) and v1.0 (`f14db6d`). No paid call.
+- **Not claimed:**
+  - **Real-model extraction quality** is not shown; a v15 Live routing check is needed.
+  - **An undetected misreading:** a model reading an ambiguous "forecast" as operational demand, when the
+    question's words name no other domain, cannot be detected deterministically.
+  - **Generalisation** is not shown.
+- **Implementation record** (written after the code; the text above is unchanged):
+  - **Deviations from the decision as written, each disclosed:**
+    1. **Event reviews withhold the demand-forecast tools whenever the forecast asked about is not a resolved
+       operational-demand request** (unclear, mixed or in conflict), not only for another domain. Replay cannot read
+       "the forecast price" (the adjective form), and on `main` an event review answered "What was the forecast
+       price for SA1 on 31 July 2026?" with a demand-forecast MAE of 33 MW. Following "if the domain is unresolved,
+       clarify before domain-specific tools", the event review is not sent back as a whole: only its demand-forecast
+       tools are withheld, and a note says so. **Cost:** holdout Y17 and Y18, whose forecasts the parser cannot
+       read, lose their demand-forecast diagnostics.
+    2. **A question that asks no forecast at all** (neither the model nor the parser shows one) keeps D28's handling:
+       there is no forecast request, as for K04's as-of values. The model's `none`, when the question does ask about
+       a forecast, is sent back.
+    3. **A forecast review whose request is a demand maximum** also gets the note naming an unanswered forecast of
+       another kind. Its demand-forecast tools are required there, so they are not withheld.
+    4. **Clarification wording:** a mixed question in Replay, and a domain conflict, each get their own text, with
+       no digits.
+  - **Representation:**
+    - `RequestResolution.forecast` gains `domain`, `unsupported` and `provenance["domain"]`: the model's clause, or
+      the parser's words.
+    - `RequestResolution` gains `ineligible_tools`.
+    - The dispatcher blocks an ineligible tool from any origin, with its reason.
+    - Live does not offer an ineligible tool, and gives no event forecast guidance without `compare_forecast_actual`.
+    - Replay does not plan an ineligible tool.
+  - **Changed outcomes** (before/after scans against `main` at `ef73555`):
+    - **Saved questions** (211, Replay):
+      - **Resolutions:** 4 change.
+        - FC02 is sent back: it does not show what is forecast.
+        - AMB06 is sent back as before, now as a mixed question.
+        - Y17 and Y18 (event reviews): the demand-forecast tools are ineligible, with a note.
+      - **Displayed outcomes:** 3 change.
+        - FC02.
+        - AMB06: its text only.
+        - Y18: its demand-forecast MAE (139.71 MW) and error (311 MW) are no longer shown, and it gains the note.
+    - **Saved routing decisions** (258): Y17 and Y18 change as above, two records each. Nothing else changes.
+    - **The paraphrase matrix:** verdicts are unchanged in all three modes. Rows gain the D29 fields. Three
+      adversarial rows (P16, P17 and P19, all sent back) gain a note.
+    - **Current-code metrics** (Replay evaluation): all gates pass.
+      - **Test split:**
+        - answerable accepted: 16/18 → 15/18;
+        - status matches: 19/21 → 18/21;
+        - routing: 18 → 17 (macro F1 0.870 → 0.823), since a clarification counts as a miss;
+        - required-tool recall: 43/43 → 39/39;
+        - numeric traceability: 96/96 → 95/95;
+        - citation validity: 55/55 → 53/53.
+      - **The gated all-case answerable acceptance:** 31/33 → 30/33 = 0.909, against a threshold of 0.9. That leaves
+        one case of margin.
+      - **Unchanged:** `gold_forecast` (dev 0/5, test 1/5).
+    - **The safety suite:** identical.
+  - **Tests:**
+    - `tests/provider/test_forecast_domain.py`.
+    - D28's test questions that named no domain now say "operational demand"; their original wordings are D29's
+      ambiguous references.
+    - FC02's Replay expectation.
+    - Y18's composite replay is split:
+      - as saved: its demand-forecast claim is rejected and the answer falls back;
+      - a labelled scripted variant without that claim keeps the I-1b check.
+    - The route schema has 24 leaves.
+  - **Limitations:**
+    - **Replay reads another kind's forecast only from a forecast noun's subject words.** A weather expectation asked
+      with a verb is not named as unanswered when demand is asked too. Examples are holdout H06 ("was cold weather
+      expected to push demand up") and Z07 ("what temperature was then expected"). A v15 Live reading names it through
+      `unsupported_text`.
+    - **Replay sends back every mixed question,** and every forecast whose kind it cannot read.
+    - **Live misreadings the checks cannot detect** (shown in `test_misreadings_the_checks_cannot_detect`):
+      - a clause that names no domain, read as operational demand;
+      - a demand request read as another kind: sent back, never answered;
+      - an omitted unsupported part, worded outside the parser's vocabularies.
+    - **A shared scope** stated outside the demand clause (for example once for both clauses) is sent back unless the
+      model's clause includes it.

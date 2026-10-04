@@ -117,6 +117,9 @@ def extract_as_of(text: str, region: str | None, day: date | None) -> datetime |
 
 
 AS_OF_Q_RE = re.compile(r"\b(as of|known at|known by|available by)\b", re.I)
+# weather words (the Replay controller's, shared) and the keyword router's price words: what a forecast is of (D29)
+WEATHER_WORDS = re.compile(r"\b(weather|temperature|hot|cold|wind|windy|solar|irradiance|heat)\b", re.I)
+PRICE_WORD_RE = re.compile(r"\b(?:price|prices|rrp)\b", re.I)
 FORECAST_WORD_RE = re.compile(r"\bforecasts?\b|\bpoe ?(10|50|90)\b", re.I)
 
 
@@ -537,11 +540,14 @@ def resolve(req: InvestigateRequest, sel: Selection, routed: Any = None,
     ``given``: the request as the user gave it, when ``req`` also carries the routing model's values (Live); only the
     user's own fields are request fields whose conflict with the question's wording is noted."""
     from .structured import (
+        DEMAND_FORECAST_TOOLS,
         RequestResolution,
         Routed,
         RoutedRequest,
         Source,
         clarifications,
+        not_answered_note,
+        other_forecasts,
         request_field_notes,
         resolve_cutoff,
         resolve_forecast,
@@ -551,7 +557,8 @@ def resolve(req: InvestigateRequest, sel: Selection, routed: Any = None,
     from .structured import _overlap as spans_overlap
 
     if isinstance(routed, RoutedRequest):
-        routed = Routed(routed, contract="v14" if routed.forecast is not None else "v13")
+        routed = Routed(routed, contract="v13" if routed.forecast is None else
+                        "v15" if routed.forecast.domain is not None else "v14")
 
     q = req.question
     if NON_NEM.search(q):
@@ -660,6 +667,19 @@ def resolve(req: InvestigateRequest, sel: Selection, routed: Any = None,
             target = requests.forecast.target
             if requests.forecast.window is not None:  # the period asked about is the window investigated
                 window = requests.forecast.window
+            if requests.forecast.unsupported:  # another kind of forecast asked for too: said not to be answered (D29)
+                requests.notes.append(not_answered_note(requests.forecast.unsupported))
+    if region and (intent == "market_event_review" or
+                   (intent == "forecast_review" and requests.maximum.status != "absent")):
+        # a forecast asked about where the forecast contract is not read: an event review, whose demand-forecast tools
+        # serve no forecast or a resolved operational-demand one only, or a forecast review whose request is a demand
+        # maximum; a forecast not answered is named (D29)
+        eligible, kinds = other_forecasts(q, routed, requests.forecast_run)
+        if not eligible and intent == "market_event_review":
+            requests.ineligible_tools = {t: "the forecast asked about is not a resolved operational-demand request "
+                                            "(D29)" for t in DEMAND_FORECAST_TOOLS}
+        if kinds is not None:
+            requests.notes.append(not_answered_note(kinds))
     # a run named relative to a half-hour that is not pinned down (held-out v6 Z05, I-16), a demand peak without its
     # measure, or over a window that is not given (I-17), any other detected request that is not bound (I-18), and a
     # cutoff the model detected that cannot be pinned down (D26): sent back, naming what is missing, rather than guessed

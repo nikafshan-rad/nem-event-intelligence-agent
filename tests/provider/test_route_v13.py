@@ -102,8 +102,9 @@ def test_the_v13_contract_has_spans_and_no_model_timestamps():
             return max(leaves(v) for v in o["anyOf"])
         return 1
     v12 = strict_json_schema(RouteDecisionV12)
-    # a slimmer output contract than v12's (17 leaves under v13); v14 adds the forecast request's four (D28)
-    assert (leaves(strict_json_schema(RouteDecision)), leaves(v12)) == (21, 20)
+    # a slimmer output contract than v12's (17 leaves under v13); v14 adds the forecast request's four (D28), v15 its
+    # domain and the words of its clause and of any other kind's request (D29)
+    assert (leaves(strict_json_schema(RouteDecision)), leaves(v12)) == (24, 20)
     assert "description" not in strict_json_schema(RouteDecision) and "description" not in v12  # no docstring leaks
 
 
