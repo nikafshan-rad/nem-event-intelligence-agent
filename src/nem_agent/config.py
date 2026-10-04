@@ -16,6 +16,12 @@ MAX_OPTIONAL_DIAGNOSTICS = 2        # optional tool calls allowed on top of the 
 MAX_MODEL_CALLS = 8                 # live path: model round trips per question
 MAX_REPAIR_ATTEMPTS = 1
 PROMPT_VERSION = "prompts/v16"      # directory under src/nem_agent/ read by the live controller
+# D31 Amendment 1: the request plan (route contract v16, prompts v17), opt-in and off by default. NEM_AGENT_ROUTE_PLAN=1
+# turns it on for Live routing; NEM_AGENT_PLAN_POLICY chooses the stated-basis policy (V1 by default, V0 for
+# comparison; development evidence only, never held-out results, decides which is the default).
+ROUTE_PLAN_DEFAULT = False
+PLAN_PROMPT_VERSION = "prompts/v17"
+PLAN_POLICY_DEFAULT = "V1"
 
 # Live-model prices in USD per 1M tokens (input, output), so budgets are always enforceable. Source: OpenAI API
 # pricing page (developers.openai.com/api/docs/pricing), standard tier, read 2026-09-25 and re-checked 2026-09-28.

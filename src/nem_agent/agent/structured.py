@@ -150,11 +150,14 @@ def requested_from_v12(r: RoutedRequestV12) -> RoutedRequest:
 @dataclass(frozen=True)
 class Routed:
     """What the resolver takes from a routing decision: its reading of the requests, the cutoff's words, and the
-    contract it was given in. ``legacy_cutoff``: a v12 decision gave a cutoff timestamp, which is detection only."""
+    contract it was given in. ``legacy_cutoff``: a v12 decision gave a cutoff timestamp, which is detection only.
+    ``plan``: a route contract v16 decision's request plan (``plan.RequestPlan``, D31 Amendment 1), compiled by
+    ``plan.compile_plan`` instead of this module's resolvers; None for every earlier contract."""
     requested: RoutedRequest | None
     as_of_text: str | None = None
-    contract: Literal["v15", "v14", "v13", "v12"] = "v15"
+    contract: Literal["v16", "v15", "v14", "v13", "v12"] = "v15"
     legacy_cutoff: bool = False
+    plan: Any = None
 
 
 # ------------------------------------------------------------------------------------------------ provenance
@@ -323,11 +326,15 @@ class RequestResolution:
     ineligible_tools: dict[str, str] = field(default_factory=dict)
     # the operation and scope a forecast review asks for (D28)
     forecast: ForecastAnalysis = field(default_factory=lambda: ForecastAnalysis())
+    # route contract v16 only (D31 Amendment 1): what the compiler read from the request plan; None otherwise, and then
+    # not serialised, so earlier contracts' records keep their form
+    plan: dict[str, Any] | None = None
 
     def as_dict(self) -> dict[str, Any]:
-        return {"routed": self.routed, "contract": self.contract, "forecast_run": self.forecast_run.as_dict(),
-                "maximum": self.maximum.as_dict(), "cutoff": self.cutoff.as_dict(), "notes": self.notes,
-                "forecast": self.forecast.as_dict(), "ineligible_tools": self.ineligible_tools}
+        out = {"routed": self.routed, "contract": self.contract, "forecast_run": self.forecast_run.as_dict(),
+               "maximum": self.maximum.as_dict(), "cutoff": self.cutoff.as_dict(), "notes": self.notes,
+               "forecast": self.forecast.as_dict(), "ineligible_tools": self.ineligible_tools}
+        return out if self.plan is None else {**out, "plan": self.plan}
 
 
 # ------------------------------------------------------------------------------------------------ reading times
@@ -1153,6 +1160,10 @@ def resolve_maximum(q: str, req: InvestigateRequest, region: str | None, day: da
 CUTOFF_CLARIFICATION = (
     "Which time is the as-of cutoff? The question names one, but its time, date or time zone cannot be read, so no "
     "cutoff is assumed. Give it with its date and time zone.")
+# route contract v16 (D31 Amendment 1): a cutoff no asked request refers to, or as-of words the request plan leaves out
+PLAN_CUTOFF_CLARIFICATION = (
+    "The question names an as-of cutoff, but which request it limits is not shown, so no cutoff is applied in its "
+    "place and nothing is run. Say which forecast or analysis the cutoff applies to.")
 
 
 # a time's own zone and date written right after it ("6 pm AEST on 6 August 2026")
@@ -1948,5 +1959,5 @@ def clarifications(r: RequestResolution) -> list[str]:
         out.append("The as-of cutoff can be read in two ways: the question's wording and the routing model's reading "
                    "disagree. Which is meant? Neither is applied.")
     elif co.status == "unresolved":
-        out.append(CUTOFF_CLARIFICATION)
+        out.append(PLAN_CUTOFF_CLARIFICATION if "cutoff_reference" in co.missing else CUTOFF_CLARIFICATION)
     return out

@@ -82,9 +82,10 @@ def investigate(req: InvestigateRequest, *, store: Store | None = None, selectio
     live = None
     if req.mode == "live":
         from .agent.live import LiveController
+        from .agent.plan import prompt_version
 
         live = LiveController(None, registry, Versions(code=code_version(), data=store.data_version, corpus=corpus_version(),
-                                                       prompt=config.PROMPT_VERSION, model=None, controller="live"),
+                                                       prompt=prompt_version(), model=None, controller="live"),
                               client=live_client)
         decision = live.route(req.question, trace)
         res = resolve_routed(req, decision, selection, trace)
@@ -95,7 +96,7 @@ def investigate(req: InvestigateRequest, *, store: Store | None = None, selectio
               window=[w.isoformat() for w in res.window] if res.window else None)
     model_id = live.model if live else None
     versions = Versions(code=code_version(), data=store.data_version, corpus=corpus_version(),
-                        prompt=config.PROMPT_VERSION, model=model_id,
+                        prompt=live.prompt_version if live else config.PROMPT_VERSION, model=model_id,
                         controller=CONTROLLER_VERSION if req.mode == "replay" else "live-responses-controller/1")
     records: list[ToolCallRecord] = []
     usage: dict[str, Any] = {}
@@ -152,6 +153,10 @@ def resolve_routed(req: InvestigateRequest, decision: Any, selection: Selection,
         res.reasons = [decision.clarification or "The model judged the question out of scope or ambiguous."]
     if decision is None:
         res.status, res.reasons = "needs_clarification", ["The routing model returned invalid output."]
+    if getattr(decision, "contract", None) == "v16":  # the request plan (D31 Amendment 1): a question that does not
+        from .agent.plan import withdraw_echo  # run states no reading
+
+        withdraw_echo(res)
     return res
 
 
