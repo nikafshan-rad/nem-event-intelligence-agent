@@ -3893,3 +3893,54 @@ Live stays experimental. The full account, with every file, is in `artifacts/liv
 
 **Unchanged:** the frozen kit, every frozen hash, the application code and prompts, v1.0 (`f14db6d`), and every
 historical verdict. No fix, rerun or further evaluation has been made.
+
+## Results: routing-only Live check of route contract v15, diagnostic (run once on `main`, 2026-10-04, under the frozen protocol of PR #77 with its Amendment 1)
+
+**Combined verdict, as frozen: FAIL.** No architectural acceptance is claimed. The run was approved for diagnostic
+attribution only: the combined criteria could not PASS (known blockers N04 and N07). The full results are in
+`artifacts/live/LC-route-v15-score/REPORT.md`.
+
+**These are counts from 34 calls (2 on each of 17 questions), not reliability rates.** The check covers routing only:
+no tool ran and nothing was answered. It is not L3, and Live stays experimental.
+
+**Records:**
+- `artifacts/live/LC-route-v15-run/`: 34 records, their standard output and traces;
+- `artifacts/live/LC-route-v15/run_log.jsonl` and `artifacts/logs/LC_route_v15_driver.log`;
+- `artifacts/live/LC-route-v15-score/`: `SCORE.json` (every assessment, reproducible byte for byte by
+  `eval/livecheck_route_v15/score.py`), `COSTS.json` (the cost reconciliation) and `REPORT.md`.
+
+**Run:** main `43676d5`, code `d38eb4d` (`src/` `2e2e1a7`), prompts v16, route contract v15, `gpt-5-mini`.
+- **Calls:** 34 of 34 saved in the frozen order, 11:06:39 to 11:15:39 UTC, with no interruption or stop.
+- **Spend:** USD 0.109572. The ledger went from 9.227365 to 9.336937, 3,226 lines, `f303c2bc70aadd8f`.
+
+**The layers, separately:**
+- **The model's extraction** (its own decision against the independently verified extraction gold):
+  - familiar: 12 correct, 3 incorrect, 5 with no reading;
+  - fresh: 11 correct, 2 incorrect, 1 with no reading;
+  - errors: domain 3 (D08 ×1, N03 ×2), date 2 and run 2 (both D05 ×2).
+- **Correct readings rejected by code:** 9.
+  - **The clause-containment rule (D29), 8:** the operation's or scope's words fall outside the model's clause. These
+    are D01 ×2, D02 ×2, D03 ×2, D07 and N07.
+  - **"noon", 1:** N07.
+- **A correct reading mis-resolved by code:** 1, N04's resolver defect, a declined weather forecast noted as
+  unanswered.
+- **An incorrect reading accepted by code:** 1, D08, whose "the latest issued forecast" was bound as a demand
+  forecast.
+- **Errors caught by code:** 4 (D05 ×2, N03 ×2).
+- **Incomplete responses:** 6, all at the 2,000-token routing cap: D06, D07, D10 ×2, D08 and N04.
+  - **D06 (slot 19):** sent back, but parser-derived binding metadata remained in its record. It is scored as a wrong
+    binding because the stored evidence word "demand" occurs twice. It is not a tool execution and not an
+    availability leak.
+- **Tools:** none executed. Demand-forecast tools would have been eligible in 5 calls; one of them (D08) is a scored
+  violation.
+- **The combined criteria:**
+  - **FAIL**, on D08, N04 and D06's scored binding;
+  - **supply:** 3 of 20;
+  - **containment:** 12 of 12.
+
+**The largest observed source of supply loss** was the clause-containment rule: 10 of the 17 supply calls lost. The
+same rule also stopped N03's misreading twice, so this is not a finding that validation is unnecessary. Truncation
+came second, with 5.
+
+**Unchanged:** v1.0 (`f14db6d`), every frozen hash and historical verdict, and the code and prompts. No fix, rerun,
+model switch or release has been made.
