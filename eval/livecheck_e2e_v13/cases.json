@@ -1,0 +1,559 @@
+{
+ "version": "livecheck_e2e_v13/1",
+ "cases": [
+  {
+   "case_id": "D01",
+   "category": "demand_max",
+   "split": "livecheck_i15_17",
+   "question": "On 29 July 2026, Sydney time, at which five-minute interval was NSW dispatch total demand highest across the whole day, and what was the level?",
+   "request": {},
+   "expected": {
+    "area": "demand_max",
+    "expected_outcome": "supplied",
+    "intent": "market_event_review",
+    "answerable": true,
+    "status_in": [
+     "answered",
+     "answered_with_caveats"
+    ],
+    "required_tools": [
+     "find_market_events",
+     "get_price_timeline",
+     "get_actual_demand",
+     "retrieve_public_evidence"
+    ],
+    "window_utc": [
+     "2026-07-28T14:00:00Z",
+     "2026-07-29T14:00:00Z"
+    ],
+    "gold_numbers": [
+     {
+      "metric": "dispatch_totaldemand",
+      "value": 10954.2,
+      "unit": "MW",
+      "valid_at_utc": "2026-07-29T09:05:00Z",
+      "source_row_id": "DISPATCHIS:PUBLIC_DISPATCHIS_202607291905_0000000529893888:L27",
+      "tolerance": 0.5,
+      "label": "NSW1 maximum dispatch total demand over 29 Jul AEST (interval ending 19:05 AEST)"
+     }
+    ],
+    "ties": [],
+    "next_highest": {
+     "source_row_id": "DISPATCHIS:PUBLIC_DISPATCHIS_202607291855_0000000529892847:L27",
+     "valid_at_utc": "2026-07-29T08:55:00Z",
+     "value": 10928.72
+    },
+    "check": "A correct answer gives the maximum over all 288 intervals of 29 July AEST (window (14:00Z 28 Jul, 14:00Z 29 Jul]) with its interval (ending 09:05Z = 19:05 AEST) and level; it must not report operational demand or a maximum over another window."
+   },
+   "provenance": {
+    "gold_method": "Window = local day 29 Jul AEST = (2026-07-28T14:00Z, 2026-07-29T14:00Z], 288 intervals confirmed. Max of totaldemand_mw; tie check by equality with the max (one row); next-highest = second row by value.",
+    "queries": [
+     "SELECT count(*) AS n FROM regionsum_5min WHERE region='NSW1' AND interval_end_utc > TIMESTAMPTZ '2026-07-28 14:00:00+00' AND interval_end_utc <= TIMESTAMPTZ '2026-07-29 14:00:00+00'",
+     "SELECT row_id, interval_end_utc, totaldemand_mw FROM regionsum_5min WHERE region='NSW1' AND interval_end_utc > TIMESTAMPTZ '2026-07-28 14:00:00+00' AND interval_end_utc <= TIMESTAMPTZ '2026-07-29 14:00:00+00' ORDER BY totaldemand_mw DESC, interval_end_utc LIMIT 3",
+     "SELECT row_id, interval_end_utc, totaldemand_mw FROM regionsum_5min WHERE region='NSW1' AND interval_end_utc > TIMESTAMPTZ '2026-07-28 14:00:00+00' AND interval_end_utc <= TIMESTAMPTZ '2026-07-29 14:00:00+00' AND totaldemand_mw = (SELECT max(totaldemand_mw) FROM regionsum_5min WHERE region='NSW1' AND interval_end_utc > TIMESTAMPTZ '2026-07-28 14:00:00+00' AND interval_end_utc <= TIMESTAMPTZ '2026-07-29 14:00:00+00')"
+    ],
+    "note": ""
+   },
+   "check_group": "development",
+   "origin": {
+    "file": "eval/livecheck_i15_17/cases.json",
+    "case_id": "K09"
+   },
+   "intended": {
+    "measure": "total demand",
+    "region": "NSW1",
+    "window_kind": "day",
+    "window_utc": [
+     "2026-07-28T14:00:00Z",
+     "2026-07-29T14:00:00Z"
+    ],
+    "window_local": [
+     "2026-07-29T00:00:00+10:00",
+     "2026-07-30T00:00:00+10:00"
+    ],
+    "event_id": null,
+    "as_of_utc": null,
+    "expected_outcome": "established"
+   },
+   "e2e_group": "answerable",
+   "source": {
+    "file": "eval/livecheck_maxima/cases.json",
+    "case_id": "D01",
+    "sha256": "af70b845b95a7b487986d15c0a2860fab50aa728c00672922135502701b5807b",
+    "changed": {}
+   }
+  },
+  {
+   "case_id": "D02",
+   "category": "demand_max",
+   "split": "livecheck_i15_17",
+   "question": "Which half-hour on 29 July 2026 (Brisbane time) had Queensland's highest operational demand, and how many MW was it?",
+   "request": {},
+   "expected": {
+    "area": "demand_max",
+    "expected_outcome": "supplied",
+    "intent": "market_event_review",
+    "answerable": true,
+    "status_in": [
+     "answered",
+     "answered_with_caveats"
+    ],
+    "required_tools": [
+     "find_market_events",
+     "get_price_timeline",
+     "get_actual_demand",
+     "retrieve_public_evidence"
+    ],
+    "window_utc": [
+     "2026-07-28T14:00:00Z",
+     "2026-07-29T14:00:00Z"
+    ],
+    "gold_numbers": [
+     {
+      "metric": "opdemand_actual",
+      "value": 7548.0,
+      "unit": "MW",
+      "valid_at_utc": "2026-07-29T08:30:00Z",
+      "source_row_id": "OPDEM_ACTUAL_DAILY:PUBLIC_ACTUAL_OPERATIONAL_DEMAND_DAILY_20260729_20260730044001:L79",
+      "tolerance": 0.5,
+      "label": "QLD1 maximum operational demand over 29 Jul AEST (half-hour 18:00-18:30 AEST), latest revision"
+     }
+    ],
+    "ties": [],
+    "next_highest": {
+     "source_row_id": "OPDEM_ACTUAL_DAILY:PUBLIC_ACTUAL_OPERATIONAL_DEMAND_DAILY_20260729_20260730044001:L80",
+     "valid_at_utc": "2026-07-29T09:00:00Z",
+     "value": 7547.0
+    },
+    "check": "A correct answer gives the half-hour ending 08:30Z (18:00-18:30 AEST) and its operational demand from the latest revision; it must not give the runner-up half-hour ending 09:00Z (1 MW lower) or a dispatch total demand figure."
+   },
+   "provenance": {
+    "gold_method": "Window = 48 half-hours of 29 Jul AEST, (2026-07-28T14:00Z, 2026-07-29T14:00Z]. Latest revision per half-hour = greatest available_at_utc ('updated' daily row). Max, tie check by equality, next-highest = second row.",
+    "queries": [
+     "SELECT count(DISTINCT interval_end_utc) AS n FROM opdemand_actual WHERE region='QLD1' AND interval_end_utc > TIMESTAMPTZ '2026-07-28 14:00:00+00' AND interval_end_utc <= TIMESTAMPTZ '2026-07-29 14:00:00+00'",
+     "WITH latest AS (SELECT * FROM opdemand_actual WHERE region='QLD1' AND interval_end_utc > TIMESTAMPTZ '2026-07-28 14:00:00+00' AND interval_end_utc <= TIMESTAMPTZ '2026-07-29 14:00:00+00' QUALIFY row_number() OVER (PARTITION BY interval_end_utc ORDER BY available_at_utc DESC) = 1) SELECT row_id, interval_end_utc, revision, operational_demand_mw FROM latest ORDER BY operational_demand_mw DESC, interval_end_utc LIMIT 3",
+     "WITH latest AS (SELECT * FROM opdemand_actual WHERE region='QLD1' AND interval_end_utc > TIMESTAMPTZ '2026-07-28 14:00:00+00' AND interval_end_utc <= TIMESTAMPTZ '2026-07-29 14:00:00+00' QUALIFY row_number() OVER (PARTITION BY interval_end_utc ORDER BY available_at_utc DESC) = 1) SELECT row_id FROM latest WHERE operational_demand_mw = (SELECT max(operational_demand_mw) FROM latest)"
+    ],
+    "note": ""
+   },
+   "check_group": "development",
+   "origin": {
+    "file": "eval/livecheck_i15_17/cases.json",
+    "case_id": "K11"
+   },
+   "intended": {
+    "measure": "operational demand",
+    "region": "QLD1",
+    "window_kind": "day",
+    "window_utc": [
+     "2026-07-28T14:00:00Z",
+     "2026-07-29T14:00:00Z"
+    ],
+    "window_local": [
+     "2026-07-29T00:00:00+10:00",
+     "2026-07-30T00:00:00+10:00"
+    ],
+    "event_id": null,
+    "as_of_utc": null,
+    "expected_outcome": "established"
+   },
+   "e2e_group": "answerable",
+   "source": {
+    "file": "eval/livecheck_maxima/cases.json",
+    "case_id": "D02",
+    "sha256": "af70b845b95a7b487986d15c0a2860fab50aa728c00672922135502701b5807b",
+    "changed": {}
+   }
+  },
+  {
+   "case_id": "F02",
+   "check_group": "fresh",
+   "origin": {
+    "writer": "out/cases_maxima.json"
+   },
+   "category": "demand_max",
+   "split": "livecheck_maxima",
+   "stratum": "F02",
+   "question": "For SA1, over the full local day of 29 July 2026 (midnight to midnight, Adelaide time), which 5-minute interval carried the day's top dispatch total demand, and what level did it hit?",
+   "request": {},
+   "expected": {
+    "area": "demand_max",
+    "expected_outcome": "supplied",
+    "intent": "market_event_review",
+    "answerable": true,
+    "status_in": [
+     "answered",
+     "answered_with_caveats"
+    ],
+    "required_tools": [
+     "find_market_events",
+     "get_price_timeline",
+     "get_actual_demand",
+     "retrieve_public_evidence"
+    ]
+   },
+   "intended": {
+    "measure": "total demand",
+    "region": "SA1",
+    "window_kind": "day",
+    "window_utc": [
+     "2026-07-28T14:30:00Z",
+     "2026-07-29T14:30:00Z"
+    ],
+    "window_local": [
+     "2026-07-29T00:00:00+09:30",
+     "2026-07-30T00:00:00+09:30"
+    ],
+    "event_id": null,
+    "as_of_utc": null,
+    "expected_outcome": "established"
+   },
+   "writer_notes": "SA1 chosen: with F01 = QLD1 and NSW1/TAS1 excluded, the only other candidate is VIC1, whose 29 July 2026 day is development material. The SA1 day itself is not development material, but it contains one development half-hour (SA1, ending 2026-07-29T08:00:00Z); this cannot be avoided because every remaining region's day is development material. Fully held: 288 of 288 intervals. Tests the +09:30 offset.",
+   "e2e_group": "answerable",
+   "source": {
+    "file": "eval/livecheck_maxima/cases.json",
+    "case_id": "F02",
+    "sha256": "af70b845b95a7b487986d15c0a2860fab50aa728c00672922135502701b5807b",
+    "changed": {}
+   }
+  },
+  {
+   "case_id": "F06",
+   "check_group": "fresh",
+   "origin": {
+    "writer": "out/cases_maxima.json"
+   },
+   "category": "demand_max",
+   "split": "livecheck_maxima",
+   "stratum": "F06",
+   "question": "Thinking about the Victorian high-price event of 20 August 2026, how high did VIC1 dispatch total demand (TOTALDEMAND) go over that event's full window, and when was the top reached?",
+   "request": {},
+   "expected": {
+    "area": "demand_max",
+    "expected_outcome": "supplied",
+    "intent": "market_event_review",
+    "answerable": true,
+    "status_in": [
+     "answered",
+     "answered_with_caveats"
+    ],
+    "required_tools": [
+     "find_market_events",
+     "get_price_timeline",
+     "get_actual_demand",
+     "retrieve_public_evidence"
+    ]
+   },
+   "intended": {
+    "measure": "total demand",
+    "region": "VIC1",
+    "window_kind": "event",
+    "window_utc": [
+     "2026-08-19T11:00:00Z",
+     "2026-08-20T11:30:00Z"
+    ],
+    "window_local": [
+     "2026-08-19T21:00:00+10:00",
+     "2026-08-20T21:30:00+10:00"
+    ],
+    "event_id": "VIC1-20260820T0910-hi",
+    "as_of_utc": null,
+    "expected_outcome": "established"
+   },
+   "writer_notes": "Event VIC1-20260820T0910-hi: the only VIC1 event on 20 August 2026 and the only high-price event that day, so region + kind + date identify it uniquely. Not development material (unlike VIC1-20260728T2120-lo, SA1-20260731T0235-hi and the TAS1 6 August day; NSW1-20260731T0730-hi and SA1-20260729T1755-hi contain development half-hours). Fully held for total demand: 294 of 294 intervals. Identified by date rather than peak time so the question carries no time that might coincide with the answer.",
+   "e2e_group": "answerable",
+   "source": {
+    "file": "eval/livecheck_maxima/cases.json",
+    "case_id": "F06",
+    "sha256": "af70b845b95a7b487986d15c0a2860fab50aa728c00672922135502701b5807b",
+    "changed": {}
+   }
+  },
+  {
+   "case_id": "F07",
+   "check_group": "fresh",
+   "origin": {
+    "writer": "out/cases_maxima.json"
+   },
+   "category": "demand_max",
+   "split": "livecheck_maxima",
+   "stratum": "F07",
+   "question": "Based only on data published by noon Brisbane time on Sunday 5 October 2025, what was the highest operational demand in Queensland over that entire local day, and at what time?",
+   "request": {
+    "as_of_utc": "2025-10-05T02:00:00Z"
+   },
+   "expected": {
+    "area": "demand_max",
+    "expected_outcome": "supplied",
+    "intent": "market_event_review",
+    "answerable": true,
+    "status_in": [
+     "answered",
+     "answered_with_caveats"
+    ],
+    "required_tools": [
+     "find_market_events",
+     "get_price_timeline",
+     "get_actual_demand",
+     "retrieve_public_evidence"
+    ],
+    "as_of_utc": "2025-10-05T02:00:00Z",
+    "no_retrospective_evidence": true
+   },
+   "intended": {
+    "measure": "operational demand",
+    "region": "QLD1",
+    "window_kind": "day",
+    "window_utc": [
+     "2025-10-04T14:00:00Z",
+     "2025-10-05T14:00:00Z"
+    ],
+    "window_local": [
+     "2025-10-05T00:00:00+10:00",
+     "2025-10-06T00:00:00+10:00"
+    ],
+    "event_id": null,
+    "as_of_utc": "2025-10-05T02:00:00Z",
+    "expected_outcome": "not_established"
+   },
+   "writer_notes": "QLD1 local day 5 October 2025 (fully held, 48 half-hours; not development material; 24 hours since QLD1 has no daylight saving). Cutoff 2025-10-05T02:00:00Z = noon AEST, strictly inside the window. By the cutoff 8 half-hours have a public row (published 2025-10-04T21:26Z) and 40 do not (earliest publication 2025-10-05T21:26Z), so the whole-day maximum cannot be established as of the cutoff. The question asks for the whole day's maximum and names the cutoff in words that match the field.",
+   "e2e_group": "answerable",
+   "source": {
+    "file": "eval/livecheck_maxima/cases.json",
+    "case_id": "F07",
+    "sha256": "af70b845b95a7b487986d15c0a2860fab50aa728c00672922135502701b5807b",
+    "changed": {}
+   }
+  },
+  {
+   "case_id": "F07N",
+   "check_group": "fresh",
+   "origin": {
+    "writer": "out/cases_maxima.json"
+   },
+   "category": "demand_max",
+   "split": "livecheck_maxima",
+   "stratum": "F07",
+   "question": "Based only on data published by noon Brisbane time on Sunday 5 October 2025, what was the highest operational demand in Queensland over that entire local day, and at what time?",
+   "request": {},
+   "expected": {
+    "area": "demand_max",
+    "expected_outcome": "clarification",
+    "intent": "market_event_review",
+    "answerable": false,
+    "status_in": [
+     "needs_clarification"
+    ],
+    "required_tools": []
+   },
+   "intended": {
+    "measure": "operational demand",
+    "region": "QLD1",
+    "window_kind": "day",
+    "window_utc": [
+     "2025-10-04T14:00:00Z",
+     "2025-10-05T14:00:00Z"
+    ],
+    "window_local": [
+     "2025-10-05T00:00:00+10:00",
+     "2025-10-06T00:00:00+10:00"
+    ],
+    "event_id": null,
+    "as_of_utc": null,
+    "expected_outcome": "clarification"
+   },
+   "writer_notes": "QLD1 local day 5 October 2025 (fully held, 48 half-hours; not development material; 24 hours since QLD1 has no daylight saving). Cutoff 2025-10-05T02:00:00Z = noon AEST, strictly inside the window. By the cutoff 8 half-hours have a public row (published 2025-10-04T21:26Z) and 40 do not (earliest publication 2025-10-05T21:26Z), so the whole-day maximum cannot be established as of the cutoff. The question asks for the whole day's maximum and names the cutoff in words that match the field.",
+   "e2e_group": "clarification_control",
+   "source": {
+    "file": "eval/livecheck_maxima/cases.json",
+    "case_id": "F07",
+    "sha256": "af70b845b95a7b487986d15c0a2860fab50aa728c00672922135502701b5807b",
+    "changed": {
+     "case_id": {
+      "from": "F07",
+      "to": "F07N"
+     },
+     "request": {
+      "from": {
+       "as_of_utc": "2025-10-05T02:00:00Z"
+      },
+      "to": {}
+     },
+     "expected": {
+      "from": {
+       "area": "demand_max",
+       "expected_outcome": "supplied",
+       "intent": "market_event_review",
+       "answerable": true,
+       "status_in": [
+        "answered",
+        "answered_with_caveats"
+       ],
+       "required_tools": [
+        "find_market_events",
+        "get_price_timeline",
+        "get_actual_demand",
+        "retrieve_public_evidence"
+       ],
+       "as_of_utc": "2025-10-05T02:00:00Z",
+       "no_retrospective_evidence": true
+      },
+      "to": {
+       "area": "demand_max",
+       "expected_outcome": "clarification",
+       "intent": "market_event_review",
+       "answerable": false,
+       "status_in": [
+        "needs_clarification"
+       ],
+       "required_tools": []
+      }
+     },
+     "intended.as_of_utc": {
+      "from": "2025-10-05T02:00:00Z",
+      "to": null
+     },
+     "intended.expected_outcome": {
+      "from": "not_established",
+      "to": "clarification"
+     }
+    }
+   }
+  },
+  {
+   "case_id": "F08",
+   "check_group": "fresh",
+   "origin": {
+    "writer": "out/cases_maxima.json"
+   },
+   "category": "demand_max",
+   "split": "livecheck_maxima",
+   "stratum": "F08",
+   "question": "During Tasmania's 31 July 2026 high-price episode, how far did demand climb and when did it top out?",
+   "request": {},
+   "expected": {
+    "area": "demand_max",
+    "expected_outcome": "clarification",
+    "intent": "market_event_review",
+    "answerable": false,
+    "status_in": [
+     "needs_clarification"
+    ],
+    "required_tools": []
+   },
+   "intended": {
+    "measure": null,
+    "region": "TAS1",
+    "window_kind": "event",
+    "window_utc": [
+     "2026-07-30T09:30:00Z",
+     "2026-07-31T09:30:00Z"
+    ],
+    "window_local": [
+     "2026-07-30T19:30:00+10:00",
+     "2026-07-31T19:30:00+10:00"
+    ],
+    "event_id": "TAS1-20260731T0730-hi",
+    "as_of_utc": null,
+    "expected_outcome": "clarification"
+   },
+   "writer_notes": "Names no measure (only 'demand'), so a careful assistant must ask whether dispatch total demand or operational demand is meant. Otherwise in scope: TAS1, and the window of event TAS1-20260731T0730-hi (the only TAS1 event on 31 July 2026), which is fully held for both measures (288/288 and 48/48), so the missing measure is the only defect. Not development material.",
+   "e2e_group": "clarification_control",
+   "source": {
+    "file": "eval/livecheck_maxima/cases.json",
+    "case_id": "F08",
+    "sha256": "af70b845b95a7b487986d15c0a2860fab50aa728c00672922135502701b5807b",
+    "changed": {}
+   }
+  },
+  {
+   "case_id": "R02",
+   "category": "forecast_run",
+   "split": "livecheck_i15_17",
+   "question": "Taking South Australia's 7:30-8:00 am half-hour (Adelaide time, ACST) on 20 August 2026: what POE10, POE50 and POE90 operational demand values were in the final forecast run issued ahead of it, and what operational demand was actually measured?",
+   "request": {},
+   "expected": {
+    "area": "forecast_run",
+    "expected_outcome": "supplied",
+    "intent": "forecast_review",
+    "answerable": true,
+    "status_in": [
+     "answered",
+     "answered_with_caveats"
+    ],
+    "required_tools": [
+     "get_forecast_runs",
+     "get_actual_demand",
+     "compare_forecast_actual",
+     "retrieve_public_evidence"
+    ],
+    "gold_run": {
+     "run_id": "PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202608200830_20260820080131",
+     "issued_at_utc": "2026-08-19T21:57:01Z",
+     "published_at_utc": "2026-08-19T22:01:31Z",
+     "available_at_utc": "2026-08-20T00:47:31Z",
+     "target_end_utc": "2026-08-19T22:30:00Z"
+    },
+    "gold_numbers": [
+     {
+      "metric": "opdemand_forecast_poe10",
+      "value": 1663.0,
+      "unit": "MW",
+      "valid_at_utc": "2026-08-19T22:30:00Z",
+      "source_row_id": "OPDEM_FORECAST_HH:PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202608200830_20260820080131:L835",
+      "tolerance": 0.5,
+      "label": "SA1 POE10, last run before 22:00Z, half-hour ending 22:30Z 19 Aug"
+     },
+     {
+      "metric": "opdemand_forecast_poe50",
+      "value": 1594.0,
+      "unit": "MW",
+      "valid_at_utc": "2026-08-19T22:30:00Z",
+      "source_row_id": "OPDEM_FORECAST_HH:PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202608200830_20260820080131:L835",
+      "tolerance": 0.5,
+      "label": "SA1 POE50, last run before 22:00Z, half-hour ending 22:30Z 19 Aug"
+     },
+     {
+      "metric": "opdemand_forecast_poe90",
+      "value": 1525.0,
+      "unit": "MW",
+      "valid_at_utc": "2026-08-19T22:30:00Z",
+      "source_row_id": "OPDEM_FORECAST_HH:PUBLIC_FORECAST_OPERATIONAL_DEMAND_HH_202608200830_20260820080131:L835",
+      "tolerance": 0.5,
+      "label": "SA1 POE90, last run before 22:00Z, half-hour ending 22:30Z 19 Aug"
+     },
+     {
+      "metric": "opdemand_actual",
+      "value": 1567.0,
+      "unit": "MW",
+      "valid_at_utc": "2026-08-19T22:30:00Z",
+      "source_row_id": "OPDEM_ACTUAL_DAILY:PUBLIC_ACTUAL_OPERATIONAL_DEMAND_DAILY_20260820_20260821044001:L107",
+      "tolerance": 0.5,
+      "label": "SA1 actual operational demand, half-hour ending 22:30Z 19 Aug (latest revision)"
+     }
+    ],
+    "check": "A correct answer converts 07:30-08:00 ACST (UTC+9:30) to the half-hour ending 2026-08-19T22:30Z, names the last run issued before 22:00Z and gives its POE10/50/90 and the actual; it must not treat the times as market time (UTC+10), which would select the half-hour ending 22:00Z."
+   },
+   "provenance": {
+    "gold_method": "07:30-08:00 ACST on 20 Aug -> 22:00Z-22:30Z on 19 Aug. Run = greatest issued_at_utc < target_start (22:00Z) among SA1 rows for target_end 22:30Z. Actual = latest-available revision.",
+    "queries": [
+     "SELECT row_id, run_id, region, target_start_utc, target_end_utc, issued_at_utc, published_at_utc, available_at_utc, poe10_mw, poe50_mw, poe90_mw FROM opdemand_forecast WHERE region='SA1' AND target_end_utc = TIMESTAMPTZ '2026-08-19 22:30:00+00' AND issued_at_utc < target_start_utc ORDER BY issued_at_utc DESC LIMIT 1",
+     "SELECT row_id, region, interval_end_utc, revision, operational_demand_mw, published_at_utc, available_at_utc FROM opdemand_actual WHERE region='SA1' AND interval_end_utc IN (TIMESTAMPTZ '2026-08-19 22:30:00+00') QUALIFY row_number() OVER (PARTITION BY interval_end_utc ORDER BY available_at_utc DESC) = 1 ORDER BY interval_end_utc"
+    ],
+    "note": ""
+   },
+   "check_group": "control",
+   "origin": {
+    "file": "eval/livecheck_i15_17/cases.json",
+    "case_id": "K06"
+   },
+   "e2e_group": "non_maximum_control",
+   "source": {
+    "file": "eval/livecheck_maxima/cases.json",
+    "case_id": "R02",
+    "sha256": "af70b845b95a7b487986d15c0a2860fab50aa728c00672922135502701b5807b",
+    "changed": {}
+   }
+  }
+ ]
+}
