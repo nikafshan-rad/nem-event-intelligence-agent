@@ -1,0 +1,182 @@
+{
+  "trace_id": "tr-9076b028aa57",
+  "started_at": "2026-10-04T02:44:28.570657Z",
+  "events": [
+    {
+      "seq": 1,
+      "t_ms": 10072.0,
+      "kind": "model",
+      "name": "route",
+      "model": "gpt-5-mini",
+      "response_id": "resp_042bede16e6e8d45016ac1bd8dc03887d091ec261b418e4fb9",
+      "function_calls": [],
+      "usage": {
+        "input_tokens": 1525,
+        "input_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 1408
+        },
+        "output_tokens": 888,
+        "output_tokens_details": {
+          "reasoning_tokens": 704
+        },
+        "total_tokens": 2413
+      },
+      "cost_usd": 0.00184,
+      "cost_basis": "ledger accounting at the configured list prices (cached input at the cached rate); not the billed amount",
+      "max_output_tokens": 2000,
+      "status": "completed",
+      "incomplete": null,
+      "duration_ms": 9546.2,
+      "requested": {
+        "model": "gpt-5-mini",
+        "max_output_tokens": 2000,
+        "reasoning_effort": "not sent (the provider's default applies)"
+      },
+      "reported": {
+        "model": "gpt-5-mini-2025-08-07",
+        "max_output_tokens": 2000,
+        "reasoning_effort": "medium"
+      }
+    },
+    {
+      "seq": 2,
+      "t_ms": 10073.2,
+      "kind": "route",
+      "name": "model_decision",
+      "decision": {
+        "intent": "market_event_review",
+        "region": "TAS1",
+        "event_date": "2026-07-31",
+        "as_of_text": null,
+        "needs_clarification": false,
+        "clarification_reason": null,
+        "clarification": null,
+        "out_of_scope": false,
+        "requested": {
+          "forecast_run": {
+            "selection": "none",
+            "selection_text": null,
+            "half_hour_text": null
+          },
+          "maximum": {
+            "kind": "maximum",
+            "measure": "unspecified",
+            "measure_text": "demand",
+            "peak_text": "how far did demand climb and when did it top out?",
+            "window": "event",
+            "window_text": "Tasmania's 31 July 2026 high-price episode"
+          }
+        }
+      },
+      "policy_notes": []
+    },
+    {
+      "seq": 3,
+      "t_ms": 10075.0,
+      "kind": "route",
+      "name": "market_event_review",
+      "status": "needs_clarification",
+      "routing": {
+        "router": "explicit",
+        "regions_found": [
+          "TAS1"
+        ],
+        "dates_found": [
+          "2026-07-31"
+        ],
+        "region_tz": "Australia/Hobart",
+        "requests": {
+          "routed": "reported",
+          "contract": "v13",
+          "forecast_run": {
+            "status": "absent",
+            "selection": null,
+            "half_hour_utc": null,
+            "issued_at_utc": null,
+            "provenance": {},
+            "detected_by": [],
+            "missing": [],
+            "conflicts": [],
+            "spans": []
+          },
+          "maximum": {
+            "status": "unresolved",
+            "measures": [],
+            "window_kind": null,
+            "window_utc": null,
+            "provenance": {},
+            "detected_by": [
+              "route_model",
+              "cue"
+            ],
+            "missing": [
+              "measure"
+            ],
+            "conflicts": [],
+            "spans": [
+              {
+                "role": "peak",
+                "text": "how far did demand climb and when did it top out?",
+                "source": "route_model",
+                "occurrences": [
+                  [
+                    51,
+                    100
+                  ]
+                ],
+                "located": true
+              }
+            ],
+            "unused": []
+          },
+          "cutoff": {
+            "status": "absent",
+            "as_of_utc": null,
+            "provenance": {},
+            "detected_by": [],
+            "missing": [],
+            "conflicts": [],
+            "spans": [],
+            "notes": []
+          },
+          "notes": []
+        }
+      },
+      "reasons": [
+        "Which demand measure is the peak asked about: dispatch total demand (TOTALDEMAND, a dispatch quantity) or operational demand (half-hourly)? They are different measures with different peaks."
+      ],
+      "region": "TAS1",
+      "as_of": null,
+      "window": [
+        "2026-07-30T09:30:00+00:00",
+        "2026-07-31T09:30:00+00:00"
+      ]
+    },
+    {
+      "seq": 4,
+      "t_ms": 10113.4,
+      "kind": "validate",
+      "name": "report",
+      "passed": true,
+      "n_critical": 0,
+      "codes": [],
+      "fallback": false
+    },
+    {
+      "seq": 5,
+      "t_ms": 10122.6,
+      "kind": "done",
+      "name": "needs_clarification",
+      "latency_ms": 10141.1,
+      "usage": {
+        "model_calls": 1,
+        "input_tokens": 1525,
+        "output_tokens": 888,
+        "cost_usd": 0.00184,
+        "cost_note": "list-price estimate (cached input at the cached rate)",
+        "elapsed_s": 9.57
+      }
+    }
+  ]
+}
