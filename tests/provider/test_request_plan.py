@@ -525,6 +525,46 @@ def test_distinct_asked_operations_are_clarified_never_chosen_between():
     assert resolved(q, two).reasons == [PLAN_OPERATIONS_CLARIFICATION]
 
 
+_NO_RUN = {"selection": "none", "selection_text": None, "half_hour_text": None}
+_NO_MAX = {"kind": "none", "measure": None, "measure_text": None, "peak_text": None, "window": None, "window_text": None}
+
+
+def _v15(intent: str, region: str, event_date: str, forecast: dict[str, Any] | None = None,
+         maximum: dict[str, Any] | None = None, run: dict[str, Any] | None = None) -> RouteDecision:
+    """A SYNTHETIC v15 decision with the same reading, for the changed outcomes."""
+    return checked_route(RouteDecision.model_validate({
+        "intent": intent, "region": region, "event_date": event_date, "as_of_text": None, **TOP,
+        "requested": {"forecast_run": run or _NO_RUN, "maximum": maximum or _NO_MAX, "forecast": forecast}}))
+
+
+def test_changed_outcomes_against_v15_for_the_same_question():
+    """Recorded in D31 Amendment 1's implementation entry: what v15 does with the same question and the reading its
+    single fields can hold, and what the plan does. v15 binds one request silently; the plan sends the question back."""
+    live = InvestigateRequest(question=Q_MIXED, mode="live")
+    old = resolve_routed(live, _v15("forecast_review", "SA1", "2026-07-31", forecast={
+        "operation": "window_comparison", "operation_text": "how did the operational demand forecasts compare with "
+        "actual demand", "scope": "whole_local_day", "scope_text": "on 31 July 2026", "domain": "operational_demand",
+        "request_text": "how did the operational demand forecasts compare with actual demand", "unsupported_text": None},
+        maximum={"kind": "maximum", "measure": "operational_demand", "measure_text": "operational demand highest",
+                 "peak_text": "highest", "window": "whole_local_day", "window_text": "on 31 July 2026"}), SEL)
+    assert old.status == "ok" and old.requests.maximum.status == "bound" and old.requests.forecast.status == "absent"
+    assert old.requests.notes == [not_answered_note([])]  # the comparison asked for: noted as an unnamed forecast
+    q = "On 29 July 2026, when were Queensland's dispatch total demand and operational demand each at their highest?"
+    old = resolve_routed(InvestigateRequest(question=q, mode="live"), _v15("market_event_review", "QLD1", "2026-07-29",
+        maximum={"kind": "maximum", "measure": "dispatch_total_demand", "measure_text": "dispatch total demand",
+                 "peak_text": "highest", "window": "whole_local_day", "window_text": "On 29 July 2026"}), SEL)
+    assert old.status == "ok" and old.requests.maximum.measures == ["total demand"]  # one of the two asked
+    old = resolve_routed(InvestigateRequest(question=Q_CUTOFF, mode="live"), _v15("forecast_review", "VIC1",
+        "2026-08-17", forecast={"operation": "forecast_value", "operation_text": "what did the last operational demand "
+        "forecast issued before", "scope": "half_hour", "scope_text": "the half-hour ending 18:30 AEST that day",
+        "domain": "operational_demand", "request_text": "what did the last operational demand forecast issued before "
+        "the half-hour ending 18:30 AEST that day give for Victoria", "unsupported_text": None},
+        run={"selection": "last_issued_before", "selection_text": "the last operational demand forecast issued before",
+             "half_hour_text": "the half-hour ending 18:30 AEST that day"}), SEL)
+    assert old.status == "ok" and old.as_of is not None  # the parser's as-of words, applied to the whole question
+    assert resolved(Q_CUTOFF, _cutoff_plan(None, with_cutoff=False)).reasons == [PLAN_CUTOFF_CLARIFICATION]
+
+
 Q_R02 = ("Taking South Australia's 7:30-8:00 am half-hour (Adelaide time, ACST) on 20 August 2026: what POE10, POE50 "
          "and POE90 operational demand values were in the final forecast run issued ahead of it, and what operational "
          "demand was actually measured?")

@@ -1619,3 +1619,69 @@ is meant. Code decides:
 release. Offline checks use a scratch ledger. The real ledger stands as previously recorded: USD 9.336937, 3,226 lines,
 SHA-256 prefix `f303c2bc70aadd8f`. It is absent from the implementing machine, so this is not independently
 re-verified, and no replacement is created.
+
+### D31, Amendment 1: implementation, offline (2026-10-05)
+- **Status: implemented offline, opt-in and off by default.** Not enabled, not evaluated in Live, and not adopted.
+  No paid call was made. The amendment above was committed before any code.
+- **What was built:**
+  - `nem_agent/agent/plan.py`: the v16 schema (`PlanRouteDecision`), the switch (`NEM_AGENT_ROUTE_PLAN`), the policy
+    (`NEM_AGENT_PLAN_POLICY`), the compiler (`compile_plan`) and the echo;
+  - prompts v17: `route.md` is new; `system.md` and `synthesis.md` are byte-identical to v16's;
+  - `request.resolve`: a v16 decision goes to the compiler. Its shared tail is moved, unchanged, into `_finish`;
+  - `LiveController.route` sends v16 only with the switch on, and a report records the prompts it used;
+  - the tests isolate the two settings, so a shell setting never changes the contract the suite exercises.
+- **Offline evidence** (`tests/provider/test_request_plan.py`; scripted plans show design properties only, not
+  extraction quality):
+  - **The default path is unchanged:**
+    - the v15 routing schema's hash and the v16 route prompt equal v2.0.0's;
+    - all 399 saved decisions the current reader accepts (v12, v13, v15) resolve identically with the switch off
+      and on. The other 38 saved decisions, the earliest L1–L3 records, are in a shape no current reader accepts;
+    - the full suite, the Replay evaluation, the safety suite and the retrieval evaluation pass as at the baseline.
+  - **Equivalence:** the saved end-to-end records (R02, D01, D02, F02, F06, F07; F07N and F08 sent back) resolve to the
+    same bound request. Through the real store and the SYNTHETIC fake transport, R02 and the maxima give the same
+    report, apart from the intentional new metadata: the computed results, verification, validation, R02's
+    fallback, and the maxima's byte-identical statements. One field differs and is read by no controller: F07's v13
+    decision also read its cutoff words as an "as of availability" run, and a plan's maximum has no run.
+  - **The v15 diagnostic questions with scripted correct plans:** 16 of 17 give the frozen amended gold's outcome.
+    N07 is sent back because "noon" cannot be read.
+- **Changed outcomes under the opt-in path, for the same reading:**
+  - **Bound now, sent back by v15's resolver:** correct readings whose words fall outside the requested clause (v15
+    diagnostic D01, D02, D03, D07, the last a shared half-hour).
+  - **No longer named as unanswered:** a forecast the question declines (N04).
+  - **Sent back now** (what v15 does with the same question was checked with scripted v15 decisions where stated):
+    - a forecast whose subject words hold no demand word or POE level (V1), including a run named by its issue time
+      with no subject (v15 accepted the model's demand reading, and Replay takes a bound run as showing demand);
+    - a forecast comparison and a demand maximum asked together. v15 bound the maximum alone; its note said the
+      question mentions a forecast without showing which (checked);
+    - two measures' maxima asked together. v15 bound one measure's maximum (checked);
+    - a forecast value and a comparison over a period, and an asked forecast of unknown kind beside a supported one.
+      v15's single operation and domain fields hold one reading;
+    - a cutoff that nothing references, or as-of words the plan leaves out. v15's parser applied the question's
+      as-of cutoff to the whole question (checked).
+  - **Not applied now:** a cutoff that only declined or background material refers to.
+  - **Unchanged:** the known unsupported time expressions (noon, midday, parts of the day, windows over the limits),
+    sent back as before. Event reviews keep their handling: a forecast operation there decides tool eligibility and
+    the not-answered note only.
+- **Compatibility:**
+  - **With the switch off:** none.
+  - **With it on:**
+    - traces carry v16 decisions (a `plan`, without `as_of_text` and `requested`), which the v15 `RouteDecision` reader
+      rejects; readers dispatch on the `plan` key;
+    - `versions.prompt` is `prompts/v17`;
+    - the routing record's `requests` gains `plan` and the contract `v16`;
+    - the report's uncertainties gain the labelled echo note. The report schema is unchanged;
+    - the routing call's reservation is larger (a longer prompt and schema); it is not measured in Live.
+  - **New names:**
+    - the module `nem_agent.agent.plan`;
+    - `Routed.plan` and `RequestResolution.plan`, serialised only when set;
+    - `PLAN_CUTOFF_CLARIFICATION`;
+    - `live.prompt(name, version=None)`;
+    - `LiveController.request_plan` and `prompt_version`;
+    - `config.ROUTE_PLAN_DEFAULT`, `PLAN_PROMPT_VERSION` and `PLAN_POLICY_DEFAULT`.
+- **Remaining limitations:** as listed in the amendment.
+  - Neither policy verifies meaning. A misreading whose words name demand passes both; V0 accepts any stated basis.
+  - A model's omission of a run or maximum is not detected unless a time is left unheld.
+  - Stances are trusted.
+  - The quotation-mark check sends back a question that quotes its own request.
+  - Truncation is unaddressed, and the routing cap is unchanged.
+- **Not done:** no Live run, no evaluation protocol, no model switch, no release.
