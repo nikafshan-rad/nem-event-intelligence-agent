@@ -100,7 +100,8 @@ class RoutedMaximum(_M):
 
 
 # What a forecast review asks about AEMO's forecasts, and the question's own words for it and for its half-hour or
-# period (route contract v14, D28). Code converts every time from those words.
+# period (route contract v14, D28), with what is forecast and the words of the requested clause (v15, D29). Code
+# converts every time from those words. A decision recorded before v15 has no domain: "not reported".
 class RoutedForecast(_M):
     operation: Literal["none", "forecast_value", "single_interval_comparison", "window_comparison", "unclear"] = Field(
         description="what a forecast_review question asks about the forecasts: forecast_value = what a forecast said "
@@ -116,6 +117,16 @@ class RoutedForecast(_M):
                     "event's window; explicit = a stated start and end")
     scope_text: str | None = Field(
         description="the question's exact words naming the half-hour or period, copied verbatim")
+    domain: Literal["none", "operational_demand", "weather", "price", "other", "unclear"] | None = Field(
+        None, description="what the requested forecast is of: operational_demand = AEMO's operational demand "
+                          "forecasts; weather, price or other = a forecast of another kind; none = no forecast is "
+                          "asked about; unclear = what is forecast cannot be told")
+    request_text: str | None = Field(
+        None, description="the question's exact words of the requested forecast clause (what is forecast, what is "
+                          "asked and its half-hour or period), copied verbatim")
+    unsupported_text: str | None = Field(
+        None, description="the question's exact words asking for a forecast of another kind, when the question also "
+                          "asks for one; else null")
 
 
 class RoutedRequest(_M):
@@ -142,7 +153,7 @@ class Routed:
     contract it was given in. ``legacy_cutoff``: a v12 decision gave a cutoff timestamp, which is detection only."""
     requested: RoutedRequest | None
     as_of_text: str | None = None
-    contract: Literal["v14", "v13", "v12"] = "v14"
+    contract: Literal["v15", "v14", "v13", "v12"] = "v15"
     legacy_cutoff: bool = False
 
 
@@ -266,6 +277,8 @@ class ForecastAnalysis:
     scope: str | None = None
     target: tuple[datetime, datetime] | None = None
     window: tuple[datetime, datetime] | None = None
+    domain: str | None = None  # what is forecast (D29): only operational_demand enters the demand workflow
+    unsupported: list[str] = field(default_factory=list)  # forecasts of another kind also asked for: not answered
     provenance: dict[str, Source] = field(default_factory=dict)
     detected_by: list[str] = field(default_factory=list)
     missing: list[str] = field(default_factory=list)
@@ -285,7 +298,8 @@ class ForecastAnalysis:
 
     def as_dict(self) -> dict[str, Any]:
         b = self.bounds
-        return {"status": self.status, "operation": self.operation, "scope": self.scope,
+        return {"status": self.status, "domain": self.domain, "unsupported": self.unsupported,
+                "operation": self.operation, "scope": self.scope,
                 "target_utc": [iso_utc(t) for t in self.target] if self.target else None,
                 "window_utc": [iso_utc(t) for t in self.window] if self.window else None,
                 "half_hours": self.intervals if b else None,
@@ -300,16 +314,20 @@ class RequestResolution:
     forecast_run: RunRequest = field(default_factory=RunRequest)
     maximum: MaxRequest = field(default_factory=MaxRequest)
     cutoff: CutoffRequest = field(default_factory=CutoffRequest)
-    contract: str | None = None  # the routing contract the reading was given in ("v14", "v13", or "v12" via the adapter)
-    # question wording that conflicts with an authoritative request field: shown with the answer
+    contract: str | None = None  # the routing contract the reading was given in ("v15", "v14", "v13", or "v12" via the
+    # adapter)
+    # question wording that conflicts with an authoritative request field, and parts not answered: shown with the answer
     notes: list[str] = field(default_factory=list)
+    # tools that may not run for this request, with why (D29: the demand-forecast tools, for a forecast that is not a
+    # resolved operational-demand request)
+    ineligible_tools: dict[str, str] = field(default_factory=dict)
     # the operation and scope a forecast review asks for (D28)
     forecast: ForecastAnalysis = field(default_factory=lambda: ForecastAnalysis())
 
     def as_dict(self) -> dict[str, Any]:
         return {"routed": self.routed, "contract": self.contract, "forecast_run": self.forecast_run.as_dict(),
                 "maximum": self.maximum.as_dict(), "cutoff": self.cutoff.as_dict(), "notes": self.notes,
-                "forecast": self.forecast.as_dict()}
+                "forecast": self.forecast.as_dict(), "ineligible_tools": self.ineligible_tools}
 
 
 # ------------------------------------------------------------------------------------------------ reading times
@@ -1474,6 +1492,186 @@ def _on_grid(b: tuple[datetime, datetime]) -> bool:
     return all(t.second == 0 and t.microsecond == 0 and t.minute in (0, 30) for t in b) and b[1] > b[0]
 
 
+# -- the domain (D29): what is forecast. Only a resolved operational-demand request enters the demand workflow.
+_FORECAST_NOUN_RE = re.compile(r"\b(?:forecasts?|predictions?|projections?|outlooks?)\b", re.I)
+_POE_RE = re.compile(r"\bpoe\s?(?:10|50|90)\b", re.I)
+# a negation and the few words it governs, when they name a forecast or its subject ("not the demand forecast")
+_NEGATION_RE = re.compile(r"\b(?:not|no|never|without|rather\s+than|instead\s+of|don['’]?t|do\s+not|does\s+not|nor)\b"
+                          r"(?:\s+[\w'’-]+){0,4}?\s+[\w'’-]*(?:forecast|prediction|projection|outlook|demand|load|weather|"
+                          r"temperature|price)\w*\b", re.I)
+
+
+def _subjects(text: str) -> dict[str, list[tuple[int, int]]]:
+    """What each forecast the text names is of, read from the words written with it (D29): a weather, price or demand
+    word among the two words right before the forecast word ("the weather forecast", "AEMO's demand forecasts"), or
+    right after "of" or "for" ("forecasts of temperature"). Only the existing vocabularies (the Replay controller's
+    weather words, the keyword router's price words, the demand words); a forecast whose words name none of them has
+    no subject read here. Returns each subject with the words it was read from."""
+    from .request import PRICE_WORD_RE, WEATHER_WORDS
+
+    out: dict[str, list[tuple[int, int]]] = {}
+    for m in _FORECAST_NOUN_RE.finditer(text):
+        seg_start = max(text.rfind(c, 0, m.start()) for c in ".?;!") + 1
+        words = list(re.finditer(r"[\w'’-]+", text[seg_start:m.start()]))[-2:]
+        a = seg_start + words[0].start() if words else m.start()
+        after = re.match(r"\s+(?:of|for)\s+(?:the\s+)?[\w'’-]+(?:\s+[\w'’-]+)?", text[m.end():])
+        b = m.end() + (after.end() if after else 0)
+        near = text[a:m.start()] + " " + (after.group(0) if after else "")
+        for kind, rx in (("weather", WEATHER_WORDS), ("price", PRICE_WORD_RE), ("operational_demand", _DEMAND_WORD_RE)):
+            if rx.search(near):
+                out.setdefault(kind, []).append((a, b))
+    return out
+
+
+def question_domain(masked: str, run: RunRequest) -> tuple[str | None, list[str], list[tuple[int, int]],
+                                                         tuple[int, int] | None]:
+    """The domain the question parser establishes positively (D29), from ``masked`` (without quoted background and
+    negated mentions): ``operational_demand`` when a forecast's words name demand, a POE level is named, a forecast
+    run is asked for (the runs held are AEMO's operational-demand runs), or demand is named and a forecast asked about; a
+    weather or price domain when a forecast's own words name it. Returns the domain (None when nothing is shown; "mixed"
+    when demand and another kind are both asked for, which Replay cannot split into clauses), the other kinds asked
+    for, their words, and the words that show demand."""
+    subj = _subjects(masked)
+    others = sorted(k for k in subj if k != "operational_demand")
+    run_words = [sp.located for sp in run.spans if sp.role == "run_selection" and sp.located is not None]
+    poe, word = _POE_RE.search(masked), _DEMAND_WORD_RE.search(masked)
+    shown = (subj["operational_demand"][0] if "operational_demand" in subj else poe.span() if poe else
+             (run_words[0] if run_words else (0, 0)) if run.status == "bound" and
+             run.selection in ("last_issued_before", "issued_at") else
+             word.span() if word and _asks_about_forecasts(masked) else None)
+    words = [w for k in others for w in subj[k]]
+    if shown is not None and others:
+        return "mixed", others, words, shown
+    if others:
+        return (others[0] if len(others) == 1 else "other"), others, words, None
+    return ("operational_demand" if shown is not None else None), [], [], shown
+
+
+def _negated_before(q: str, sp: Span) -> bool:
+    """Words that a negation right before them (or at their start) declines."""
+    assert sp.located is not None
+    a, b = sp.located
+    return bool(re.search(r"\b(?:not|no|never|without|rather\s+than|instead\s+of|don['’]?t|do\s+not|does\s+not|nor)"
+                          r"\s+(?:[\w'’-]+\s+){0,2}$", q[:a], re.I) or
+                re.match(r"\s*(?:not|no|never|without|don['’]?t|do\s+not|nor)\b", q[a:b], re.I))
+
+
+@dataclass
+class DomainReading:
+    """What a requested forecast is of (D29), as ``resolve_domain`` reads it: ``absent`` when no forecast is asked
+    about at all; ``bound`` only for an operational-demand request; ``unsupported`` for a forecast of another kind
+    only; ``mixed`` when the parser alone shows demand and another kind both asked for; ``unresolved`` when what is
+    forecast cannot be told; ``conflict`` when the readings disagree. ``others``: the other kinds asked for; ``leave``:
+    their words, left out of the demand request's reading; ``source``: the words that establish the domain."""
+    status: str
+    domain: str | None = None
+    others: list[str] = field(default_factory=list)
+    leave: list[Span] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
+    conflicts: list[str] = field(default_factory=list)
+    source: Source | None = None
+
+
+def resolve_domain(q: str, model: RoutedForecast | None, run: RunRequest, background: list[Span]) -> DomainReading:
+    """What the requested forecast is of (D29), from the routing model's grounded reading (route contract v15) or, when
+    it reports none (Replay, every decision recorded before v15), the question parser's positive reading. The model's
+    words establish provenance, not correctness: the parser can only show a conflict."""
+    masked = _blank(_masked(q, background), list(_NEGATION_RE.finditer(_masked(q, background))))
+    p_dom, p_others, p_words, p_shown = question_domain(masked, run)
+    m_dom = model.domain if model is not None else None
+    if m_dom in (None, "none") and (model is None or model.operation == "none") and p_dom is None and \
+            not _asks_about_forecasts(masked):
+        return DomainReading("absent")  # no forecast asked about at all: no forecast request (D28)
+    if m_dom is None:  # not reported: the question parser's positive reading alone
+        if p_dom == "operational_demand":
+            assert p_shown is not None
+            words = q[p_shown[0]:p_shown[1]] or "the forecast run asked for"  # a bound run whose words are not located
+            return DomainReading("bound", p_dom, source=Source("question", words, "question parser"))
+        if p_dom in ("weather", "price", "other"):
+            return DomainReading("unsupported", p_dom, p_others)
+        # "mixed": without the routing model's reading of the clauses, the requests cannot be split
+        return DomainReading("mixed" if p_dom == "mixed" else "unresolved", None, p_others)
+    if m_dom in ("none", "unclear"):
+        return DomainReading("unresolved", None, p_others)
+    assert model is not None
+    sp = span("request", model.request_text, q)
+    why = ("the request's words are not located once in the question" if sp is None or sp.located is None else
+           "the request's words are quoted background" if any(_overlap(sp, o) for o in background) else
+           "the request's words are negated" if _negated_before(q, sp) else None)
+    if why:
+        return DomainReading("unresolved", None, p_others, notes=[f"domain: {why}"])
+    assert sp is not None and sp.located is not None
+    a, b = sp.located
+    inside = question_domain(" " * a + masked[a:b] + " " * (len(q) - b), run)[0]  # the clause's own words
+    src = Source("route_model", sp.text, "the requested clause")
+    if m_dom != "operational_demand":
+        if inside == "operational_demand":
+            return DomainReading("conflict", conflicts=[f"domain: {m_dom} (the routing model) for words that ask for "
+                                                        "an operational demand forecast"])
+        return DomainReading("unsupported", m_dom, [m_dom], source=src)
+    if inside in ("weather", "price", "other", "mixed"):
+        return DomainReading("conflict", conflicts=["domain: operational demand (the routing model) for words that "
+                                                    "ask for a forecast of another kind"])
+    for role, text in (("operation", model.operation_text), ("scope", model.scope_text)):
+        r = span(role, text, q) if text else None
+        if r is not None and r.located is not None and not (a <= r.located[0] and r.located[1] <= b):
+            return DomainReading("conflict", conflicts=[f"domain: the {role}'s words are outside the requested clause"])
+    us = span("unsupported", model.unsupported_text, q) if model.unsupported_text else None
+    leave = [us] if us is not None and us.located is not None and not _overlap(us, sp) else []
+    others = sorted(set(p_others) | ({"other"} if leave and not p_others else set()))
+    # the words outside the requested clause that the parser reads as another kind's forecast are left out too
+    leave += [Span("unsupported", q[x:y], ((x, y),), "question") for x, y in p_words if not (a <= x and y <= b)]
+    return DomainReading("bound", "operational_demand", others, leave, source=src)
+
+
+DEMAND_FORECAST_TOOLS = ("get_forecast_runs", "compare_forecast_actual")
+
+
+def other_forecasts(q: str, routed: Routed | None, run: RunRequest) -> tuple[bool, list[str] | None]:
+    """What an event review (or a forecast review whose request is a demand maximum) does with a forecast its question
+    asks about (D29), from the same domain resolution as a forecast request: whether the demand-forecast tools may
+    serve it (yes when no forecast is asked about, or the one asked about is a resolved operational-demand request),
+    and the forecasts not answered (their kinds; [] when which forecast is meant is not shown; None when none)."""
+    model = routed.requested.forecast if routed is not None and routed.requested is not None else None
+    background = [Span("background", m.group(0), ((m.start(), m.end()),), "question") for m in _QUOTED_RE.finditer(q)]
+    d = resolve_domain(q, model, run, background)
+    if d.status == "absent":
+        return True, None
+    if d.status == "bound":
+        return True, d.others or None
+    if d.status == "unsupported":
+        return False, d.others or [str(d.domain)]
+    return False, []  # mixed, unresolved or in conflict: which forecast is meant is not shown
+
+
+FORECAST_DOMAIN_CLARIFICATION = (
+    "Which forecast is the question about? This assistant reviews AEMO's operational demand forecasts, and the "
+    "question does not show that it asks about one, so nothing is compared or given.")
+FORECAST_MIXED_CLARIFICATION = (
+    "The question asks about AEMO's operational demand forecasts and also about a forecast of another kind (for "
+    "example weather or prices). This assistant gives operational demand forecasts only, and the two requests cannot "
+    "be told apart here, so nothing is compared or given. Ask about the operational demand forecast on its own.")
+FORECAST_DOMAIN_CONFLICT = (
+    "Which forecast is the question about? It can be read as asking about AEMO's operational demand forecasts and as "
+    "asking about a forecast of another kind (for example weather or prices). Neither is assumed, so nothing is "
+    "compared or given.")
+FORECAST_UNSUPPORTED_CLARIFICATION = (
+    "The question asks about a forecast of something other than operational demand (for example weather or prices). "
+    "This assistant reviews AEMO's operational demand forecasts only and gives no other forecast, so it is not "
+    "answered. Ask about operational demand forecasts, or about a market event.")
+
+
+def not_answered_note(kinds: list[str]) -> str:
+    """The part of a question that is not answered (D29): the field only, no time, number or quotation. ``kinds``:
+    the other kinds of forecast asked for; [] when which forecast is meant is not shown."""
+    if not kinds:
+        return ("The question also mentions a forecast without showing which, so no AEMO operational demand forecast "
+                "is compared or given for it.")
+    what = " and ".join(k for k in kinds if k != "other") or "another kind of"
+    return (f"Not answered: the question also asks about a {what} forecast. This assistant reviews AEMO's operational "
+            "demand forecasts only and gives no other forecast.")
+
+
 def resolve_forecast(q: str, req: InvestigateRequest, region: str | None, event: Any, routed: Routed | None,
                      run: RunRequest, cutoff: CutoffRequest, target: tuple[datetime, datetime] | None,
                      target_source: Source | None, target_words: list[tuple[int, int]]) -> ForecastAnalysis:
@@ -1501,6 +1699,21 @@ def resolve_forecast(q: str, req: InvestigateRequest, region: str | None, event:
     if (mi := ISSUED_AT_RE.search(q)) is not None:
         run_words.append(Span("run_selection", mi.group(0), (mi.span(),), "question"))
     other = list(cutoff.spans) + run_words + background
+    # -- the domain (D29): only an operational-demand request is read further; a forecast of another kind asked for
+    # too is left out of its reading, and named as not answered
+    dom = resolve_domain(q, model, run, background)
+    if dom.status == "absent":
+        return ForecastAnalysis()
+    out.domain, out.unsupported, out.notes = dom.domain, dom.others, out.notes + dom.notes
+    if dom.source is not None:
+        out.provenance["domain"] = dom.source
+    if dom.status != "bound":
+        out.status = "conflict" if dom.status == "conflict" else "unresolved"
+        out.conflicts = dom.conflicts
+        out.missing = [] if dom.status == "conflict" else [{"unsupported": "domain_unsupported",
+                                                          "mixed": "domain_mixed"}.get(dom.status, "domain")]
+        return out
+    q = _masked(q, dom.leave)
     # -- the operation: read without the cutoff's words and quoted background (a run's words may say what is asked:
     # "what the forecast run issued at 16:57 projected")
     p_op, p_span, p_conflicts = question_operation(q, _masked(q, list(cutoff.spans) + background))
@@ -1513,8 +1726,6 @@ def resolve_forecast(q: str, req: InvestigateRequest, region: str | None, event:
     out.notes += [why] if why else []
     out.spans += [x for x in (m_span, p_span) if x is not None]
     out.detected_by += [s for s, hit in (("route_model", m_op is not None), ("question", p_op is not None)) if hit]
-    if m_op is None and p_op is None and not _asks_about_forecasts(_masked(q, list(cutoff.spans) + background)):
-        return ForecastAnalysis()  # no forecast is asked about (actual demand, a price): no forecast request
     if m_op == "unclear":
         out.status, out.missing = "unresolved", ["operation"]
         return out
@@ -1717,10 +1928,14 @@ def clarifications(r: RequestResolution) -> list[str]:
                    else NAMED_RUN_HALF_HOUR_CLARIFICATION if fr.selection == "issued_at" else HALF_HOUR_CLARIFICATION)
     fa = r.forecast  # D28: what a forecast review asks for, its operation and its half-hour or period
     if fa.status == "conflict":
-        out.append(FORECAST_OPERATION_CONFLICT if any(c.startswith("operation") for c in fa.conflicts)
+        out.append(FORECAST_DOMAIN_CONFLICT if any(c.startswith("domain") for c in fa.conflicts) else
+                   FORECAST_OPERATION_CONFLICT if any(c.startswith("operation") for c in fa.conflicts)
                    else FORECAST_SCOPE_CONFLICT)
     elif fa.status == "unresolved":
-        out.append(FORECAST_OPERATION_CLARIFICATION if "operation" in fa.missing else FORECAST_LIMIT_CLARIFICATION
+        out.append(FORECAST_UNSUPPORTED_CLARIFICATION if "domain_unsupported" in fa.missing else
+                   FORECAST_MIXED_CLARIFICATION if "domain_mixed" in fa.missing else
+                   FORECAST_DOMAIN_CLARIFICATION if "domain" in fa.missing else
+                   FORECAST_OPERATION_CLARIFICATION if "operation" in fa.missing else FORECAST_LIMIT_CLARIFICATION
                    if "window_limit" in fa.missing else FORECAST_SCOPE_CLARIFICATION)
     if mx.status == "conflict":
         out.append(f"The {_fields(mx.conflicts)} of the demand peak asked about can be read in two ways: the "

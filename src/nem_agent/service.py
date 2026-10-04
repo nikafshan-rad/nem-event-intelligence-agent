@@ -102,7 +102,8 @@ def investigate(req: InvestigateRequest, *, store: Store | None = None, selectio
     if res.status != "ok" or res.intent is None:
         report = _non_answer(req, res, trace, versions)
     else:
-        disp = Dispatcher(store, selection, trace, registry, res.intent, res.as_of)
+        disp = Dispatcher(store, selection, trace, registry, res.intent, res.as_of,
+                          res.requests.ineligible_tools if res.requests is not None else None)
         if live is None:
             report = ReplayController(disp, registry, versions).run(res)
         else:

@@ -239,7 +239,7 @@ class RouteDecision(_S):
     # the forecast run and demand maximum the question asks for, with the question's own words for each (I-18, D26);
     # absent in routes recorded before prompts v12: "not reported", never "no requirement"
     requested: RoutedRequest | None = None
-    _contract: str = PrivateAttr(default="v14")
+    _contract: str = PrivateAttr(default="v15")
     _legacy_cutoff: bool = PrivateAttr(default=False)
 
     @model_validator(mode="wrap")
@@ -257,8 +257,11 @@ class RouteDecision(_S):
                 dec._legacy_cutoff = False
             return dec
         dec = handler(data)
-        if isinstance(data, dict) and isinstance(data.get("requested"), dict) and "forecast" not in data["requested"]:
+        req = data.get("requested") if isinstance(data, dict) else None
+        if isinstance(req, dict) and "forecast" not in req:
             dec._contract = "v13"  # recorded before the forecast request: not reported
+        elif isinstance(req, dict) and isinstance(req["forecast"], dict) and "domain" not in req["forecast"]:
+            dec._contract = "v14"  # recorded before the forecast domain (D29): what is forecast is not reported
         return dec
 
     @property
@@ -267,7 +270,7 @@ class RouteDecision(_S):
 
     def routed(self) -> Routed:
         """What the resolver reads from this decision."""
-        contract = self._contract if self._contract in ("v12", "v13") else "v14"
+        contract = self._contract if self._contract in ("v12", "v13", "v14") else "v15"
         return Routed(self.requested, self.as_of_text, contract, self._legacy_cutoff)  # type: ignore[arg-type]
 
 
@@ -909,7 +912,9 @@ class LiveController:
         assert self.d is not None and res.intent is not None
         trace = self.d.trace
         pb = PLAYBOOKS[res.intent]
-        allowed = list(pb.required) + list(pb.optional)
+        # a tool the resolved request makes ineligible is not offered (D29); the dispatcher blocks it in any case
+        ineligible = self.d.ineligible
+        allowed = [t for t in (*pb.required, *pb.optional) if t not in ineligible]
         data_q = res.intent in ("market_event_review", "forecast_review")
         context: dict[str, Any] = {
             "question": res.request.question, "intent": res.intent, "region": res.region,
@@ -922,7 +927,7 @@ class LiveController:
             "event_peak_interval_end_utc": res.event.peak_interval_end_utc if res.event and data_q else None,
             "event_peak_interval_end_local": local_str(parse_iso(res.event.peak_interval_end_utc), res.region)
             if res.event and res.region and data_q else None,
-            "required_tools": list(pb.required), "optional_tools_max_2": list(pb.optional),
+            "required_tools": list(pb.required), "optional_tools_max_2": [t for t in pb.optional if t not in ineligible],
         }
         if res.event and res.region and data_q:  # computed here so the model never does time arithmetic
             hh = half_hour_end_for(parse_iso(res.event.peak_interval_end_utc))
@@ -944,7 +949,8 @@ class LiveController:
             fr = forecast_compare.request_context(res)
             if fr is not None:
                 context["forecast_request"] = fr
-        elif res.window and res.region and res.intent == "market_event_review":  # an event review, as before
+        elif res.window and res.region and res.intent == "market_event_review" and \
+                "compare_forecast_actual" not in ineligible:  # an event review, as before
             lo, hi = forecast_focus(res)  # the same scope the replay controller uses for an event review
             context["forecast_targets_utc"] = [iso_utc(lo), iso_utc(hi)]
             context["forecast_targets_local"] = [local_str(lo, res.region), local_str(hi, res.region)]

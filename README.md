@@ -175,6 +175,11 @@ Code, not the model, does everything else:
     a forecast value gets no comparison result, one half-hour never an aggregate, and a stated or unsupported period
     is sent back for clarification rather than replaced by a default (a whole local day is used exactly; windows over
     the forecast tools' 24 hours are sent back);
+  - **What is forecast (D29).** Only a resolved operational-demand request enters the demand-forecast workflow. A
+    weather, price or other forecast is not answered and gets no demand values; a forecast whose kind cannot be told
+    is sent back; a mixed question is answered for its demand clause only when that clause stands on its own, with a
+    note naming the part not answered (Replay, which cannot split clauses, sends it back). In an event review, the
+    demand-forecast tools serve only no forecast or a demand one;
 - all arithmetic;
 - data access (no SQL, URLs or paths reach the model);
 - the as-of rules;

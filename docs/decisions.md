@@ -1329,3 +1329,72 @@ Acceptance check recorded before implementation. One bounded offline PR; demand 
   - **An undetected misreading:** a model reading an ambiguous "forecast" as operational demand, when the
     question's words name no other domain, cannot be detected deterministically.
   - **Generalisation** is not shown.
+- **Implementation record** (written after the code; the text above is unchanged):
+  - **Deviations from the decision as written, each disclosed:**
+    1. **Event reviews withhold the demand-forecast tools whenever the forecast asked about is not a resolved
+       operational-demand request** (unclear, mixed or in conflict), not only for another domain. Replay cannot read
+       "the forecast price" (the adjective form), and on `main` an event review answered "What was the forecast
+       price for SA1 on 31 July 2026?" with a demand-forecast MAE of 33 MW. Following "if the domain is unresolved,
+       clarify before domain-specific tools", the event review is not sent back as a whole: only its demand-forecast
+       tools are withheld, and a note says so. **Cost:** holdout Y17 and Y18, whose forecasts the parser cannot
+       read, lose their demand-forecast diagnostics.
+    2. **A question that asks no forecast at all** (neither the model nor the parser shows one) keeps D28's handling:
+       there is no forecast request, as for K04's as-of values. The model's `none`, when the question does ask about
+       a forecast, is sent back.
+    3. **A forecast review whose request is a demand maximum** also gets the note naming an unanswered forecast of
+       another kind. Its demand-forecast tools are required there, so they are not withheld.
+    4. **Clarification wording:** a mixed question in Replay, and a domain conflict, each get their own text, with
+       no digits.
+  - **Representation:**
+    - `RequestResolution.forecast` gains `domain`, `unsupported` and `provenance["domain"]`: the model's clause, or
+      the parser's words.
+    - `RequestResolution` gains `ineligible_tools`.
+    - The dispatcher blocks an ineligible tool from any origin, with its reason.
+    - Live does not offer an ineligible tool, and gives no event forecast guidance without `compare_forecast_actual`.
+    - Replay does not plan an ineligible tool.
+  - **Changed outcomes** (before/after scans against `main` at `ef73555`):
+    - **Saved questions** (211, Replay):
+      - **Resolutions:** 4 change.
+        - FC02 is sent back: it does not show what is forecast.
+        - AMB06 is sent back as before, now as a mixed question.
+        - Y17 and Y18 (event reviews): the demand-forecast tools are ineligible, with a note.
+      - **Displayed outcomes:** 3 change.
+        - FC02.
+        - AMB06: its text only.
+        - Y18: its demand-forecast MAE (139.71 MW) and error (311 MW) are no longer shown, and it gains the note.
+    - **Saved routing decisions** (258): Y17 and Y18 change as above, two records each. Nothing else changes.
+    - **The paraphrase matrix:** verdicts are unchanged in all three modes. Rows gain the D29 fields. Three
+      adversarial rows (P16, P17 and P19, all sent back) gain a note.
+    - **Current-code metrics** (Replay evaluation): all gates pass.
+      - **Test split:**
+        - answerable accepted: 16/18 → 15/18;
+        - status matches: 19/21 → 18/21;
+        - routing: 18 → 17 (macro F1 0.870 → 0.823), since a clarification counts as a miss;
+        - required-tool recall: 43/43 → 39/39;
+        - numeric traceability: 96/96 → 95/95;
+        - citation validity: 55/55 → 53/53.
+      - **The gated all-case answerable acceptance:** 31/33 → 30/33 = 0.909, against a threshold of 0.9. That leaves
+        one case of margin.
+      - **Unchanged:** `gold_forecast` (dev 0/5, test 1/5).
+    - **The safety suite:** identical.
+  - **Tests:**
+    - `tests/provider/test_forecast_domain.py`.
+    - D28's test questions that named no domain now say "operational demand"; their original wordings are D29's
+      ambiguous references.
+    - FC02's Replay expectation.
+    - Y18's composite replay is split:
+      - as saved: its demand-forecast claim is rejected and the answer falls back;
+      - a labelled scripted variant without that claim keeps the I-1b check.
+    - The route schema has 24 leaves.
+  - **Limitations:**
+    - **Replay reads another kind's forecast only from a forecast noun's subject words.** A weather expectation asked
+      with a verb is not named as unanswered when demand is asked too. Examples are holdout H06 ("was cold weather
+      expected to push demand up") and Z07 ("what temperature was then expected"). A v15 Live reading names it through
+      `unsupported_text`.
+    - **Replay sends back every mixed question,** and every forecast whose kind it cannot read.
+    - **Live misreadings the checks cannot detect** (shown in `test_misreadings_the_checks_cannot_detect`):
+      - a clause that names no domain, read as operational demand;
+      - a demand request read as another kind: sent back, never answered;
+      - an omitted unsupported part, worded outside the parser's vocabularies.
+    - **A shared scope** stated outside the demand clause (for example once for both clauses) is sent back unless the
+      model's clause includes it.

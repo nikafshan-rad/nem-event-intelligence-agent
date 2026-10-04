@@ -52,11 +52,14 @@ class ToolCallRecord:
 
 class Dispatcher:
     def __init__(self, store: Store, selection: Selection, trace: Trace, registry: EvidenceRegistry, intent: str,
-                 request_as_of: datetime | None = None) -> None:
+                 request_as_of: datetime | None = None, ineligible: dict[str, str] | None = None) -> None:
         self.store, self.selection, self.trace, self.registry = store, selection, trace, registry
         self.results = ResultRegistry()  # typed results computed by code, admitted only by verification (D24)
         self.playbook = PLAYBOOKS[intent]
         self.request_as_of = request_as_of
+        # tools the resolved request makes ineligible, with why (D29: the demand-forecast tools, for a forecast that is
+        # not a resolved operational-demand request)
+        self.ineligible = dict(ineligible or {})
         self.records: list[ToolCallRecord] = []
         self._n = 0
 
@@ -99,6 +102,8 @@ class Dispatcher:
         if spec is None:
             return self._block(rec, f"unknown tool '{rec.name}' (allowed: {', '.join(TOOLS)})")
         pb = self.playbook
+        if rec.name in self.ineligible:
+            return self._block(rec, f"'{rec.name}' is not eligible for this request: {self.ineligible[rec.name]}")
         if rec.name in pb.required:
             if self.calls_of(rec.name) >= pb.max_calls_per_required_tool:
                 return self._block(rec, f"'{rec.name}' already called {pb.max_calls_per_required_tool} times")

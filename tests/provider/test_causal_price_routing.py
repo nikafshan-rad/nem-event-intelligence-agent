@@ -54,8 +54,24 @@ def _parts(path: Path):
     return calls, rec["drafts"]["synthesis:draft"], patch
 
 
-def _replay(source: Path, question: str = Q18, route: dict | None = None):
+def _without_the_demand_forecast(draft: dict) -> dict:
+    """SYNTHETIC variant (D29): Y18's question mentions a forecast without showing which, so the demand-forecast tools
+    are not eligible for it. W19's draft is used without the items resting on its demand forecast: the POE50 clause of
+    summary[4], claim c8 and evidence ev1000 (the other items, and their indices for the saved patch, are kept)."""
+    d = copy.deepcopy(draft)
+    assert "POE50 2042.0 MW" in d["summary"][4]
+    d["summary"][4] = ("The measured half-hour operational demand for the half-hour ending 2026-07-29T08:00:00Z was "
+                       "1872.0 MW (ev0912).")
+    d["numeric_claims"] = [c for c in d["numeric_claims"] if c["evidence_id"] != "ev1000"]
+    d["observation_evidence_ids"] = [e for e in d["observation_evidence_ids"] if e != "ev1000"]
+    for h in d["possible_explanations"]:
+        h["supporting_evidence_ids"] = [e for e in h["supporting_evidence_ids"] if e != "ev1000"]
+    return d
+
+
+def _replay(source: Path, question: str = Q18, route: dict | None = None, variant=None):
     calls, draft, patch = _parts(source)
+    draft = variant(draft) if variant else draft
     fake = FakeModel(route or ROUTE18, [calls], lambda kw: copy.deepcopy(draft),
                      (lambda kw: copy.deepcopy(patch)) if patch else None)
     return investigate(InvestigateRequest(question=question, mode="live"), live_client=fake, write_trace=False)
@@ -70,8 +86,25 @@ def test_y18_is_routed_as_an_event_review():
 
 @pytest.fixture(scope="module")
 def y18_on_the_event_route():
-    """Y18's question and saved routing decision, with the same event's market-review tool calls and drafts (W19)."""
-    return _replay(LIVE / "live-check-dev2" / "W19.json")
+    """Y18's question and saved routing decision, with the same event's market-review tool calls and drafts (W19), less
+    the draft items resting on the demand forecast that D29 makes ineligible for Y18's question."""
+    return _replay(LIVE / "live-check-dev2" / "W19.json", variant=_without_the_demand_forecast)
+
+
+def test_y18s_composite_as_saved_rests_on_a_demand_forecast_that_is_not_eligible():
+    """D29: Y18 mentions a forecast ("AEMO's forecast lack of reserve") without showing which, so the demand-forecast
+    tools are not eligible for it. W19's draft as saved states a POE50 from a forecast run: that call is blocked, the
+    claim and the hypothesis citing it are rejected, and the answer falls back (validated); the controller still
+    computes the cancellation sentence, and a note says no demand forecast is used for the forecast mentioned."""
+    res = _replay(LIVE / "live-check-dev2" / "W19.json")
+    (blocked,) = [r for r in res.records if r.name == "get_forecast_runs"]
+    assert blocked.status == "blocked" and "not eligible for this request" in blocked.blocked_reason
+    v = res.report.validation
+    codes = {(x["code"], x["detail"]) for x in v["initial"]["violations"]}
+    assert ("CLAIM_EVIDENCE_MISSING", "c8 cites unknown evidence ev1000") in codes
+    assert v["fallback_applied"] and v["final_passed"] and "2042" not in json.dumps(res.report.summary)
+    assert any(e["name"] == "cancellation_answer" for e in res.trace.as_dict()["events"])
+    assert res.report.uncertainties[0].startswith("The question also mentions a forecast without showing which")
 
 
 def test_y18_runs_the_event_review_and_its_required_tools(y18_on_the_event_route):

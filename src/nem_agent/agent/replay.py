@@ -28,10 +28,9 @@ from ..report import (
 from ..timeutil import NEM_TZ, half_hour_end_for, iso_utc, local_str, parse_iso
 from . import demand_max, forecast_compare
 from .dispatcher import Dispatcher, ToolCallRecord
-from .request import Resolution
+from .request import WEATHER_WORDS, Resolution
 
 CONTROLLER_VERSION = "scripted-replay-controller/1"
-WEATHER_WORDS = re.compile(r"\b(weather|temperature|hot|cold|wind|windy|solar|irradiance|heat)\b", re.I)
 GEN_WORDS = re.compile(r"\b(generat\w*|unit|units|outage|trip|scada|supply)\b", re.I)
 FORECAST_WORDS = re.compile(r"\b(forecast\w*|poe|predict\w*)\b", re.I)
 NOTICE_WORDS = re.compile(r"\bmarket notices?\b|\bnotices? (say|said|says|state)\b", re.I)
@@ -199,7 +198,7 @@ class ReplayController:
             extras.append("get_weather_context")
         if GEN_WORDS.search(q) or len(extras) < 2:
             extras.append("get_generation_change")
-        if len(extras) < 2:
+        if len(extras) < 2 and "compare_forecast_actual" not in self.d.ineligible:  # (D29)
             extras.append("compare_forecast_actual")
         for name in extras[:2]:
             if name == "get_weather_context":
