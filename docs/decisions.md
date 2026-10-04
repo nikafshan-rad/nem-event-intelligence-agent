@@ -1398,3 +1398,9 @@ Acceptance check recorded before implementation. One bounded offline PR; demand 
       - an omitted unsupported part, worded outside the parser's vocabularies.
     - **A shared scope** stated outside the demand clause (for example once for both clauses) is sent back unless the
       model's clause includes it.
+  - **Live routing diagnostic of v15** (`eval/livecheck_route_v15`, PR #77, run once 2026-10-04): combined FAIL, as
+    known before the run.
+    - The clause-containment rule above rejected 8 of the 10 correct model readings that code lost. It was also the
+      stated reason for sending back D05's 2 incorrect readings, which are counted as errors caught by code.
+    - Results are in `docs/live-gates.md` and `artifacts/live/LC-route-v15-score/REPORT.md`. These are counts, not
+      rates, and no rule was changed.

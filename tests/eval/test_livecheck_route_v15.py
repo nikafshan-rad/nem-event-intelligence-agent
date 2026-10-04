@@ -766,13 +766,25 @@ def test_refusals(monkeypatch, tmp_path):
 
 
 # ------------------------------------------------------------------------------------------------ the freeze
+FROZEN_SRC_TREE = "2e2e1a7e4f62d9f452939de310aafe3d68173736"  # d38eb4d's src/ tree, checked before the run
+
+
+def _has_commit(rev: str) -> bool:
+    return subprocess.run(["git", "cat-file", "-e", f"{rev}^{{commit}}"], cwd=ROOT, capture_output=True).returncode == 0
+
+
 @pytest.mark.skipif(FREEZE is None, reason="FREEZE.json not written yet")
 def test_the_freeze_matches_the_protocol():
+    """Every frozen file's hash and the recorded full src/ tree are always checked. The code commit is cross-checked
+    through git in addition, when it is in the clone: CI's two-commit checkout no longer holds d38eb4d once main moves
+    past it, and its absence never skips the other assertions. (A test-only correction made in the records PR, #78.)"""
     assert FREEZE["code_commit"].startswith("d38eb4d") and FREEZE["prompt_version"] == "prompts/v16"
     assert FREEZE["route_contract"] == "v15" and FREEZE["model"] == "gpt-5-mini"
     assert FREEZE["route_max_output_tokens"] == 2000
-    assert FREEZE["src_tree"] == subprocess.run(["git", "rev-parse", "d38eb4d:src"], cwd=ROOT, capture_output=True,
-                                                text=True, check=True).stdout.strip()
+    assert FREEZE["src_tree"] == FROZEN_SRC_TREE
+    if _has_commit(FREEZE["code_commit"]):
+        assert subprocess.run(["git", "rev-parse", f"{FREEZE['code_commit']}:src"], cwd=ROOT, capture_output=True,
+                              text=True, check=True).stdout.strip() == FROZEN_SRC_TREE
     assert (FREEZE["ledger_start_usd"], FREEZE["ledger_lines"], FREEZE["ledger_sha256_prefix"]) == (
         9.227365, 3158, "4250ef88a8ad3d35")
     assert FREEZE["call_cap_usd"] == 0.006 and FREEZE["runs"]["RT"]["run_cap_usd"] == 0.204
