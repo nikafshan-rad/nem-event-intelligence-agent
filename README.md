@@ -9,9 +9,15 @@ kept separate.
 > Independent public-data project. It is not affiliated with AEMO or any employer, uses no private data, and does not
 > trade, bid or control anything. AEMO data and documents are attributed in [`data/SOURCES.md`](data/SOURCES.md).
 
-**Release v2.0.0 (2026-10-04):** see [`RELEASE_NOTES.md`](RELEASE_NOTES.md). Replay, which uses no language model,
-is the verified baseline. **Live (LLM) mode is experimental.** It has not passed L3, and this release is not
-evidence of Live reliability or of generalisation.
+**Release v2.1.0 (2026-10-05, prerelease):** see [`RELEASE_NOTES.md`](RELEASE_NOTES.md).
+- **What it adds:** the opt-in request plan, the experimental confirmed-request workflow and a routing
+  reasoning-effort setting. All three are off by default.
+- **Also new:** truthful labels for Live runs that the budget stopped.
+- **The verified baseline:** Replay, which uses no language model.
+- **Live (LLM) mode is experimental.** It has not passed L3, and this release is not evidence of Live reliability or
+  of generalisation.
+
+The v2.0.0 notes (2026-10-04) are kept in the same file.
 
 ![Live investigation of the SA1 price spike on 31 July 2026, written by gpt-5-mini and checked by the validator](docs/img/ui_live_sa1.png)
 
