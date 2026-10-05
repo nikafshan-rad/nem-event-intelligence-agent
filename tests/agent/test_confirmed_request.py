@@ -1050,3 +1050,148 @@ def test_through_the_page_an_edit_that_reopens_a_requirement_shows_it(sel, tool_
     assert now != "nothing" and "Which half-hour?" not in now
     assert C.issues(C.draft_of(at.session_state["confirm_flow"]), sel)[0].field == "run"
     assert fake.calls == 1 and len(tool_calls) == n and not any(note in t for t in _shown_now(at))
+
+
+# ------------------------------------------------------------------------------------------------ the comparison headline
+RAN = re.compile(r"\b(?:is|was) compared\b|\bwas computed\b|\bis given in\b|\bgives the\b")
+HEADLINES = {
+    "point, established": (POINT, "established",
+                           "SA1 operational demand: the forecast run the confirmed request names was compared with the "
+                           "actual for the confirmed half-hour; the computed answer gives the result."),
+    "point, unavailable under the cutoff": (POINT_UNDER_CUTOFF, "unavailable",
+                                            "SA1 operational demand: the requested comparison for the confirmed "
+                                            "half-hour is unavailable, so no value is given; the computed answer says "
+                                            "why. No other forecast run or half-hour is used in its place."),
+    "aggregate, established": (SA1_PERIOD, "established",
+                               "SA1 operational demand: the forecast accuracy over the confirmed period, under the "
+                               "confirmed run policy, was computed from every half-hour in it; the computed answer "
+                               "gives the MAE and mean error."),
+    "aggregate, partial": (NSW1_EVENING, "partial",
+                           "NSW1 operational demand: the forecast accuracy under the confirmed run policy covers only "
+                           "part of the confirmed period: not every half-hour has a forecast/actual pair, so the MAE "
+                           "and mean error in the computed answer are over the paired half-hours only, and it says how "
+                           "many are missing and why."),
+    "aggregate, unavailable": (VIC1_EVENING, "unavailable",
+                               "VIC1 operational demand: the requested comparison over the confirmed period is "
+                               "unavailable, so no value is given; the computed answer says why. No other window or "
+                               "run selection is used in its place."),
+}
+
+
+@pytest.mark.parametrize("name", list(HEADLINES))
+def test_a_confirmed_comparison_headline_follows_its_verified_result(name, sel):
+    """The headline of a confirmed forecast point or aggregate is worked out from its verified result's status: a
+    completed comparison, its partial coverage, or that the requested comparison is unavailable. It passes the
+    independent validator unchanged."""
+    steps, status, want = HEADLINES[name]
+    _x, res = _run(_confirmed(sel, steps), sel)
+    (a,) = res.report.answer
+    assert (a.status, a.verification) == (status, "verified")
+    assert res.report.headline == want and _clean(res.report)
+    assert bool(RAN.search(want)) == (status == "established")  # only a completed comparison is said to have run
+
+
+def test_the_unavailable_sa1_comparison_headline_does_not_say_it_ran(sel, tool_calls):
+    """Regression (the owner's walkthrough of 2026-10-05): the SA1 point whose named run was not public by the cutoff
+    was correctly unavailable in the computed answer, but its headline said the run "is compared with the actual"."""
+    _x, res = _run(_confirmed(sel, POINT_UNDER_CUTOFF), sel)
+    rep = res.report
+    assert tool_calls == [] and "not provably public by the as-of cutoff" in rep.answer[0].statement
+    assert "compared with the actual" not in rep.headline and not RAN.search(rep.headline)
+    assert "is unavailable, so no value is given" in rep.headline
+
+
+def test_an_unverified_comparison_headline_gives_no_value(sel, monkeypatch):
+    from nem_agent import results
+
+    monkeypatch.setattr(results, "_rederive", lambda *a, **k: ("failed", ["SYNTHETIC: the re-derived result differs"]))
+    _x, res = _run(_confirmed(sel, POINT), sel)
+    (a,) = res.report.answer
+    assert (a.status, a.verification) == ("not_verified", "failed")
+    assert res.report.headline == ("SA1 operational demand: the requested comparison for the confirmed half-hour "
+                                   "could not be verified against the pinned data, so no value is given.")
+
+
+def test_the_page_headline_of_an_unavailable_comparison_says_it_is_unavailable(sel, monkeypatch):
+    from streamlit.testing.v1 import AppTest
+
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    at = AppTest.from_file(str(ROOT / "app" / "streamlit_app.py"), default_timeout=180)
+    at.session_state["confirm_flow"] = _confirmed(sel, POINT_UNDER_CUTOFF)
+    at.run()
+    at.sidebar.toggle[0].set_value(True).run()
+    next(b for b in at.button if b.label == "Confirm and run").click().run()
+    assert not at.exception
+    (head,) = [m.value for m in at.markdown if m.value.startswith("**Report headline**")]
+    assert "is unavailable, so no value is given" in head and "compared with the actual" not in head
+
+
+# ------------------------------------------------------------------------------------------------ the maximum headline
+VIC1_PARTLY_HELD = [("operation", "demand_maximum"), ("measure", "operational demand"), ("region", "VIC1"),
+                    ("date", "2026-07-30"), ("scope_kind", "day")]  # not every half-hour of the day is held
+MAX_HEADLINES = {
+    "established": (MAXIMUM, "established",
+                    "QLD1 operational demand: the verified maximum over the confirmed window is given in the computed "
+                    "answer."),
+    "not established": (VIC1_PARTLY_HELD, "not_established",
+                        "VIC1 operational demand: no maximum is established for the confirmed window: not every "
+                        "interval of the window is held, so the computed answer gives only the highest value held, not "
+                        "a maximum."),
+    "not established, total demand": ([*VIC1_PARTLY_HELD[:1], ("measure", "total demand"), *VIC1_PARTLY_HELD[2:]],
+                                      "not_established",
+                                      "VIC1 dispatch total demand (TOTALDEMAND): no maximum is established for the "
+                                      "confirmed window: not every interval of the window is held, so the computed "
+                                      "answer gives only the highest value held, not a maximum."),
+    "unavailable, QLD1 on 15 January 2025": (QLD1_UNHELD, "unavailable",
+                                             "QLD1 operational demand: no verified maximum is given for the confirmed "
+                                             "window: the actual-demand data was unavailable."),
+}
+
+
+def _consistent(rep: Any) -> None:
+    """The headline and the computed answer say the same thing: a maximum is said to be given only when the answer
+    gives a verified, established one; a limitation in one is the same limitation in the other."""
+    (a,) = rep.answer
+    h = rep.headline
+    assert ("the verified maximum over the confirmed window is given" in h) == (
+        (a.status, a.verification) == ("established", "verified")) == ("was highest at" in a.statement)
+    assert ("no maximum is established" in h) == (a.status == "not_established") == (
+        "cannot be established" in a.statement)
+    assert ("no verified maximum is given" in h) == ("cannot be given" in a.statement)
+    assert not re.search(r"\d", h.split(":", 1)[1].replace("TOTALDEMAND", ""))  # no value in the headline
+
+
+@pytest.mark.parametrize("name", list(MAX_HEADLINES))
+def test_a_confirmed_maximum_headline_follows_its_verified_result(name, sel, tool_calls):
+    """The headline of a confirmed demand maximum is worked out from its verified result's status, like a forecast
+    comparison's; no status is added, and the calculation and its validation are unchanged."""
+    steps, status, want = MAX_HEADLINES[name]
+    _x, res = _run(_confirmed(sel, steps), sel)
+    (a,) = res.report.answer
+    assert (a.status, a.verification) == (status, "verified") and len(tool_calls) == 1
+    assert res.report.headline == want and _clean(res.report)
+    _consistent(res.report)
+
+
+def test_the_unavailable_qld1_maximum_headline_does_not_say_a_maximum_is_given(sel, tool_calls):
+    """Regression: QLD1 on 15 January 2025 is outside the pinned data. The computed answer said the maximum cannot be
+    given, but the headline said "the maximum over the confirmed window is given in the computed answer"."""
+    _x, res = _run(_confirmed(sel, QLD1_UNHELD), sel)
+    rep = res.report
+    assert tool_calls == ["get_actual_demand"] and [r.status for r in res.records] == ["unavailable"]
+    assert "cannot be given: the controller's get_actual_demand call returned unavailable" in rep.answer[0].statement
+    assert "is given in the computed answer" not in rep.headline
+    assert rep.headline.endswith("no verified maximum is given for the confirmed window: the actual-demand data was "
+                                 "unavailable.")
+
+
+def test_an_unverified_maximum_headline_gives_no_maximum(sel, monkeypatch):
+    from nem_agent import results
+
+    monkeypatch.setattr(results, "_rederive", lambda *a, **k: ("failed", ["SYNTHETIC: the re-derived result differs"]))
+    _x, res = _run(_confirmed(sel, MAXIMUM), sel)
+    (a,) = res.report.answer
+    assert (a.status, a.verification) == ("not_verified", "failed")
+    assert res.report.headline == ("QLD1 operational demand: no verified maximum is given for the confirmed window: "
+                                   "the computed result could not be verified against the pinned data (failed).")
+    _consistent(res.report)

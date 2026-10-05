@@ -227,6 +227,8 @@ investigation remains the default and is unchanged.
   - **A partial, unavailable or unverified result:** "answered with caveats". The report says why.
   - **A point whose named run was not public by the cutoff:** no comparison runs and none is forced. The status is
     "answered with caveats".
+- **Unavailable comparisons.** If the confirmed comparison cannot be computed, the app explains the limitation
+  without switching to a different forecast run or target interval.
 - **Answers:** the narrative beside the computed answer is the scripted controller's. No model-written interpretation
   is produced in this workflow.
 - **No accuracy claim:** how well a hosted model fills the request plan is not measured (a comparative routing-only
