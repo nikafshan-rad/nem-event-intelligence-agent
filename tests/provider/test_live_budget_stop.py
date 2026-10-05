@@ -1,7 +1,8 @@
 """D34: Live budget stops. SYNTHETIC fake model and scratch ledgers only (conftest): nothing leaves the process.
 
-- the preflight counts every bounded call of the standard Live investigation at its worst case, before the first paid
-  call, and writes nothing to the ledger;
+- the preflight checks a conservative start requirement before the first paid call (every call's output at its cap,
+  plus the routing request) and writes nothing to the ledger. It is not a complete bound on the run's cost: the input
+  of later calls is not counted, and each call is still checked when it is reserved;
 - a preflight refusal makes no call: the two runs saved on 2026-10-05 (TAS1 ``tr-6e226e92a8bc``, NSW1
   ``tr-c050b5983be0``) would not have started, and would have spent nothing. As before, a refusal before anything is
   sent is raised (``BudgetExceeded``), now with the not-started result to show;
@@ -75,7 +76,7 @@ def _no_answer(res: Any, stage: str) -> dict[str, Any]:
     return prov
 
 
-def test_the_preflight_counts_every_bounded_call_and_writes_nothing(ev):
+def test_the_start_requirement_counts_every_output_cap_and_the_routing_request_and_writes_nothing(ev):
     fake = FakeModel(_route(ev), [_required_turn(ev)], _good_report)
     res = _run(fake)
     (pre,) = [e for e in res.trace.events if e["kind"] == "budget" and e["name"] == "preflight"]
@@ -85,17 +86,33 @@ def test_the_preflight_counts_every_bounded_call_and_writes_nothing(ev):
     assert sum(c["calls"] for c in pre["calls"]) == config.MAX_MODEL_CALLS  # the loop's bound, nothing more
     sent = {k: v for k, v in fake.requests[0].items() if k not in ("model", "store", "max_output_tokens")}
     route = pre["calls"][0]
-    assert route["input_chars"] == len(json.dumps(sent, default=str))  # the routing request, exactly
-    assert route["worst_usd"] == budget.worst_case_cost("gpt-5-mini", route["input_chars"], 2000)
-    assert all(c["input_chars"] == 0 for c in pre["calls"][1:])  # later input: left to the per-call guard
+    assert route["input"] == "counted exactly" and route["input_chars"] == len(json.dumps(sent, default=str))
+    assert route["counted_usd"] == budget.worst_case_cost("gpt-5-mini", route["input_chars"], 2000)
+    assert all(c["input"].startswith("not counted") and c["input_chars"] == 0 for c in pre["calls"][1:])
     out = budget.prices("gpt-5-mini")[2] / 1e6
-    assert pre["required_usd"] == pytest.approx(sum(c["worst_usd"] for c in pre["calls"]), abs=1e-6)
-    assert pre["required_usd"] == pytest.approx(route["worst_usd"] + (5 * 8000 + 16000 + 16000) * out, abs=1e-6)
+    assert pre["required_usd"] == pytest.approx(sum(c["counted_usd"] for c in pre["calls"]), abs=1e-6)
+    assert pre["required_usd"] == pytest.approx(route["counted_usd"] + (5 * 8000 + 16000 + 16000) * out, abs=1e-6)
+    assert "not a complete bound" in pre["basis"]
     # nothing is counted twice: one reservation and one settlement per call sent, and nothing left reserved
     entries = _entries()
     assert sum(e["kind"] == "reserve" for e in entries) == sum(e["kind"] == "settle" for e in entries) == len(
         fake.requests)
     assert budget.spent() == pytest.approx(res.usage["cost_usd"], abs=1e-6)
+
+
+def test_the_start_requirement_is_not_a_complete_bound_on_the_runs_cost(ev):
+    """A completed run's own reservations: each call after routing reserved input the start requirement did not count.
+    That input is enforced call by call, when each call is reserved, not by the preflight."""
+    fake = FakeModel(_route(ev), [_required_turn(ev)], _good_report)
+    res = _run(fake)
+    (pre,) = [e for e in res.trace.events if e["kind"] == "budget" and e["name"] == "preflight"]
+    out = budget.prices("gpt-5-mini")[2] / 1e6
+    later = [r for r in _entries() if r["kind"] == "reserve" and r["stage"] != "route"]
+    assert later and all(r["usd"] > config.MAX_OUTPUT_TOKENS[r["stage"]] * out for r in later)
+    uncounted = sum(r["usd"] - config.MAX_OUTPUT_TOKENS[r["stage"]] * out for r in later)  # their input, at cost
+    assert uncounted > 0 and pre["required_usd"] == pytest.approx(
+        pre["calls"][0]["counted_usd"] + sum(c["calls"] * c["max_output_tokens"] for c in pre["calls"][1:]) * out,
+        abs=1e-6)  # no input of a later call in it
 
 
 SAVED = {  # what the demo ledger held when each saved run started, from its settlements (USD)
@@ -107,9 +124,9 @@ SAVED = {  # what the demo ledger held when each saved run started, from its set
 
 @pytest.mark.parametrize("name", list(SAVED))
 def test_the_saved_runs_would_not_have_started_and_would_have_spent_nothing(name, ev, monkeypatch):
-    """Under the demo's USD 0.10 cap, the bounded worst case (every output at its cap: USD 0.148, plus the routing
+    """Under the demo's USD 0.10 cap, the start requirement (every output at its cap: USD 0.148, plus the routing
     request) does not fit, so the run is refused before any call: the saved runs spent USD 0.0171 and 0.0183 and
-    stopped before an answer. It is refused on a fresh ledger under that cap too."""
+    stopped before an answer. It is refused on a fresh ledger under that cap too (intended)."""
     monkeypatch.setenv("NEM_AGENT_TOTAL_BUDGET_USD", "0.10")
     if SAVED[name]:
         budget.settle(budget.reserve("gpt-5-mini", "route", SAVED[name]), SAVED[name], {})
@@ -122,7 +139,8 @@ def test_the_saved_runs_would_not_have_started_and_would_have_spent_nothing(name
     assert fake.requests == [] and res.usage["model_calls"] == 0 and res.records == []
     assert _entries() == before  # the preflight writes nothing
     prov = _no_answer(res, "preflight")
-    assert "not started" in prov["label"] and "no model call was made" in prov["label"]
+    assert "not started" in prov["label"] and "start requirement" in prov["label"]
+    assert "no model call was made" in prov["label"]
     (note,) = res.report.missing_evidence
     assert note.startswith(f"Live run not started: task budget 0.10 USD: {SAVED[name]:.4f} spent or reserved")
     assert res.report.validation["interpretation"].startswith("absent: not started")

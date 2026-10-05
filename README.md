@@ -140,13 +140,18 @@ Measured with gpt-5-mini over 58 complete real-API question runs ([`docs/live-ga
     because the provider may still bill it; only an HTTP 4xx rejection settles at zero.
   - The SDK makes no retries of its own, so no request can be sent without a reservation.
   - The next call is refused, fail-closed, before it is sent.
-- **Preflight (D34):** before the first paid call, a standard Live investigation must fit its bounded worst case
-  under the cap, with everything already spent or reserved counted. Otherwise it is not started, and no call is made.
-  The refusal is raised, as before, and the page shows it.
-  - **What it counts:** the routing request (known exactly), plus every call the workflow allows at its output cap:
-    5 tool turns, synthesis and the 1 repair. This is about USD 0.15 with gpt-5-mini.
-  - **What it leaves out:** the input of later calls, which depends on what the tools return. Each call's own
-    reservation still covers it.
+- **Preflight (D34):** a conservative start requirement, checked before the first paid call of a standard Live
+  investigation, with every call still checked as it is reserved. It is not a complete bound on what the run will cost.
+  - **Amount checked:** what is already spent or reserved, plus every call the workflow allows at its output cap (5
+    tool turns, synthesis and the 1 repair), plus the routing request exactly. This is about USD 0.1495 with
+    gpt-5-mini. Below it, the investigation is not started and no call is made. The refusal is raised, as before, and
+    the page shows it.
+  - **Not covered:** the input of every call after routing. It grows with what the tools return, and configuration
+    does not bound it. Each call's own reservation covers it.
+  - **A run can still stop at a later call:** if another session spends meanwhile, or if a call's input pushes its
+    reservation past the cap. It is shown as stopped at a budget limit, with no model answer.
+  - **Under a USD 0.10 cap** (the demo's), a standard Live investigation cannot start, even on a fresh ledger. This is
+    intended. The experimental confirmed-request workflow (one routing call) is unaffected.
   - **Nothing is double-counted:** the preflight reserves nothing.
   - **A run stopped by a budget limit** says so, with no model answer. It is never shown as an answer or as a passed
     validation.

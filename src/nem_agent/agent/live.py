@@ -952,35 +952,39 @@ class LiveController:
             return None, raw
 
     # -- 0. the budget preflight (D34) -------------------------------------------------------------------------
-    def workflow_worst_case(self, question: str) -> list[dict[str, Any]]:
-        """The standard Live investigation's bounded calls and their worst case, before any is sent (D34), in the
-        ledger's own terms (``budget.worst_case_cost``: input characters / 2 at the input price, plus the stage's output
-        cap at the output price):
+    def start_requirement(self, question: str) -> list[dict[str, Any]]:
+        """What the preflight requires to start a standard Live investigation (D34), by stage, in the ledger's own terms
+        (``budget.worst_case_cost``: input characters / 2 at the input price, plus the output cap at the output price):
 
         - **route:** one call; its request is known now, so its input is counted exactly;
-        - **tools:** every turn the loop allows: ``MAX_MODEL_CALLS`` less the routing call and the ``RESERVED_CALLS``
-          kept for synthesis and repair, the reminder about a missing required tool included;
-        - **synthesis:** one call;
-        - **repair:** the allowance (``MAX_REPAIR_ATTEMPTS``), within the reserved calls.
+        - **tools:** every turn the loop allows (``MAX_MODEL_CALLS`` less the routing call and the ``RESERVED_CALLS``
+          kept for synthesis and repair, the reminder about a missing required tool included), output at its cap;
+        - **synthesis:** output at its cap;
+        - **repair:** the allowance (``MAX_REPAIR_ATTEMPTS``), output at its cap.
 
-        Every call's output is counted at its cap: an exact bound, and conservative (a call rarely uses its whole cap).
-        The input of the later calls depends on what the tools return and is not bounded by configuration, so it is not
-        counted here: before each call is sent, the per-call guard still reserves its full worst case, input included."""
+        A conservative start requirement, not a complete bound on the run's cost: every output is counted at its cap,
+        which calls rarely reach, but the input of the calls after routing (it grows with what the tools return, and
+        configuration does not bound it) is not counted. Each call is still reserved at its own full worst case, input
+        included, and refused before it is sent if the cap would be passed."""
         schema_model, instructions, items = self._route_request(question)
         route_chars = len(json.dumps(self._with_settings("route", structured_request(schema_model, instructions, items)),
                                      default=str))
-        plan = [("route", 1, route_chars), ("tools", config.MAX_MODEL_CALLS - 1 - RESERVED_CALLS, 0),
-                ("synthesis", 1, 0), ("repair", min(config.MAX_REPAIR_ATTEMPTS, RESERVED_CALLS - 1), 0)]
-        return [{"stage": stage, "calls": n, "input_chars": chars, "max_output_tokens": config.MAX_OUTPUT_TOKENS[stage],
-                 "worst_usd": round(n * budget.worst_case_cost(self.model, chars, config.MAX_OUTPUT_TOKENS[stage]), 6)}
+        plan = [("route", 1, route_chars), ("tools", config.MAX_MODEL_CALLS - 1 - RESERVED_CALLS, None),
+                ("synthesis", 1, None), ("repair", min(config.MAX_REPAIR_ATTEMPTS, RESERVED_CALLS - 1), None)]
+        return [{"stage": stage, "calls": n, "max_output_tokens": config.MAX_OUTPUT_TOKENS[stage],
+                 "input": "counted exactly" if chars is not None else "not counted: checked when the call is reserved",
+                 "input_chars": chars or 0,
+                 "counted_usd": round(n * budget.worst_case_cost(self.model, chars or 0,
+                                                                 config.MAX_OUTPUT_TOKENS[stage]), 6)}
                 for stage, n, chars in plan]
 
     def preflight(self, question: str, trace: Any) -> None:
         """Refuse (BudgetExceeded, stage ``preflight``) before the first paid call when what is already spent or
-        reserved, plus this investigation's bounded worst case, would pass the task-wide cap (D34). It reserves nothing:
-        each call is still reserved and settled on its own."""
-        calls = self.workflow_worst_case(question)  # an unknown price is refused here, as at any call (unchanged)
-        required = round(sum(c["worst_usd"] for c in calls), 6)
+        reserved, plus this investigation's start requirement (``start_requirement``), would pass the task-wide cap
+        (D34). Passing it does not guarantee the run can finish: each later call is still checked against the cap when
+        it is reserved, and refused before it is sent. It reserves nothing."""
+        calls = self.start_requirement(question)  # an unknown price is refused here, as at any call (unchanged)
+        required = round(sum(c["counted_usd"] for c in calls), 6)
         try:
             committed, cap = budget.preflight(required)
         except BudgetExceeded as exc:
@@ -988,7 +992,8 @@ class LiveController:
             trace.add("budget", "preflight", passed=False, reason=str(exc))
             raise
         trace.add("budget", "preflight", passed=True, required_usd=required, committed_usd=round(committed, 6),
-                  cap_usd=cap, calls=calls)
+                  cap_usd=cap, calls=calls, basis="start requirement: every call's output at its cap, plus the routing "
+                  "request; not a complete bound (later input is checked as each call is reserved)")
 
     # -- 1. route ---------------------------------------------------------------------------------------------
     def _route_request(self, question: str) -> tuple[type[BaseModel], str, list[Any]]:

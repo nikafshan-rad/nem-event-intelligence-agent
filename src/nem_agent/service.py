@@ -318,8 +318,9 @@ def _not_started(req: InvestigateRequest, exc: BudgetExceeded, live: Any, store:
                         model=live.model, controller="live-responses-controller/1")
     report = InvestigationReport(
         question=req.question, mode="live", intent=None, region=None, as_of=req.as_of_utc, event_window=None,
-        headline=("Not started: the remaining budget does not cover this investigation's bounded worst case, so no "
-                  "model call was made." if exc.stage == "preflight" else
+        headline=("Not started: the remaining budget is below this investigation's start requirement (every call's "
+                  "output at its cap, plus the routing request), so no model call was made." if exc.stage == "preflight"
+                  else
                   "Not started: a budget limit refused the routing call before it was sent, so no model call was made."),
         summary=[], uncertainties=[], missing_evidence=[f"Live run not started: {exc}"], status="abstained",
         trace_id=trace.trace_id, versions=versions, generator=f"live-model:{live.model}")

@@ -165,7 +165,7 @@ def test_every_request_is_reserved_before_it_is_sent(monkeypatch):
 
 def test_a_call_the_case_cap_refuses_is_never_sent(monkeypatch):
     """A call a cap refuses is never sent, and the runner reads the case as a budget stop. D34: a case cap set just
-    below what the synthesis call needs is below the investigation's bounded worst case, so the case is now refused
+    below what the synthesis call needs is below the investigation's start requirement, so the case is now refused
     before its first call (raised: live_diagnose prints STOPPED). A refusal later in the run (here another process
     reserves just before synthesis) is refused by the ledger, not sent, and read from the saved trace."""
     monkeypatch.setenv("NEM_AGENT_TOTAL_BUDGET_USD", "1.0")

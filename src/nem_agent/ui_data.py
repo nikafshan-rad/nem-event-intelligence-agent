@@ -154,8 +154,8 @@ def result_provenance(rep: dict[str, Any], usage: dict[str, Any] | None = None) 
                        "live_fallback")
     elif generated and absent and stopped:
         if stopped.get("stage") == "preflight":
-            label = (f"LIVE ({model}) — not started: the remaining budget does not cover this investigation's bounded "
-                     "worst case, so no model call was made")
+            label = (f"LIVE ({model}) — not started: the remaining budget is below this investigation's start "
+                     "requirement, so no model call was made")
         else:
             label = (f"LIVE ({model}) — stopped at a budget limit before the model wrote an answer: no model answer was "
                      "produced" + ("; showing only the answer computed by code" if answers else ""))

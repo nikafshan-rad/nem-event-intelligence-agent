@@ -1895,35 +1895,45 @@ validated model answers.
   now shown as "the model produced no valid answer".
 - **Unchanged:** the abstained status and every diagnostic.
 
-**Decision 2 (preflight):** before the routing call, `LiveController.preflight` requires that what is already spent or
-reserved, plus the investigation's bounded worst case, fit under the task-wide cap. Otherwise the investigation is not
-started: no model call, an abstained report, and the refusal shown.
+**Decision 2 (preflight):** a conservative start requirement before the first paid call, with per-call enforcement
+throughout. `LiveController.preflight` requires that what is already spent or reserved, plus the investigation's start
+requirement (`LiveController.start_requirement`), fit under the task-wide cap. Otherwise the investigation is not
+started: no model call, an abstained report, and the refusal shown. It is not a complete bound on the run's cost, and
+passing it does not guarantee the run can finish.
 - **As before, a refusal before anything is sent is raised** (`BudgetExceeded`). That covers the preflight, and a
   routing call refused by its own reservation. The evaluation runners and `scripts/live_diagnose.py` stop on that
   exception and read it as a budget stop. It now carries the not-started result (`service._not_started`), which the
   page shows.
 - **A refusal after routing:** still ends in the abstained report, as before.
-- **Accounting:** in the ledger's own terms (`budget.worst_case_cost`: input characters / 2 at the input price, plus
-  the output cap at the output price):
+- **The amount checked:** in the ledger's own terms (`budget.worst_case_cost`: input characters / 2 at the input price,
+  plus the output cap at the output price):
   - **route:** 1 call, its request counted exactly (12,274 characters with contract v15: USD 0.0055);
   - **tool turns:** 5, the most the loop allows (`MAX_MODEL_CALLS` 8, less the routing call and the 2
     `RESERVED_CALLS`), the reminder about a missing required tool included: 5 × 8,000 output tokens = USD 0.080;
   - **synthesis:** 1 × 16,000 = USD 0.032;
   - **repair:** the allowance of 1 × 16,000 = USD 0.032.
 
-  The total is about **USD 0.1495** with gpt-5-mini.
-- **Conservatism:**
-  - **Output:** counted at every cap, which is an exact bound. Complete runs have cost USD 0.014–0.047.
-  - **Input of later calls:** not bounded by configuration, because it depends on what the tools return. It is not
-    counted. Each call's own reservation still includes it, and that guard is unchanged.
-- **No double counting:** the preflight writes nothing to the ledger. Each call is still reserved and settled on its
-  own.
-- **What can still happen:** another session spending meanwhile, or unusually large inputs, can still stop a run at a
-  later call. Decision 1 then shows it correctly.
+  The total is about **USD 0.1495** with gpt-5-mini, plus what is already spent or reserved.
+- **Costs it does not cover:** the input of every call after routing. It grows with what the tools return, and
+  configuration does not bound it.
+  - **In the two saved runs:** the second tool turn alone read 19,577 and 21,354 input tokens (about USD 0.005 each
+    at list price), none of which the start requirement counts.
+  - **Where it is enforced:** each call's own reservation, unchanged, counts that input before the call is sent.
+- **Why it is still conservative:** every output is counted at its cap, which calls rarely reach. Complete runs have
+  cost USD 0.014–0.047, against a start requirement of about USD 0.15. It is not an upper bound: a complete bound
+  would need a bound on input that this scope does not add.
+- **Remaining reasons a run can still stop at a later call,** each shown as a budget stop with no model answer
+  (Decision 1):
+  - another session spending or reserving meanwhile;
+  - a call whose input pushes its own reservation past the cap;
+  - the per-question session budget (`NEM_AGENT_SESSION_BUDGET_USD`, unchanged);
+  - the model-call cap (unchanged).
+- **No double counting:** the preflight writes nothing to the ledger. Each call is still reserved, checked and settled
+  on its own.
 - **An unknown model price:** still refused before any call, by an exception, exactly as before.
 
-**Consequence under the demo's cap:** with USD 0.10, a standard Live investigation cannot pass the preflight even on a
-fresh ledger (0.1495 > 0.10), so it is refused without spending.
+**Intended consequence under the demo's cap:** with USD 0.10, a standard Live investigation cannot pass the preflight
+even on a fresh ledger (0.1495 > 0.10), so it is refused without spending.
 - **Before this change:** a fresh run there could complete (one did, for USD 0.031), but a run after earlier spending
   could stop mid-way, as the two above did.
 - **The cap:** the owner's decision, and unchanged here.
@@ -1933,11 +1943,12 @@ fresh ledger (0.1495 > 0.10), so it is refused without spending.
 **Unchanged:** model settings, prompts, the validators' substantive checks and the budget caps.
 
 **Tests:** fake transport and scratch ledgers only (`tests/provider/test_live_budget_stop.py`):
-- **The preflight's accounting:** checked, and the preflight writes nothing.
+- **The start requirement:** what it counts, that it writes nothing, and that it is not a complete bound (a completed
+  run's later calls reserved input it did not count).
 - **The two saved runs, and a fresh ledger under the same cap:** refused with zero calls.
 - **A routing call refused by its own reservation:** raised with its no-answer result.
 - **Later refusals:** before synthesis, and of the reminder tool turn, each with no model answer and the reason shown.
-- **The live check's runner test** (`tests/eval/test_live_check_dev2.py`): a case cap below the bounded worst case is
+- **The live check's runner test** (`tests/eval/test_live_check_dev2.py`): a case cap below the start requirement is
   now refused before the first call, and a later refusal is still refused, not sent and read as a budget stop.
 - **A refused repair:** not reported as attempted.
 - **The schema-invalid case:** shown as no valid answer.
