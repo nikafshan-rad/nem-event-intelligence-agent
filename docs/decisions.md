@@ -1801,3 +1801,19 @@ re-verified, and no replacement is created.
     draft as it stands (`confirm.issues`), on every render, so an edit that reopens a requirement shows it. Every
     routing reading, with its notes, is kept in a diagnostics section labelled historical. Routing, prompts,
     calculations, validation and scope are unchanged.
+- **The comparison headline follows the verified result** (2026-10-05, after the owner's walkthrough of the SA1
+  point under a cutoff before its run was public).
+  - **The defect:** the confirmed point's headline was fixed text: the named run "is compared with the actual". It
+    said so even when the computed answer correctly said the comparison was unavailable and no call was made. An
+    aggregate's headline likewise said its accuracy "is given", whether the result was partial or unavailable.
+  - **The fix:** `confirm.comparison_headline` derives the headline of a confirmed point or aggregate from its result.
+    - **Not verified:** no value is given.
+    - **Unavailable:** the requested comparison is unavailable, the computed answer says why, and nothing is used in
+      its place. It never says the comparison ran.
+    - **Partial:** only part of the period has forecast/actual pairs, and the statistics cover those pairs only.
+      This is said in words: the validator holds an aggregate to what it was computed from, so a count of the
+      period's half-hours in the headline is rejected.
+    - **Established:** the completed comparison.
+  - **Unchanged:** routing, prompts, calculations, validation and the standard investigation.
+  - **Not covered:** a confirmed maximum's headline (that "the maximum ... is given in the computed answer") is
+    unchanged here.
