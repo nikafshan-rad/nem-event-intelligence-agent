@@ -166,6 +166,18 @@ calls request: `minimal`, `low`, `medium` or `high`. Any other value is refused 
 - **Frozen evaluations:** their runners never run with it. Each refuses unless the code is its frozen code, which
   predates this setting.
 
+**Early transition to synthesis (opt-in, off by default, D35):** `NEM_AGENT_LIVE_EARLY_SYNTHESIS=1` lets the
+standard Live tool loop go to synthesis right after a tool turn, instead of asking the model for one more turn.
+- **When it applies:** only when every call in that turn succeeded, every required tool has a successful result, and
+  no blocked or failed call or required-tool reminder is pending.
+- **Why it exists:** in the saved Live traces, the turn it skips made no tool calls and took 36–49 s.
+- **What it does not establish:** required tools succeeding does not mean the evidence is sufficient.
+- **What it can prevent:** optional follow-up retrieval the model might have asked for.
+- **Recorded:** each transition, with its reason, in the trace and the report's transcript.
+- **Unchanged:** validation, repair, permissions and budget guards.
+- **Unset:** the tool loop is exactly as before.
+- **Not measured:** its effect on latency and on answer quality.
+
 ### Experimental: confirm the request first (opt-in workflow in the app)
 
 `make app`, then switch on **"Experimental: confirm the request first"** at the top of the sidebar. The standard
