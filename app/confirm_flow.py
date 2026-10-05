@@ -55,8 +55,9 @@ def render(sel: Selection, live_ok: bool, md: Callable[[str], str]) -> None:
                "is computed by code from the pinned data, with no further model call. The preview is the system's "
                "interpretation of the request, not proof that the question was understood.")
     if not live_ok:
-        st.info("No OPENAI_API_KEY: questions are not read by the routing model; the request is built from your "
-                "choices only.")
+        st.info("No OPENAI_API_KEY: **guided structured input**. Your question is recorded but not read by any model; "
+                "the request is built only from the choices you make below. This is not natural-language "
+                "extraction.")
     if state.get("error"):
         st.error(state.pop("error"))
     x = C.take_pending(state, sel)
@@ -93,7 +94,7 @@ def render(sel: Selection, live_ok: bool, md: Callable[[str], str]) -> None:
 def _draft_panel(state: dict[str, Any], d: C.Draft, sel: Selection, md: Callable[[str], str]) -> None:
     with st.container(border=True):
         st.markdown("**Request preview**")
-        st.caption(C.INTERPRETATION_LABEL)
+        st.caption(C.preview_label(d))
         st.table([{"field": k, "value": v} for k, v in C.preview(d, sel)])
     if d.refused:
         st.error(md(d.refused))
@@ -195,7 +196,8 @@ def _result(state: dict[str, Any], rid: str, sel: Selection, md: Callable[[str],
     orig = state.get("original") or {}
     who = (f"the routing model {orig.get('model')} (route contract {orig.get('contract')}, {orig.get('prompt')}), "
            f"{(orig.get('usage') or {}).get('model_calls', 0)} call(s)" if orig else "your choices only, no model")
-    st.info(f"**Request:** read by {who}; confirmed by you as revision `{rid}`. **Execution:** "
+    st.info(f"**Request:** read by {who}. **Your confirmation** of revision `{rid}` records the exact request you "
+            "chose to run; it does not validate the routing model's reading. **Execution:** "
             f"{prov['label']}; no model call after confirmation.")
     st.subheader(md(rep["headline"]))
     if rep.get("answer"):
@@ -209,10 +211,11 @@ def _result(state: dict[str, Any], rid: str, sel: Selection, md: Callable[[str],
                 st.caption("source rows: " + ", ".join(f"`{r}`" for r in a["source_row_ids"]))
     else:
         st.markdown("**No computed answer**: " + md(" ".join(rep.get("uncertainties") or [])[:600]))
-    st.caption(f"Status: {rep['status'].replace('_', ' ')} · validation: {prov['validation']} · computed answer: "
-               f"{prov['computed_answer']}")
+    st.caption(f"Status: {rep['status'].replace('_', ' ')} · independent validator on the scripted report "
+               f"(numbers, sources, scope): {prov['validation']} · computed answer: {prov['computed_answer']} · "
+               "model-written interpretation: none in this workflow")
     if rep["summary"]:
-        st.markdown("**Narrative** (scripted controller)")
+        st.markdown("**Narrative** (written by the scripted controller; not a model interpretation)")
         for s in rep["summary"]:
             st.markdown(md(f"- {s}"))
     obs = observation_table(rep)

@@ -188,7 +188,14 @@ investigation remains the default and is unchanged.
   under the same ledger and caps as Live). A typed reply that the parsers cannot read may use one more routing call for
   that reply, which fills only fields still open. You can switch this off in the page.
 - **After confirmation:** no model call. The request runs on the scripted controller.
-- **Without a key:** the request is built from your choices alone.
+  - **Your confirmation** records exactly which request you chose to run; it does not validate the routing model's
+    reading.
+  - **The validation line** refers to the independent validator on the scripted report (numbers, sources, scope).
+  - **There is no model-written interpretation** in this workflow, and the narrative is labelled as the scripted
+    controller's.
+- **Without a key:** this is **guided structured input**. Your question is recorded but not read by any model, and
+  the request is built from your choices alone. It is not natural-language extraction, and the preview says so. The
+  same applies when the routing output is invalid or truncated: nothing is read from it.
 
 **Limitations (experimental):**
 - **Scope:** only demand maxima, and forecast comparisons:

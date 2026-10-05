@@ -388,3 +388,198 @@ def test_the_app_asks_the_next_question_with_choices(sel):
     day = next(b for b in at.button if b.label.startswith("The whole local day"))
     day.click().run()
     assert not at.exception and [b for b in at.button if b.label == "Confirm and run"]
+
+
+# ------------------------------------------------------------------------------------------------ integration review
+# Through the actual page: the routing model is SYNTHETIC (``service.interpret_request`` with a scripted transport),
+# and every analytical tool call the dispatcher would make is counted.
+Q_NOON = ("Based only on data published by noon Brisbane time on Sunday 5 October 2025, what was the highest "
+          "operational demand in Queensland over that entire local day?")
+P_NOON = _plan("market_event_review", "QLD1", "2025-10-05", [
+    {**_op("o1", "demand_maximum", "operational_demand", "operational demand",
+           "what was the highest operational demand in Queensland", scope="s1"), "cutoff_ref": "c1"}],
+    scopes=[("s1", "whole_local_day", "over that entire local day")])
+P_NOON["plan"]["cutoffs"] = [{"id": "c1", "text": "Based only on data published by noon Brisbane time on Sunday 5 "
+                                                   "October 2025"}]
+Q_TWO = ("For NSW1 on 31 July 2026, how high did operational demand peak over the whole day, and how accurate were the "
+         "operational demand forecasts that day?")
+P_TWO = _plan("forecast_review", "NSW1", "2026-07-31", [
+    _op("o1", "demand_maximum", "operational_demand", "operational demand", "how high did operational demand peak",
+        scope="s1"),
+    _op("o2", "forecast_comparison", "operational_demand", "operational demand forecasts",
+        "how accurate were the operational demand forecasts", scope="s2")],
+    scopes=[("s1", "whole_local_day", "over the whole day"), ("s2", "whole_local_day", "that day")])
+Q_LONG = ("How did the operational demand forecasts for VIC1 compare with actual demand from 06:00 AEST on 17 August "
+          "2026 to 12:00 AEST on 18 August 2026?")
+P_LONG = _plan("forecast_review", "VIC1", "2026-08-17", [
+    _op("o1", "forecast_comparison", "operational_demand", "operational demand forecasts",
+        "How did the operational demand forecasts for VIC1 compare with actual demand", scope="s1")],
+    scopes=[("s1", "explicit", "from 06:00 AEST on 17 August 2026 to 12:00 AEST on 18 August 2026")])
+
+
+@pytest.fixture
+def tool_calls(monkeypatch):
+    """Every analytical tool call made through the dispatcher, from any path."""
+    from nem_agent.agent.dispatcher import Dispatcher
+
+    calls: list[str] = []
+    real = Dispatcher.call
+
+    def spy(self: Any, name: str, raw_args: Any, **kw: Any) -> Any:
+        calls.append(name)
+        return real(self, name, raw_args, **kw)
+    monkeypatch.setattr(Dispatcher, "call", spy)
+    return calls
+
+
+def _page(monkeypatch: pytest.MonkeyPatch, fake: Scripted | None) -> Any:
+    """The app in the experimental workflow; with ``fake``, a key is present and the routing call is SYNTHETIC."""
+    from streamlit.testing.v1 import AppTest
+
+    import nem_agent.service as service
+
+    if fake is None:
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    else:
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test-not-a-key")  # presence only: no request leaves the process
+        real = service.interpret_request
+        monkeypatch.setattr(service, "interpret_request",
+                            lambda q, **kw: real(q, live_client=fake, write_trace=False))
+    at = AppTest.from_file(str(ROOT / "app" / "streamlit_app.py"), default_timeout=180)
+    at.run()
+    at.sidebar.toggle[0].set_value(True).run()
+    return at
+
+
+def _texts(at: Any) -> list[str]:
+    return [e.value for kind in ("markdown", "caption", "info", "success", "warning", "error") for e in getattr(at, kind)]
+
+
+def _parse(s: str) -> Any:
+    from nem_agent.timeutil import parse_iso
+
+    return parse_iso(s)
+
+
+@pytest.mark.parametrize("q, plan, truncated, field", [
+    (Q_MAX, P_MAX, True, "operation"),
+    (Q_TWO, P_TWO, False, "operation"),
+    (Q_NOON, P_NOON, False, "cutoff"),
+    (Q_LONG, P_LONG, False, "operation"),
+], ids=["truncated output", "two analyses", "unresolved active cutoff", "period over 24 hours"])
+def test_through_the_page_nothing_reaches_the_tools_until_the_user_repairs_the_request(q, plan, truncated, field, sel,
+                                                                                       tool_calls, monkeypatch):
+    fake = Truncated(plan) if truncated else Scripted(plan)
+    at = _page(monkeypatch, fake)
+    at.chat_input[0].set_value(q).run()
+    assert not at.exception and fake.calls == 1
+    state = at.session_state["confirm_flow"]
+    d = C.draft_of(state)
+    assert C.issues(d, sel)[0].field == field and C.executable(d, sel) is None
+    assert not [b for b in at.button if b.label == "Confirm and run"]
+    state["pending"] = state["confirmed"] = "forged"  # a forged confirmation of the open draft
+    at.session_state["confirm_flow"] = state
+    at.run()
+    assert not at.exception and tool_calls == [] and at.session_state["confirm_flow"]["results"] == {}
+    assert dict(C.preview(d, sel))["Needs clarification"] != "nothing"
+
+
+def test_through_the_page_an_unreadable_cutoff_is_repaired_only_by_the_users_answer(sel, tool_calls, monkeypatch):
+    at = _page(monkeypatch, Scripted(P_NOON))
+    at.chat_input[0].set_value(Q_NOON).run()
+    d = C.draft_of(at.session_state["confirm_flow"])
+    assert "stated but not pinned down" in dict(C.preview(d, sel))["Cutoff"]
+    at.chat_input[0].set_value("2025-10-05T02:00:00Z").run()  # the user states it
+    d = C.draft_of(at.session_state["confirm_flow"])
+    assert (d.cutoff, d.cutoff_utc, d.sources["cutoff"]) == ("set", "2025-10-05T02:00:00Z", "you")
+    next(b for b in at.button if b.label == "Confirm and run").click().run()
+    assert not at.exception and tool_calls
+    (res,) = at.session_state["confirm_flow"]["results"].values()
+    assert res.resolution.as_of.isoformat() == "2025-10-05T02:00:00+00:00"  # executed with the cutoff given
+
+
+def test_a_forecast_period_longer_than_24_hours_is_never_cut_short(sel):
+    ev = next(e for e in sel.events
+              if (_parse(e.window_end_utc) - _parse(e.window_start_utc)).total_seconds() > 24 * 3600)
+    day = _parse(ev.peak_interval_end_utc).astimezone(C.region_zone(ev.region)).date().isoformat()
+    d = C.Draft(question="SYNTHETIC", origin="structured")
+    for f, v in (("operation", "window_comparison"), ("region", ev.region), ("date", day), ("scope_kind", "event")):
+        d = C.apply(d, f, v, sel)
+    first = C.issues(d, sel)[0]
+    assert first.field == "scope_kind" and "24-hour limit" in first.message and C.executable(d, sel) is None
+    assert "event" not in {c.value for c in first.choices}  # the event window is not offered again
+
+
+def test_through_the_page_an_edit_invalidates_confirmation_and_reruns_never_repeat_a_run(sel, tool_calls, monkeypatch):
+    at = _page(monkeypatch, Scripted(P_POINT))
+    at.chat_input[0].set_value(Q_POINT).run()
+    next(b for b in at.button if b.label == "Confirm and run").click().run()
+    n = len(tool_calls)
+    assert n > 0 and len(at.session_state["confirm_flow"]["results"]) == 1
+    at.run()
+    at.run()
+    assert len(tool_calls) == n  # reruns run nothing again
+    next(t for t in at.text_input if t.label.startswith("Half-hour end")).set_value("08:30")
+    next(b for b in at.button if b.label == "Apply changes").click().run()
+    state = at.session_state["confirm_flow"]
+    assert not at.exception and state["confirmed"] is None and len(tool_calls) == n  # cleared; nothing ran
+    assert C.executable(C.draft_of(state), sel).end_utc == "2026-08-19T23:00:00Z"  # dependent bounds recomputed
+    assert any("the request has changed since" in t for t in _texts(at))  # the earlier result is labelled stale
+    next(b for b in at.button if b.label == "Confirm and run").click().run()
+    assert len(tool_calls) > n and len(at.session_state["confirm_flow"]["results"]) == 2
+
+
+def test_separate_sessions_never_share_a_draft(sel, monkeypatch):
+    a = _page(monkeypatch, Scripted(P_POINT))
+    a.chat_input[0].set_value(Q_POINT).run()
+    assert C.draft_of(a.session_state["confirm_flow"]) is not None
+    b = _page(monkeypatch, Scripted(P_MAX))
+    assert C.draft_of(b.session_state["confirm_flow"]) is None and b.session_state["confirm_flow"]["history"] == []
+    assert C.draft_of(a.session_state["confirm_flow"]).question == Q_POINT
+
+
+def test_an_unavailable_comparison_under_a_publication_cutoff_takes_no_neighbouring_run(sel, real_store):
+    state, _ = _start(Q_POINT, P_POINT)
+    cut = "2026-08-19T21:10:00Z"  # before the last run ahead of the half-hour (issued 21:57:01Z) was public
+    assert C.choose(state, C.draft_of(state).revision, "cutoff", cut, sel)
+    x, res = _run(state, sel)
+    assert (x.run, x.cutoff_utc) == ("last_issued_before", cut)
+    (a,) = res.report.answer
+    assert (a.kind, a.status, a.verification, a.source_row_ids) == ("forecast_point", "unavailable", "verified", ())
+    assert "not provably public by the as-of cutoff" in a.statement and "No other forecast run" in a.statement
+    assert res.resolution.forecast_run["run_id"] is None
+    earlier = {r["run_id"] for r in real_store.query(
+        "SELECT DISTINCT run_id FROM opdemand_forecast WHERE region=? AND target_end_utc=? AND available_at_utc<=?",
+        ["SA1", _parse("2026-08-19T22:30:00Z"), _parse(cut)])}
+    assert earlier  # runs that were public by the cutoff hold the half-hour, and none stands in
+    shown = json.dumps(res.report.model_dump(mode="json"))
+    assert not any(r in shown for r in earlier)
+
+
+def test_the_page_labels_the_narrative_and_the_interpretation_status_honestly(sel, monkeypatch):
+    at = _page(monkeypatch, Scripted(P_MAX))
+    at.chat_input[0].set_value(Q_MAX).run()
+    assert C.INTERPRETATION_LABEL in _texts(at)
+    next(b for b in at.button if b.label == "Confirm and run").click().run()
+    shown = " ".join(_texts(at))
+    assert "it does not validate the routing model's reading" in shown
+    assert "model-written interpretation: none in this workflow" in shown
+    assert "REPLAY — scripted controller over real data, no LLM" in shown
+    assert "answer written by" not in shown and "passed on the first draft" not in shown
+    (res,) = at.session_state["confirm_flow"]["results"].values()
+    assert res.report.mode == "replay" and res.report.generator.startswith("scripted")
+
+
+def test_without_a_key_the_page_says_guided_structured_input_not_extraction(sel, monkeypatch):
+    at = _page(monkeypatch, None)
+    at.chat_input[0].set_value("What was the highest operational demand in Queensland on 29 July 2026?").run()
+    shown = _texts(at)
+    assert any("guided structured input" in t for t in shown) and C.STRUCTURED_LABEL in shown
+    assert C.INTERPRETATION_LABEL not in shown
+    d = C.draft_of(at.session_state["confirm_flow"])
+    assert d.origin == "structured" and (d.operation, d.region, d.date) == (None, None, None)  # nothing was read
+    t_state = C.new_state()  # a truncated routing response is labelled the same way
+    C.start(t_state, Q_MAX, lambda q: interpret_request(q, live_client=Truncated(P_MAX), write_trace=False))
+    assert C.preview_label(C.draft_of(t_state)) == C.STRUCTURED_LABEL
+    state, _ = _start(Q_MAX, P_MAX)
+    assert C.preview_label(C.draft_of(state)) == C.INTERPRETATION_LABEL

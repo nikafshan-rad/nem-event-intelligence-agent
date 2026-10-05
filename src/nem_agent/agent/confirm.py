@@ -71,6 +71,11 @@ FIELDS = ("operation", "measure", "region", "date", "scope_kind", "half_hour_end
 FORECAST_OPS = ("single_interval_comparison", "window_comparison")
 INTERPRETATION_LABEL = ("System interpretation of the request (the routing model's reading, compiled by code). It is "
                         "not proof that the question was understood.")
+STRUCTURED_LABEL = ("Guided structured input: this request is built from your choices only. Your question was not "
+                    "read by any model, so nothing here is an interpretation of it, and no natural-language "
+                    "extraction took place.")
+MIXED_LABEL = ("Guided structured input, with fields read from your replies by the routing model (marked "
+               "\"interpretation (reply)\"). It is not proof that the question was understood.")
 
 
 class Draft(BaseModel):
@@ -96,6 +101,7 @@ class Draft(BaseModel):
     blocked: dict[str, str] = Field(default_factory=dict)
     reasons: list[str] = Field(default_factory=list)  # why the interpretation was sent back, shown in the preview
     refused: str | None = None
+    origin: Literal["interpretation", "structured"] = "interpretation"  # structured: no model reading of the question
     revision: int = 0
 
 
@@ -375,8 +381,10 @@ def issues(d: Draft, sel: Selection) -> list[Issue]:
             return [Issue("half_hour_end", (d.blocked.get("scope_kind", "") + " Which half-hour? Give the time it "
                                             "ends, in the region's local time.").strip(), choices, "e.g. 18:30")]
     else:
-        allowed = [Choice("day", f"The whole local day ({d.date})")]
-        if ev is not None:
+        cap = timedelta(hours=config.MAX_FORECAST_TARGET_HOURS if op in FORECAST_OPS else config.MAX_PRICE_WINDOW_HOURS)
+        day_lo, day_hi = local_day_window(date.fromisoformat(d.date), d.region)
+        allowed = [Choice("day", f"The whole local day ({d.date})")] if day_hi - day_lo <= cap else []
+        if ev is not None and parse_iso(ev.window_end_utc) - parse_iso(ev.window_start_utc) <= cap:
             allowed.append(Choice("event", "The price event's window on that date"))
         allowed.append(Choice("explicit", "A period you state (start and end time)"))
         if d.scope_kind is None or d.scope_kind == "half_hour" or (d.scope_kind == "event" and ev is None):
@@ -397,10 +405,18 @@ def issues(d: Draft, sel: Selection) -> list[Issue]:
                       "e.g. 17:00-21:00")]
     limit = config.MAX_FORECAST_TARGET_HOURS if op in FORECAST_OPS else config.MAX_PRICE_WINDOW_HOURS
     if hi - lo > timedelta(hours=limit):
+        # only periods that fit are offered: never the one just found too long
+        cap = timedelta(hours=limit)
+        day_lo, day_hi = local_day_window(date.fromisoformat(d.date), d.region)
+        fits = []
+        if d.scope_kind != "day" and day_hi - day_lo <= cap:
+            fits.append(Choice("day", f"The whole local day ({d.date})"))
+        if d.scope_kind != "event" and ev is not None and \
+                parse_iso(ev.window_end_utc) - parse_iso(ev.window_start_utc) <= cap:
+            fits.append(Choice("event", "The price event's window on that date"))
+        fits.append(Choice("explicit", "A period you state (start and end time)"))
         return [Issue("scope_kind", f"The period is longer than the {limit}-hour limit for this analysis; it is never "
-                                    "cut short. Choose a shorter period.", tuple(
-            c for c in (Choice("event", "The price event's window on that date"),
-                        Choice("explicit", "A period you state (start and end time)")) if c.value != "event" or ev))]
+                                    "cut short. Choose a shorter period.", tuple(fits))]
     if op == "single_interval_comparison" and d.run not in ("last_issued_before", "issued_at"):
         return [Issue("run", (d.blocked.get("run", "") + " Which forecast run should be compared with the actual?")
                       .strip(), (Choice("last_issued_before", RUN_LABEL["last_issued_before"]),
@@ -577,6 +593,13 @@ def revision_id(x: Executable) -> str:
     return hashlib.sha256(json.dumps(x.model_dump(mode="json"), sort_keys=True).encode()).hexdigest()[:12]
 
 
+def preview_label(d: Draft) -> str:
+    """What the preview is: the routing model's reading, or guided structured input (no model read the question)."""
+    if d.origin == "interpretation":
+        return INTERPRETATION_LABEL
+    return MIXED_LABEL if any(s.startswith("interpretation") for s in d.sources.values()) else STRUCTURED_LABEL
+
+
 def preview(d: Draft, sel: Selection) -> list[tuple[str, str]]:
     """The compact request preview: what the draft holds now, with each field's source; open fields say so."""
     def tag(f: str) -> str:
@@ -732,7 +755,7 @@ def _from_interpretation(i: Interpretation, question: str) -> Draft:
     """The draft of one interpretation. Without a valid routing decision nothing is read: not the routing model's
     output, and not the question parser's fallback reading either."""
     if i.decision is None:
-        return Draft(question=question, blocked={"operation": INVALID_OUTPUT})
+        return Draft(question=question, blocked={"operation": INVALID_OUTPUT}, origin="structured")
     return from_resolution(i.resolution, question, i.decision, i.extra.get("given"))
 
 
@@ -744,8 +767,9 @@ def start(state: dict[str, Any], question: str, interpreter: Interpreter | None)
     state.update(new_state())
     _say(state, "user", question)
     if i is None:
-        d = Draft(question=question)
-        _say(state, "assistant", "No routing model is available, so the request is built from your choices only.")
+        d = Draft(question=question, origin="structured")
+        _say(state, "assistant", "No routing model is available: this is guided structured input. Your question is "
+                                 "kept for the record but not read; the request is built from your choices only.")
     else:
         state["original"] = _record(i)
         state["interpretations"].append(state["original"])
