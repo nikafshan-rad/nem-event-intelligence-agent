@@ -830,7 +830,7 @@ TIED_RUNS = forecast_compare.TIED_RUNS
 
 class LiveController:
     def __init__(self, dispatcher: Dispatcher | None, registry: EvidenceRegistry, versions: Versions,
-                 client: Transport | None = None, model: str | None = None) -> None:
+                 client: Transport | None = None, model: str | None = None, plan: bool | None = None) -> None:
         self.d = dispatcher
         self.reg = registry
         self.versions = versions
@@ -841,8 +841,9 @@ class LiveController:
         self._summary_origin: list[tuple[str, int]] = []  # rendered summary line -> its draft item
         self._change: tuple[EvidenceItem, EvidenceItem, EvidenceItem] | None = None  # derived change, from, to
         # D31 Amendment 1: route contract v16 (the request plan) with prompts v17, opt-in; off, contract v15 with the
-        # default prompts, exactly as before
-        self.request_plan = request_plan.enabled()
+        # default prompts, exactly as before. ``plan``: the experimental confirmed-request workflow asks for v16
+        # itself; None (every other caller) follows the switch
+        self.request_plan = request_plan.enabled() if plan is None else plan
 
     @property
     def prompt_version(self) -> str:

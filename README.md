@@ -155,6 +155,69 @@ route contract v16 with prompts v17. The model returns a typed request plan, and
 [`docs/decisions.md`](docs/decisions.md)). `NEM_AGENT_PLAN_POLICY` chooses the stated-basis policy: `V1` (default) or
 `V0`. It is verified offline only, with scripted plans: no claim is made about how a hosted model fills the plan.
 
+### Experimental: confirm the request first (opt-in workflow in the app)
+
+`make app`, then switch on **"Experimental: confirm the request first"** at the top of the sidebar. The standard
+investigation remains the default and is unchanged.
+
+**The flow:**
+1. **Ask** about a demand maximum or a forecast comparison, in the chat box.
+2. **The request preview** shows the request as the system read it:
+   - the operation, and the measure or domain;
+   - the region;
+   - the half-hour or period, in local time and UTC;
+   - the forecast run, where it applies;
+   - the cutoff and any request-field override;
+   - the parts named as not answered;
+   - what still needs clarification.
+
+   The preview is the system's interpretation of the request, not proof that the question was understood.
+3. **One question at a time** settles what is open: a missing date, the period, the forecast run, an unreadable cutoff,
+   or a choice between analyses. Choices map straight into the request. Typed answers are read by the existing parsers
+   (dates such as `29 July 2026`, times such as `18:30`, periods such as `17:00-21:00`, ISO timestamps with a zone).
+   Fields already settled are not asked again.
+4. **Revise any field** with the optional **Edit fields directly** form; dependent fields are checked again.
+5. **Confirm and run** applies to the exact revision shown. Any change makes a new revision that must be confirmed
+   again. A confirmed revision runs once per session, whatever reruns follow.
+6. **The computed answer** comes from the existing calculations, the runtime verification and the computed-answer
+   renderer, over the pinned data. It is shown first. Its diagnostics keep the original interpretation and the confirmed
+   request.
+
+**Model use:**
+- **With `OPENAI_API_KEY`:** reading the question is one routing call (route contract v16, prompts v17, policy V1,
+  under the same ledger and caps as Live). A typed reply that the parsers cannot read may use one more routing call for
+  that reply, which fills only fields still open. You can switch this off in the page.
+- **After confirmation:** no model call. The request runs on the scripted controller.
+  - **Your confirmation** records exactly which request you chose to run; it does not validate the routing model's
+    reading.
+  - **The validation line** refers to the independent validator on the scripted report (numbers, sources, scope).
+  - **There is no model-written interpretation** in this workflow, and the narrative is labelled as the scripted
+    controller's.
+- **Without a key:** this is **guided structured input**. Your question is recorded but not read by any model, and
+  the request is built from your choices alone. It is not natural-language extraction, and the preview says so. The
+  same applies when the routing output is invalid or truncated: nothing is read from it.
+
+**Limitations (experimental):**
+- **Scope:** only demand maxima, and forecast comparisons:
+  - a named forecast run against the actual for one half-hour;
+  - MAE and mean error over a period of at most 24 hours.
+
+  A forecast's values alone, a review of an event, document questions and any other analysis are shown as not
+  computed here, and nothing runs.
+- **Nothing incomplete runs.** Nothing runs while a field is open, conflicting or invalid. Truncated or invalid
+  routing output is not salvaged. Cutoffs are never dropped, no window or run is substituted, and the workflow never
+  chooses between two analyses a question asks for.
+- **Run selection:**
+  - **one half-hour:** you must choose a named run (the last run issued before it, or a run issued at a stated time);
+  - **a period with no run named:** each half-hour is compared under the latest run issued before it (the existing
+    definition), and the preview says so.
+- **Periods:** a stated period lies within one local day, on the hour or half-hour.
+- **Answers:** the narrative beside the computed answer is the scripted controller's. No model-written interpretation
+  is produced in this workflow.
+- **No accuracy claim:** how well a hosted model fills the request plan is not measured (a comparative routing-only
+  evaluation is prepared but not run). Questions are not understood more reliably because of this workflow; it makes
+  the reading visible and correctable before anything runs.
+
 ### What the language model does (and does not do)
 
 This is an **LLM application**. It uses retrieval (RAG) and controlled tool calls, and **no model is trained or
