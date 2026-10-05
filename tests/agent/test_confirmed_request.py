@@ -620,7 +620,7 @@ def test_the_confirmed_qld1_maximum_runs_only_its_own_calculation(sel, tool_call
     assert rep.summary == [] and rep.forecast_comparison is None and rep.possible_explanations == []
     assert rep.citations == [] and rep.published_findings == []
     assert not UNREQUESTED.search(json.dumps(rep.model_dump(mode="json")))
-    assert rep.status == "answered_with_caveats" and C.SCOPE_NOTE in rep.uncertainties  # said, not hidden
+    assert rep.status == "answered_with_caveats" and C.scope_note(x) in rep.uncertainties  # said, not hidden
     assert rep.validation.get("final_passed", rep.validation.get("passed"))
 
 
@@ -654,3 +654,116 @@ def test_the_page_shows_the_verified_requested_result_first_and_no_unrequested_m
     head = next(i for i, m in enumerate(shown) if m.startswith("**Report headline**"))
     assert first < head and "7548 MW" in shown[first + 1]
     assert not UNREQUESTED.search(" ".join(_texts(at)))
+
+
+# ------------------------------------------------------------------------------------------------ the confirmed request decides the tools
+def _confirmed(sel: Any, steps: list[tuple[str, Any]]) -> dict[str, Any]:
+    d = C.Draft(question="SYNTHETIC confirmed request", origin="structured")
+    for f, v in steps:
+        d = C.apply(d, f, v, sel)
+    state = C.new_state()
+    state["draft"] = d.model_dump()
+    return state
+
+
+POINT = [("operation", "single_interval_comparison"), ("region", "SA1"), ("date", "2026-08-20"),
+         ("half_hour_end", "08:00"), ("run", "last_issued_before")]
+AGGREGATE = [("operation", "window_comparison"), ("region", "NSW1"), ("date", "2026-07-31"), ("scope_kind", "day"),
+             ("run", "latest_before_each")]
+MAXIMUM = [("operation", "demand_maximum"), ("measure", "operational demand"), ("region", "QLD1"),
+           ("date", "2026-07-29"), ("scope_kind", "day")]
+CONFIRMED = {
+    "point, last run before": (POINT, "compare_forecast_actual",
+                               {"target_start_utc": "2026-08-19T22:00:00Z", "target_end_utc": "2026-08-19T22:30:00Z",
+                                "run_selector": "run_id", "as_of_utc": None}),
+    "point, run issued at": (POINT[:4] + [("run", "issued_at"), ("issued_at", "2026-08-19T21:57:01Z")],
+                             "compare_forecast_actual",
+                             {"target_start_utc": "2026-08-19T22:00:00Z", "target_end_utc": "2026-08-19T22:30:00Z",
+                              "run_selector": "run_id", "as_of_utc": None}),
+    "aggregate, latest before each": (AGGREGATE, "compare_forecast_actual",
+                                      {"target_start_utc": "2026-07-30T14:00:00Z",
+                                       "target_end_utc": "2026-07-31T14:00:00Z", "run_selector": "latest_before_target",
+                                       "as_of_utc": None}),
+    "aggregate, under a cutoff": (AGGREGATE + [("cutoff", "2026-07-31T02:00:00Z")], "compare_forecast_actual",
+                                  {"target_start_utc": "2026-07-30T14:00:00Z", "target_end_utc": "2026-07-31T14:00:00Z",
+                                   "run_selector": "latest_available_as_of", "as_of_utc": "2026-07-31T02:00:00Z"}),
+    "maximum": (MAXIMUM, "get_actual_demand",
+                {"start_utc": "2026-07-28T14:00:00Z", "end_utc": "2026-07-29T14:00:00Z", "as_of_utc": None}),
+}
+
+
+@pytest.mark.parametrize("name", list(CONFIRMED))
+def test_the_confirmed_request_decides_exactly_which_tool_runs_and_how(name, sel, tool_calls):
+    steps, tool, want = CONFIRMED[name]
+    x, res = _run(_confirmed(sel, steps), sel)
+    assert tool_calls == [tool], tool_calls  # one call: no supplementary comparison, run listing or document search
+    (rec,) = res.records
+    assert {k: (rec.args or {}).get(k) for k in want} == want  # exactly the confirmed target or window, policy, cutoff
+    if want.get("run_selector") == "run_id":  # the run the request names, chosen by issue time, is the one compared
+        assert rec.args["run_id"] == res.resolution.forecast_run["run_id"] is not None
+    (a,) = res.report.answer
+    assert a.verification == "verified" and a.status in ("established", "not_established", "partial")
+    rep = res.report
+    assert rep.summary == [] and rep.citations == [] and rep.forecast_comparison is None
+    assert rep.status == "answered_with_caveats" and rep.uncertainties[0] == C.scope_note(x)
+    assert "no evidence the confirmed result needs is missing" in C.scope_note(x)
+    assert not any("required tool not executed" in m for m in rep.missing_evidence)  # no missing evidence implied
+    assert rep.validation.get("final_passed", rep.validation.get("passed"))
+
+
+@pytest.mark.parametrize("name", ["point, last run before", "aggregate, latest before each", "maximum"])
+def test_the_requested_verified_result_is_unchanged_from_the_full_plan(name, sel):
+    """The same confirmed request run through the full scripted plan (as before this correction) gives the same
+    verified result: only the unrequested extras are gone."""
+    from nem_agent.agent.dispatcher import Dispatcher
+    from nem_agent.agent.replay import ReplayController
+    from nem_agent.evidence import EvidenceRegistry
+    from nem_agent.report import Versions
+    from nem_agent.service import _shared
+    from nem_agent.trace import Trace
+
+    steps, _, _ = CONFIRMED[name]
+    x, now = _run(_confirmed(sel, steps), sel)
+    store = _shared()[0]
+    res = C.to_resolution(x, sel)
+    reg = EvidenceRegistry()
+    disp = Dispatcher(store, sel, Trace(), reg, res.intent, res.as_of, res.requests.ineligible_tools)
+    full = ReplayController(disp, reg, Versions(code="t", data=store.data_version, corpus=None, prompt="p", model=None,
+                                                controller="replay")).run(res)
+    assert len(disp.records) > 1  # the full plan ran extras
+    key = [(a.kind, a.status, a.verification, a.statement, a.source_row_ids) for a in full.answer]
+    assert [(a.kind, a.status, a.verification, a.statement, a.source_row_ids) for a in now.report.answer] == key
+
+
+def test_unavailable_comparisons_stay_unavailable_and_nothing_stands_in(sel, tool_calls):
+    # a point whose named run was not public by the cutoff: the run lookup finds none, so no comparison call is made
+    x, res = _run(_confirmed(sel, POINT + [("cutoff", "2026-08-19T21:10:00Z")]), sel)
+    (a,) = res.report.answer
+    assert (a.status, tool_calls, res.resolution.forecast_run["run_id"]) == ("unavailable", [], None)
+    assert "No other forecast run or half-hour is given in its place." in a.statement
+    # a period with no forecast held (October 2025): one call for exactly that period, and no other window or run
+    tool_calls.clear()
+    x, res = _run(_confirmed(sel, [("operation", "window_comparison"), ("region", "NSW1"), ("date", "2025-10-05"),
+                                   ("scope_kind", "day"), ("run", "latest_before_each")]), sel)
+    (a,) = res.report.answer
+    assert a.status == "unavailable" and tool_calls == ["compare_forecast_actual"]
+    assert (res.records[0].args["target_start_utc"], res.records[0].args["target_end_utc"]) == (x.start_utc,
+                                                                                                x.end_utc)
+    assert "No other window or run selection is given in its place." in a.statement
+
+
+def test_the_page_shows_a_confirmed_comparison_first_and_nothing_else(sel, monkeypatch):
+    from streamlit.testing.v1 import AppTest
+
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    at = AppTest.from_file(str(ROOT / "app" / "streamlit_app.py"), default_timeout=180)
+    at.session_state["confirm_flow"] = _confirmed(sel, AGGREGATE)
+    at.run()
+    at.sidebar.toggle[0].set_value(True).run()
+    next(b for b in at.button if b.label == "Confirm and run").click().run()
+    assert not at.exception
+    shown = [m.value for m in at.markdown]
+    first = next(i for i, m in enumerate(shown) if m == "### Computed answer")
+    head = next(i for i, m in enumerate(shown) if m.startswith("**Report headline**"))
+    assert first < head and "mean absolute error" in shown[first + 1]
+    assert not any(m.startswith("**Narrative**") for m in shown)  # no scripted narrative beside it

@@ -703,38 +703,77 @@ def to_resolution(x: Executable, sel: Selection) -> Resolution:
                    {"router": "confirmed request (experimental)", "region_tz": REGION_TZ[x.region]}, target, rr)
 
 
-# ------------------------------------------------------------------------------------------------ a demand maximum alone
-SCOPE_NOTE = ("Only the analysis in the confirmed request ran: the demand maximum, computed by code from the pinned "
-              "data. No forecast comparison, price review or document search was run, so none is reported; the "
-              "status says the answer is limited to the confirmed request.")
+# ------------------------------------------------------------------------------------------------ the confirmed analysis alone
+WHAT_RAN = {"demand_maximum": "the demand maximum",
+            "single_interval_comparison": "the forecast/actual comparison for the confirmed half-hour, under the "
+                                          "confirmed run",
+            "window_comparison": "the forecast accuracy over the confirmed period, under the confirmed run policy"}
 
 
-def maximum_playbook(x: Executable) -> Any:
-    """The dispatcher's playbook for a confirmed demand maximum: the measure's own tool, called once, and nothing else
-    (any other tool is blocked before it runs)."""
+def scope_note(x: Executable) -> str:
+    """What ran, and why the status is "answered with caveats" (said, so no evidence is implied to be missing)."""
+    return (f"Only the analysis in the confirmed request ran: {WHAT_RAN[x.operation]}, computed by code from the "
+            "pinned data. No other comparison, price review or document search was run, so none is reported. The "
+            "status is \"answered with caveats\" because the independent validator holds an \"answered\" report to "
+            "every tool of the full investigation's playbook, which the confirmed request does not use; no evidence "
+            "the confirmed result needs is missing.")
+
+
+def confirmed_playbook(x: Executable) -> Any:
+    """The dispatcher's playbook for a confirmed request: exactly the tool its computation calls, once, and nothing
+    else (any other tool is blocked before it runs): the measure's own tool for a demand maximum, the forecast/actual
+    comparison for a forecast point or aggregate."""
+    from . import forecast_compare
     from .demand_max import MEASURES
     from .playbook import PLAYBOOKS, Playbook
 
-    return Playbook(PLAYBOOKS[x.intent].intent, required=(MEASURES[x.measure][0],), optional=(),
-                    max_calls_per_required_tool=1)
+    tool = MEASURES[x.measure][0] if x.operation == "demand_maximum" else forecast_compare.TOOL
+    return Playbook(PLAYBOOKS[x.intent].intent, required=(tool,), optional=(), max_calls_per_required_tool=1)
 
 
-class MaximumOnly(ReplayController):
-    """The confirmed demand maximum and nothing else: the measure's maximum over the confirmed window, computed and
-    rendered as the computed answer (``_render_maxima``, the existing calculation, runtime verification and renderer).
-    The forecast and event-review plans are not run, so no forecast metric, price figure or other narrative is
-    reported. The status is "answered with caveats": the investigation's other analyses did not run (the validator
-    holds an "answered" report to the intent's full playbook)."""
+class ConfirmedOnly(ReplayController):
+    """The confirmed request's computation and nothing else, with the existing calculations, runtime verification and
+    renderer:
+
+    - **a demand maximum:** the measure's maximum over the confirmed window (``demand_max.compute``);
+    - **a forecast point:** the run the request names, chosen by issue time under the confirmed cutoff and recorded as
+      the controller records it, compared with the actual for the confirmed half-hour (``forecast_compare``);
+    - **a forecast aggregate:** the MAE and mean error over exactly the confirmed period, under the confirmed run policy
+      and cutoff.
+
+    No supplementary comparison, forecast-run listing, price review or document search runs, so none is reported. An
+    unavailable result stays unavailable: nothing is computed in its place."""
+
+    def __init__(self, dispatcher: Any, registry: Any, versions: Any, x: Executable) -> None:
+        super().__init__(dispatcher, registry, versions)
+        self.x = x
 
     def run(self, res: Resolution) -> Any:
+        from . import forecast_compare
         from .demand_max import MEASURES
 
+        x = self.x
         comp = Composer(self.reg, res.region)
-        self._render_maxima(res, comp)
-        measure = res.requests.maximum.measures[0]
-        headline = (f"{res.region} {MEASURES[measure][5]}: the maximum over the confirmed window is given in the "
-                    "computed answer.")
-        uncertainties = [SCOPE_NOTE]
+        if x.operation == "demand_maximum":
+            headline = (f"{res.region} {MEASURES[x.measure][5]}: the maximum over the confirmed window is given in "
+                        "the computed answer.")
+        else:
+            point = forecast_compare.point_request(res)
+            store = self.d.store
+            if x.operation == "single_interval_comparison":
+                assert point is not None and res.region is not None
+                res.forecast_run = forecast_compare.forecast_run_record(store, res.region, point, res.as_of)
+                ident = forecast_compare.point_identity(res, point, store.data_version)
+                headline = (f"{res.region} operational demand: the forecast run the confirmed request names is "
+                            "compared with the actual for the confirmed half-hour, in the computed answer.")
+            else:
+                assert forecast_compare.window_review(res)
+                ident = forecast_compare.window_identity(res, store.data_version)
+                headline = (f"{res.region} operational demand: the forecast accuracy over the confirmed period, under "
+                            "the confirmed run policy, is given in the computed answer.")
+            forecast_compare.submit(self.d, res, forecast_compare.compute(self.d, ident))
+        self._render_maxima(res, comp)  # computes a requested maximum, and renders every reported result
+        uncertainties = [scope_note(x)]
         if res.as_of:
             uncertainties.append(self._standard_uncertainties(res)[-1])  # the as-of view
         return self._base(res, comp, headline, [], forecast_comparison=None, possible_explanations=[],

@@ -1766,10 +1766,21 @@ re-verified, and no replacement is created.
     and no model-written interpretation.
   - **Periods:** stated within one local day.
   - **Forecast values:** a forecast's values alone are not computed here.
-- **A confirmed demand maximum runs alone** (2026-10-05, after the demo run of revision `5df77825cea9`). Mapping a
-  whole-day maximum to the forecast-review plan ran forecast runs, two forecast comparisons and two document
-  searches, and the scripted narrative headlined an unrequested forecast MAE. Now the dispatcher's playbook for a
-  confirmed maximum holds the measure's own tool only (`confirm.maximum_playbook`), and `confirm.MaximumOnly`
-  computes and renders that maximum and nothing else. The status is "answered with caveats", with the scope
-  stated, because the validator holds "answered" to the intent's full playbook. The page shows the verified
-  result first. Forecast points and aggregates are unchanged.
+- **The confirmed request decides which tool runs** (2026-10-05, after the demo run of revision `5df77825cea9`).
+  - **The defect:** mapping a whole-day maximum to the forecast-review plan ran forecast runs, two forecast
+    comparisons and two document searches, and the scripted narrative headlined an unrequested forecast MAE. The
+    aggregate plan likewise added a 24-hour-lead comparison, a forecast-run listing and document searches; the
+    point plan added a run listing, the actuals and a document search.
+  - **The fix:** a confirmed request's dispatcher playbook holds exactly the tool its computation calls, once
+    (`confirm.confirmed_playbook`): the measure's own tool for a maximum, one forecast/actual comparison for a
+    point or aggregate. `confirm.ConfirmedOnly` computes, verifies and renders that result with the existing
+    code and reports nothing else. Unavailable results stay unavailable, and the page shows the verified result
+    first. The standard investigation is unchanged.
+  - **The status mismatch, disclosed:** a confirmed result's status is "answered with caveats" only because the
+    validator holds "answered" to every tool of the intent's full playbook (`PLAYBOOKS[intent].required`).
+    Marked "answered", a verified confirmed maximum or point raises `STATUS_OVERCLAIMS` and nothing else. The
+    report states this, and no evidence the result needs is missing.
+  - **The smallest correction, proposed and not implemented:** `validate_and_finalize` takes an optional
+    `required_tools`, defaulting to `PLAYBOOKS[res.intent].required` so every other caller is unchanged.
+    `execute_confirmed` passes the confirmed playbook's tool. An "answered" confirmed report is then held to
+    exactly the tool its computation needs, and still fails with `STATUS_OVERCLAIMS` if that tool did not run.

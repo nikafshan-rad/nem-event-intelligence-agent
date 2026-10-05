@@ -163,7 +163,7 @@ def execute_confirmed(x: Any, *, original: dict[str, Any] | None = None, store: 
     from its fields (``confirm.to_resolution``), with no model call, and run by the scripted controller with the
     existing calculations, runtime verification, computed-answer renderer and validator. Both the original
     interpretation and the confirmed request are kept in the trace. A request that does not resolve runs nothing."""
-    from .agent.confirm import Executable, MaximumOnly, maximum_playbook, revision_id, to_resolution
+    from .agent.confirm import ConfirmedOnly, Executable, confirmed_playbook, revision_id, to_resolution
 
     if not isinstance(x, Executable):
         raise TypeError("only a complete, confirmed request (confirm.Executable) is executed")
@@ -183,11 +183,8 @@ def execute_confirmed(x: Any, *, original: dict[str, Any] | None = None, store: 
         report = _non_answer(res.request, res, trace, versions)
     else:
         disp = Dispatcher(store, selection, trace, registry, res.intent, res.as_of, res.requests.ineligible_tools)
-        if x.operation == "demand_maximum":  # the confirmed maximum alone: no other plan runs
-            disp.playbook = maximum_playbook(x)
-            report = MaximumOnly(disp, registry, versions).run(res)
-        else:
-            report = ReplayController(disp, registry, versions).run(res)
+        disp.playbook = confirmed_playbook(x)  # the confirmed request decides which tool runs: nothing else can
+        report = ConfirmedOnly(disp, registry, versions, x).run(res)
         records = disp.records
     from .validation import validate_and_finalize
     report = validate_and_finalize(report, registry, records, res, trace)
