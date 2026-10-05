@@ -6,19 +6,19 @@ offline. It never calls a model. One arm-neutral definition scores both arms aga
   scored for both arms. Words are judged by their key words, never by whether code can convert them. Plan-only items
   (B) are reported apart (``plan_items``).
 - **Layer 2, resolution and tool eligibility** (``assess_resolution``): the outcome, exact resolution, critical
-  violations C1–C6, silent omission and partial handling, and eligibility. How this scorer reads three points the
-  protocol leaves open, the same for both arms:
-  - **C4** applies to any slot with a reading, whatever its status (conservative): a bound request's evidence words
-    (its operation, subject, request, measure, peak and run-selection words) overlapping a declined or background
-    anchor;
-  - **partial handling** (a question with two asked supported requests that proceeds with one bound and the other
-    named) is reported apart and is never acceptable; its one binding is not also counted as C3 for binding where
-    the gold resolves none (region and cutoff are still checked);
-  - **a demand forecast asked within an event review** is bound only when a forecast request is bound (both arms'
-    resolvers leave an event review's forecast unbound: it decides the tools only), so an asked one in a proceeding
-    event review that is not named is a silent omission;
-  - the not-answered kinds are read from the bound forecast's ``unsupported`` kinds and the not-answered notes (a note
-    that names `other` beside weather or price drops it; the bound kinds are used where present).
+  violations C1–C6, silent omission, partial handling, the unsupported parts, and eligibility. The definitions the
+  pre-registered protocol left open are fixed by AMENDMENT_1.md (before any run), the same for both arms:
+  - **a prohibited binding retained in a sent-back record:** C4 when its words are declined or background words
+    (labelled "retained", counted as critical); otherwise a reported, non-critical retained mis-binding. Both are scored
+    apart from tool eligibility (C1, on the tools offered) and execution (C6, on tools executed and case-note writes);
+  - **partial handling** is reported apart, never acceptable and never exact; its one binding is not also C3 for
+    binding where the gold resolves none;
+  - **silent omission** is defined against the gold: a gold-asked supported request in a resolution that proceeds is
+    accounted for only when bound, served by an investigation the gold accepts with the demand-forecast tools it makes
+    eligible, or (a demand forecast) named by the note that no operational demand forecast is given for it;
+  - **the not-answered kinds** are structured: the kinds each not-answered note is built from, captured from the
+    application's own note function in an offline re-resolution that reproduces the record exactly (``noted``). Every
+    gold-asked unsupported part must be among them; declined and background parts are never required.
 - **Attribution** crosses the two layers per slot.
 - **The verdict** (``decide``), in the protocol's order: B FAILS, INCOMPLETE, INCONCLUSIVE, then MET or NOT MET with
   each unmet criterion named. Raw counts per call and per question are reported beside every rate and the interval.
@@ -308,9 +308,22 @@ def plan_items(rd: dict[str, Any], g: dict[str, Any], q: str) -> dict[str, Any]:
 
 
 # ------------------------------------------------------------------------------------------------ layer 2
-def not_answered_kinds(rq: dict[str, Any]) -> list[str]:
-    kinds = set((rq.get("forecast") or {}).get("unsupported") or [])
-    for n in rq.get("notes") or []:
+UNSUPPORTED_KINDS = ("weather", "price", "other")
+_RR: Any = None
+
+
+def _run_route() -> Any:
+    global _RR
+    if _RR is None:
+        _RR = _sibling("run_route")
+    return _RR
+
+
+def note_text_kinds(notes: list[str]) -> list[str]:
+    """Kinds read from not-answered note text: the fallback only. The text names `other` only when it is the sole kind
+    ("another kind of"): beside weather or price it drops it (AMENDMENT_1.md, "Not-answered kinds")."""
+    kinds: set[str] = set()
+    for n in notes:
         if n.startswith(NOT_ANSWERED):
             mt = re.search(r"asks about a (.+?) forecast", n)
             what = mt.group(1) if mt else ""
@@ -318,6 +331,88 @@ def not_answered_kinds(rq: dict[str, Any]) -> list[str]:
                 kinds.add("other")
             kinds.update(k for k in ("weather", "price") if re.search(rf"\b{k}\b", what))
     return sorted(kinds)
+
+
+def resolve_capturing(rec: dict[str, Any], policy: str | None) -> tuple[Any, list[list[str]]]:
+    """The recorded decision resolved offline exactly as ``run_route.route_call`` resolves it, capturing the kinds each
+    not-answered note is built from: the application's own ``not_answered_note`` is wrapped, its text and behaviour
+    unchanged. ``policy``: the stated-basis policy for a v16 plan (B: V1; the descriptive recompilation: V0)."""
+    from unittest import mock
+
+    from nem_agent.agent import plan as plan_module
+    from nem_agent.agent import structured
+    from nem_agent.agent.live import RouteDecision
+    from nem_agent.agent.plan import PlanRouteDecision
+    from nem_agent.agent.request import InvestigateRequest
+    from nem_agent.service import _shared, resolve_routed
+
+    calls: list[list[str]] = []
+    original = structured.not_answered_note
+
+    def spy(kinds: list[str]) -> str:
+        calls.append(sorted(str(k) for k in kinds))
+        return original(kinds)
+
+    env = {"NEM_AGENT_PLAN_POLICY": policy} if policy else {}
+    with mock.patch.object(structured, "not_answered_note", spy), \
+            mock.patch.object(plan_module, "not_answered_note", spy), mock.patch.dict(os.environ, env):
+        d = rec["decision"]
+        dec = (PlanRouteDecision if "plan" in d else RouteDecision).model_validate(d)
+        req = InvestigateRequest(question=rec["question"], mode="live", **(rec.get("request") or {}))
+        res = resolve_routed(req, dec, _shared()[1], None)
+    return res, calls
+
+
+def _canonical(x: Any) -> str:
+    return json.dumps(x, sort_keys=True, default=str)
+
+
+def note_calls(rec: dict[str, Any]) -> tuple[list[list[str]] | None, str]:
+    """The kinds of each not-answered note in a record, and where they come from: an offline re-resolution of its
+    decision that reproduces its resolution and tools exactly (both arms alike), or None (the record's fields only)."""
+    if "_note_calls" in rec:
+        return rec["_note_calls"], "recompiled"
+    if not rec.get("decision") or rec.get("resolution") is None:
+        return None, "record (no decision)"
+    rr = _run_route()
+    try:
+        res, calls = resolve_capturing(rec, rr.ARM_ENV["B"]["NEM_AGENT_PLAN_POLICY"] if "plan" in rec["decision"]
+                                       else None)
+    except Exception as exc:  # a decision that cannot be resolved again: the record's own fields are used, flagged
+        return None, f"record (re-resolution failed: {type(exc).__name__})"
+    same = _canonical(rr.resolution_record(res)) == _canonical(rec["resolution"]) and \
+        rr.tools_offered(res) == (rec.get("tools_offered") or [])
+    return (calls, "re-resolution") if same else (None, "record (re-resolution did not reproduce it)")
+
+
+def noted(rec: dict[str, Any]) -> dict[str, Any]:
+    """What the resolution's notes name as not answered: the kinds (weather, price, other), and whether a note says a
+    forecast is mentioned without showing which. Structured where available (AMENDMENT_1.md, "Not-answered kinds"):
+    the captured note kinds; otherwise the bound forecast's ``unsupported`` kinds with the note text, flagged."""
+    rq = rec["resolution"].get("requests") or {}
+    calls, source = note_calls(rec)
+    if calls is not None:
+        return {"kinds": sorted({k for c in calls for k in c}), "unclear": any(not c for c in calls),
+                "source": source}
+    notes = rq.get("notes") or []
+    kinds = set((rq.get("forecast") or {}).get("unsupported") or []) | set(note_text_kinds(notes))
+    return {"kinds": sorted(kinds), "unclear": any(n.startswith(UNCLEAR_NOTE) for n in notes), "source": source}
+
+
+def unsupported_parts(g: dict[str, Any], nk: dict[str, Any]) -> dict[str, Any]:
+    """Every gold-asked unsupported part (a weather, price or other forecast the gold marks asked) must be named as not
+    answered, and a gold-asked forecast of an unshown kind must be covered by a note; declined and background parts are
+    never required, and naming one is an error unless an asked forecast of an unshown kind could be the one named."""
+    asked = sorted({m["subject"] for m in g["mentions"] if m["stance"] == "asked" and m["subject"] in UNSUPPORTED_KINDS})
+    inactive = {m["subject"] for m in g["mentions"] if m["stance"] != "asked" and m["subject"] in UNSUPPORTED_KINDS}
+    asked_unclear = any(m["stance"] == "asked" and m["subject"] == "unclear" for m in g["mentions"])
+    missing = [k for k in asked if k not in nk["kinds"]]
+    unclear_missing = asked_unclear and not (nk["unclear"] or nk["kinds"])
+    extra = [] if asked_unclear else [k for k in nk["kinds"] if k not in asked]
+    return {"required": asked, "named": nk["kinds"], "unclear_named": nk["unclear"], "missing": missing,
+            "unclear_missing": unclear_missing, "extra": extra,
+            "declined_or_background_named": [k for k in extra if k in inactive],
+            "accounted": not missing and not unclear_missing and not extra, "source": nk["source"]}
 
 
 def _named(rq: dict[str, Any]) -> bool:
@@ -362,15 +457,48 @@ def _run_got(fr: dict[str, Any]) -> tuple[Any, ...]:
     return (fr.get("status") or "absent",)
 
 
+def binding_mismatches(fa: dict[str, Any] | None, fr: dict[str, Any] | None, mx: dict[str, Any] | None,
+                       gres: dict[str, Any] | None, partial_ok: bool) -> list[str]:
+    """Bound requests other than the gold's, or bound where the gold resolves none (what C3 prohibits in a resolution
+    that proceeds). ``partial_ok``: a question with two asked supported requests and no gold resolution, whose one
+    binding is partial handling, not this."""
+    out = []
+    if fa:
+        if gres is None or gres["operation"] is None:
+            if not partial_ok:
+                out.append(f"a forecast request is bound ({fa.get('operation')}) where the gold resolves none")
+        else:
+            s = gres["scope"]
+            got = (fa.get("operation"), fa.get("target_utc") or fa.get("window_utc"), fa.get("half_hours"))
+            want = (gres["operation"], [s["start_utc"], s["end_utc"]], s["half_hours"])
+            if got != want:
+                out.append(f"forecast {got}, gold {want}")
+    if fr and not (gres is None and partial_ok) and _run_got(fr) != _run_want(gres):
+        out.append(f"run {_run_got(fr)}, gold {_run_want(gres)}")
+    if mx:
+        gm = (gres or {}).get("maximum")
+        if gm is None:
+            if not partial_ok:
+                out.append(f"a maximum is bound ({mx.get('measures')}) where the gold resolves none")
+        else:
+            got_mx = (mx.get("measures"), mx.get("window_kind"), mx.get("window_utc"))
+            want_mx = ([MEASURE[gm["measure"]]], WINDOW[gm["window_kind"]], [gm["start_utc"], gm["end_utc"]])
+            if got_mx != want_mx:
+                out.append(f"maximum {got_mx}, gold {want_mx}")
+    return out
+
+
 def assess_resolution(rec: dict[str, Any] | None, g: dict[str, Any], set_: str) -> dict[str, Any]:
-    """Outcome, critical violations, silent omission, partial handling, eligibility and exact resolution."""
+    """Outcome, critical violations, retained bindings, silent omission, partial handling, unsupported parts,
+    eligibility and exact resolution (PROTOCOL.md, "Layer 2", as amended by AMENDMENT_1.md)."""
     out: dict[str, Any] = {"outcome": outcome_of(rec), "violations": [], "silent_omission": False, "partial": False,
+                           "served_not_bound": False, "retained_mis_binding": [], "unsupported_parts": None,
                            "exact": False, "acceptable": False, "eligibility_ok": None}
     if rec is None:
         return out
     v: list[str] = []
     sc = rec.get("score") or {}
-    if sc.get("case_note_files_written") or sc.get("tools_executed"):
+    if sc.get("case_note_files_written") or sc.get("tools_executed"):  # C6: execution, from the record's own counts
         v.append(f"C6: {sc.get('tools_executed')} tool(s) executed, {sc.get('case_note_files_written')} case-note "
                  "file(s) written")
     res = rec.get("resolution")
@@ -385,13 +513,15 @@ def assess_resolution(rec: dict[str, Any] | None, g: dict[str, Any], set_: str) 
     gres = g["resolution"]
     sup = asked_supported(g)
     multi = len(sup) >= 2
-    if reading(rec) is not None:  # C4, whatever the status (conservative)
+    has_reading = reading(rec) is not None
+    if has_reading:  # C4, whatever the status; a retained one is labelled apart (AMENDMENT_1.md)
         inact = inactive_anchors(g)
         ev = [tuple(o) for b in (fa, fr, mx) if b for s in b.get("spans") or [] if s.get("role") in EVIDENCE_ROLES
               for o in s.get("occurrences") or []]
         hit = [a for a in inact if any(_overlaps(o, s) for o in ev for s in _spans(a, q))]
         if hit:
-            v.append(f"C4: a bound request's words overlap the declined or background words {hit}")
+            where = "" if proceeds else " (retained in a sent-back record)"
+            v.append(f"C4{where}: a bound request's words overlap the declined or background words {hit}")
     if proceeds:
         if g["demand_forecast_tools"] == "not_used" and tools & DEMAND_TOOLS:
             v.append(f"C1: {sorted(tools & DEMAND_TOOLS)} offered where the gold says demand tools are not used")
@@ -399,43 +529,27 @@ def assess_resolution(rec: dict[str, Any] | None, g: dict[str, Any], set_: str) 
             v.append(f"C2: cutoff {res.get('as_of_utc')}, gold {g['cutoff_utc']}")
         if res.get("region") is not None and res["region"] != g["region"]:
             v.append(f"C3: region {res['region']}, gold {g['region']}")
-        partial_ok = multi and gres is None  # partial handling: reported apart, not also C3 for binding
-        if fa:
-            if gres is None or gres["operation"] is None:
-                if not partial_ok:
-                    v.append(f"C3: a forecast request is bound ({fa.get('operation')}) where the gold resolves none")
-            else:
-                s = gres["scope"]
-                got = (fa.get("operation"), fa.get("target_utc") or fa.get("window_utc"), fa.get("half_hours"))
-                want = (gres["operation"], [s["start_utc"], s["end_utc"]], s["half_hours"])
-                if got != want:
-                    v.append(f"C3: forecast {got}, gold {want}")
-        if fr:
-            if gres is None and partial_ok:
-                pass
-            elif _run_got(fr) != _run_want(gres):
-                v.append(f"C3: run {_run_got(fr)}, gold {_run_want(gres)}")
-        if mx:
-            gm = (gres or {}).get("maximum")
-            if gm is None:
-                if not partial_ok:
-                    v.append(f"C3: a maximum is bound ({mx.get('measures')}) where the gold resolves none")
-            else:
-                got_mx = (mx.get("measures"), mx.get("window_kind"), mx.get("window_utc"))
-                want_mx = ([MEASURE[gm["measure"]]], WINDOW[gm["window_kind"]], [gm["start_utc"], gm["end_utc"]])
-                if got_mx != want_mx:
-                    v.append(f"C3: maximum {got_mx}, gold {want_mx}")
+        v += [f"C3: {x}" for x in binding_mismatches(fa, fr, mx, gres, multi and gres is None)]
         if set_ == "control":
             v.append("C5: a known-unsupported control proceeds")
+        nk = noted(rec)
+        out["unsupported_parts"] = unsupported_parts(g, nk)
         maxima = [m for m in sup if m["kind"] == "demand_maximum"]
         unbound_max = max(0, len(maxima) - (1 if mx else 0))
         unbound_fc = max(0, len(sup) - len(maxima) - (1 if fa else 0))
-        out["silent_omission"] = unbound_max > 0 or (unbound_fc > 0 and not _named(rq))
-        out["partial"] = multi and not out["silent_omission"] and bool(fa or mx) and unbound_max + unbound_fc > 0
+        served = unbound_fc > 0 and res.get("intent") in g["intents"] and \
+            g["demand_forecast_tools"] == "eligible" and bool(tools & DEMAND_TOOLS)
+        out["served_not_bound"] = served
+        out["silent_omission"] = unbound_max > 0 or (unbound_fc > 0 and not served and not nk["unclear"])
+        out["partial"] = multi and not out["silent_omission"] and not served and bool(fa or mx) and \
+            unbound_max + unbound_fc > 0
+    elif has_reading:  # a binding retained in a sent-back record that C3 would prohibit: reported, not critical
+        out["retained_mis_binding"] = binding_mismatches(fa, fr, mx, gres, False)
     out["violations"] = v
     d = g["demand_forecast_tools"]
     out["eligibility_ok"] = None if d == "not_restricted" else (bool(tools & DEMAND_TOOLS) == (d == "eligible"))
-    if out["outcome"] == "resolved" and gres is not None and not v and not out["silent_omission"]:
+    if out["outcome"] == "resolved" and gres is not None and not v and not out["silent_omission"] and \
+            not out["partial"]:  # partial handling is never exact (AMENDMENT_1.md)
         mism = []
         if res.get("region") != g["region"]:
             mism.append("region")
@@ -458,14 +572,18 @@ def assess_resolution(rec: dict[str, Any] | None, g: dict[str, Any], set_: str) 
             mism.append("run")
         if res.get("as_of_utc") != g["cutoff_utc"]:
             mism.append("cutoff")
-        if not_answered_kinds(rq) != sorted(gres["not_answered"]):
-            mism.append(f"not answered {not_answered_kinds(rq)}")
+        parts = out["unsupported_parts"]
+        if parts["named"] != sorted(gres["not_answered"]) or not parts["accounted"]:
+            mism.append(f"not answered {parts['named']}, gold {sorted(gres['not_answered'])}")
         if out["eligibility_ok"] is False:
             mism.append("tool eligibility")
         out["exact"] = not mism
         out["mismatch"] = mism
+    review_ok = out["outcome"] != "event_review_without_demand_forecast" or bool(
+        out["unsupported_parts"] and out["unsupported_parts"]["accounted"])
     out["acceptable"] = out["outcome"] in g["acceptable_outcomes"] and not v and not out["silent_omission"] and \
-        not out["partial"] and (out["outcome"] != "resolved" or out["exact"]) and out["eligibility_ok"] is not False
+        not out["partial"] and (out["outcome"] != "resolved" or out["exact"]) and \
+        out["eligibility_ok"] is not False and review_ok
     return out
 
 
@@ -525,26 +643,13 @@ def records(freeze: dict[str, Any], log: list[dict[str, Any]], live: Path = LIVE
 # ------------------------------------------------------------------------------------------------ V0
 def recompile_v0(rec: dict[str, Any]) -> dict[str, Any] | None:
     """B's recorded plan compiled offline under V0 (descriptive only): the record with its resolution and tools
-    replaced. None when the slot has no plan."""
+    replaced, and the kinds of its not-answered notes captured. None when the slot has no plan."""
     if not rec or not rec.get("decision") or "plan" not in rec["decision"]:
         return None
-    rr = _sibling("run_route")
-    from nem_agent.agent.plan import PlanRouteDecision, checked_plan_route
-    from nem_agent.agent.request import InvestigateRequest
-    from nem_agent.service import _shared, resolve_routed
-
-    saved = os.environ.get("NEM_AGENT_PLAN_POLICY")
-    os.environ["NEM_AGENT_PLAN_POLICY"] = "V0"
-    try:
-        dec = checked_plan_route(PlanRouteDecision.model_validate(rec["decision"]))
-        req = InvestigateRequest(question=rec["question"], mode="live", **(rec.get("request") or {}))
-        res = resolve_routed(req, dec, _shared()[1], None)
-    finally:
-        if saved is None:
-            os.environ.pop("NEM_AGENT_PLAN_POLICY", None)
-        else:
-            os.environ["NEM_AGENT_PLAN_POLICY"] = saved
-    return {**rec, "resolution": rr.resolution_record(res), "tools_offered": rr.tools_offered(res)}
+    rr = _run_route()
+    res, calls = resolve_capturing(rec, "V0")
+    return {**rec, "resolution": rr.resolution_record(res), "tools_offered": rr.tools_offered(res),
+            "_note_calls": calls}
 
 
 # ------------------------------------------------------------------------------------------------ the verdict
@@ -618,8 +723,17 @@ def decide(freeze: dict[str, Any], gold: dict[str, dict[str, Any]], recs: dict[i
             "violations": {code: sum(any(x.startswith(code) for x in r["violations"]) for r in rs)
                            for code in ("C1", "C2", "C3", "C4", "C5", "C6")},
             "violation_slots": [f"{r['case']}: {x}" for r in rs for x in r["violations"]],
+            "c4_retained_in_sent_back_records": sum(any(x.startswith("C4 (retained") for x in r["violations"])
+                                                    for r in rs),
+            "retained_mis_bindings": [f"{r['case']}: {x}" for r in rs for x in r["retained_mis_binding"]],
             "silent_omissions": [r["case"] for r in rs if r["silent_omission"]],
             "partial": [r["case"] for r in rs if r["partial"]],
+            "served_not_bound": [r["case"] for r in rs if r["served_not_bound"]],
+            "unsupported_parts_not_accounted": [
+                f"{r['case']}: missing {p['missing']}, extra {p['extra']}, unclear missing {p['unclear_missing']}"
+                for r in rs if (p := r["unsupported_parts"]) and not p["accounted"]],
+            "not_answered_kinds_source": dict(Counter(r["unsupported_parts"]["source"] for r in rs
+                                                      if r["unsupported_parts"])),
             "infrastructure": {"api_error": sum(r["terminal"] == "api_error" for r in rs),
                                "interrupted": sum(r["terminal"] == "interrupted" for r in rs),
                                "no_terminal_record": sum(r["terminal"] is None for r in rs)},

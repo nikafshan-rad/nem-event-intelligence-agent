@@ -11,7 +11,9 @@ Writes `FREEZE.json`:
 - **the run cap:** the exact sum of the 322 slot reservations, refused above USD 2.00 (``MAX_PREPARED_USD``);
 - **the denominators:** from the frozen gold (`GOLD.json`): the answerable held-out configurations, the availability
   and incomplete-rate denominators, and the infrastructure threshold;
-- **the accounting paths**, and the SHA-256 of every frozen file.
+- **the accounting paths**, and the SHA-256 of every frozen file;
+- **the amendment** it is frozen under (AMENDMENT_1.md, before any run), and the freeze it supersedes, kept
+  unchanged as `FREEZE_1.json`.
 
 Usage: .venv/bin/python eval/compare_route_v15_v16/freeze.py [--check]   (--check: recompute and compare, write nothing)
 """
@@ -41,8 +43,10 @@ BASE_COMMIT = "76c4341"  # main after D31 (PR #80): the code both arms run
 ORDER_SEED = 20261005
 MAX_PREPARED_USD = 2.00  # the maximum approved budget prepared against; not an authorization to spend
 LABEL = "CMP-route-v15-v16-run"
+AMENDMENT = "AMENDMENT_1.md (before any run)"
+SUPERSEDES = {"commit": "6c06348fb3953f1c45bdf99692b38df12b95ef70", "file": "FREEZE_1.json"}  # the first freeze
 ARM_CONTRACT = {"A": ("v15", config.PROMPT_VERSION), "B": ("v16", config.PLAN_PROMPT_VERSION)}
-FROZEN_FILES = ("PROTOCOL.md", "CAPABILITIES.md", "GOLD_FORMAT.md", "WRITER_BRIEF.md", "REVIEW_BRIEF.md",
+FROZEN_FILES = ("PROTOCOL.md", "AMENDMENT_1.md", "FREEZE_1.json", "CAPABILITIES.md", "GOLD_FORMAT.md", "WRITER_BRIEF.md", "REVIEW_BRIEF.md",
                 "RECONCILE_BRIEF.md", "PROVENANCE.md", "WRITER_REPORT.md", "REVIEW_REPORT.md", "WRITER_OUTPUT.json",
                 "REVIEW.json", "REVIEW_IDS.json",
                 "RECONCILED.json", "GOLD.json", "cases.json", "configs.py", "gold.py", "build_kit.py", "run_route.py",
@@ -176,6 +180,14 @@ def denominators(gold: list[dict[str, Any]], cases: list[dict[str, Any]]) -> dic
             "slots_per_arm": per_arm, "infrastructure_threshold": {"share": 0.05, "max_count": int(per_arm * 0.05)}}
 
 
+def supersedes() -> dict[str, Any]:
+    """The first freeze, kept unchanged as FREEZE_1.json: its commit, hash and what it froze."""
+    first_p = HERE / SUPERSEDES["file"]
+    first = json.loads(first_p.read_text())
+    return {**SUPERSEDES, "sha256": _sha(first_p), "frozen_at": first["frozen_at"],
+            "code_commit": first["code_commit"], "run_cap_usd": first["run_cap_usd"]}
+
+
 def frozen_files() -> dict[str, str]:
     out = {}
     for name in FROZEN_FILES:
@@ -211,7 +223,8 @@ def build() -> dict[str, Any]:
     prices = budget.prices(live_model())
     assert prices is not None
     return {
-        "protocol": "eval/compare_route_v15_v16/PROTOCOL.md",
+        "protocol": "eval/compare_route_v15_v16/PROTOCOL.md, as amended by AMENDMENT_1.md",
+        "amendment": AMENDMENT, "supersedes": supersedes(),
         "frozen_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "code_commit": _git("rev-parse", "HEAD"), "base_commit": _git("rev-parse", BASE_COMMIT), "src_tree": src_tree,
         "prompts_trees": {v: _git("rev-parse", f"HEAD:src/nem_agent/prompts/{v}") for v in ("v16", "v17")},
@@ -247,7 +260,7 @@ def main() -> int:
     if args.check:
         old = json.loads((HERE / "FREEZE.json").read_text())
         keys = ("src_tree", "prompts_trees", "model", "arms", "reservations_usd", "slots", "run_cap_usd",
-                "denominators", "files_sha256")
+                "denominators", "files_sha256", "amendment", "supersedes")
         diff = [k for k in keys if old.get(k) != out[k]]
         print("FREEZE.json matches" if not diff else f"FREEZE.json differs in: {diff}")
         return 1 if diff else 0

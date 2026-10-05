@@ -109,3 +109,29 @@ development gold (section 6). The writer's records meet both, as first written, 
 
 `freeze.py` then froze the code, the arms, the reservations, the order, the run cap, the denominators and the SHA-256
 of every frozen file, this one included (`FREEZE.json`).
+
+## 8. The first freeze, Amendment 1 and the re-freeze
+Everything in this section happened before any run.
+- **The first freeze** was committed in `6c06348`. It was frozen at 2026-10-04T23:27:00Z at commit `4ab21f7`, with a run
+  cap of USD 1.803166.
+  - It is kept unchanged as `FREEZE_1.json`
+    (`dd34370c0858ec2505940317026b686757f7f051793da6a8f0980970aa5d8251`), so the history is in the tree as well as in
+    git.
+- **Amendment 1** (`AMENDMENT_1.md`) was written at the owner's instruction after the owner reviewed the first freeze.
+  - **What it fixes:**
+    - the not-answered kinds are read from structured metadata, which closes the gap where "other" beside weather or
+      price was dropped;
+    - every gold-asked unsupported part must be accounted for, and no declined or background part is required;
+    - how a prohibited binding retained in a sent-back record is scored, apart from tool eligibility and execution;
+    - partial handling stays outside exact resolution;
+    - silent omission is defined against the gold.
+  - **It also records** that the repository-wide maximum-question scan now excludes this evaluation by exact
+    directory names only.
+  - **`PROTOCOL.md` is unchanged.**
+- **Nothing that was frozen moved, except the amended files:**
+  - the questions, the gold, the agents' records and the reconciliation are byte-identical;
+  - so are the sample, the order, the reservations, the run cap, the denominators, the code and the runner.
+  - The frozen gold already met the new gold consistency check. No question or gold item was changed to fit the
+    application.
+- **The re-freeze**, `FREEZE.json`, records the amendment and the freeze it supersedes (`supersedes`: commit, file
+  and SHA-256).

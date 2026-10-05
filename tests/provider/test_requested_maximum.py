@@ -45,6 +45,9 @@ V6 = ROOT / "artifacts" / "live" / "L3-holdout-v6"
 MAX_ROW = "DISPATCHIS:PUBLIC_DISPATCHIS_202607290755_0000000529809198:L91"  # TOTALDEMAND 1367.32 MW, ending 21:55Z
 MAX_END = "2026-07-28T21:55:00Z"
 DAY = ["2026-07-28T14:00:00Z", "2026-07-29T14:00:00Z"]  # 29 July 2026 in Hobart (AEST)
+# the comparative routing-only evaluation of route contracts v15 and v16: its directory and its record directories,
+# excluded from the inventory below by exact name only
+COMPARE_ROUTE_V15_V16 = ("compare_route_v15_v16", "CMP-route-v15-v16", "CMP-route-v15-v16-run")
 
 
 def _z04() -> dict:
@@ -98,9 +101,8 @@ def test_no_other_question_in_the_repository_asks_for_a_maximum():
                                                        "livecheck_routing_v12", "LC-route-v12", "MC-dev",
                                                        "livecheck_maxima", "LC-maxima", "livecheck_route_v13",
                                                        "LC-route-v13", "livecheck_e2e_v13", "LC-e2e-v13",
-                                                       "livecheck_route_v15", "LC-route-v15",
-                                                       "compare_route_v15_v16", "CMP-route-v15-v16"))
-                                      for part in f.parts):
+                                                       "livecheck_route_v15", "LC-route-v15"))
+                                      or part in COMPARE_ROUTE_V15_V16 for part in f.parts):
             continue
         try:
             d = json.loads(f.read_text())

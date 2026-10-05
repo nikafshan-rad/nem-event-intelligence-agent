@@ -274,6 +274,11 @@ def check(rec: dict[str, Any], expect_family: str | None = None) -> list[str]:
         res = rec["resolution"]
         if res is not None:
             p += _check_resolution(res, rec["region"])
+            # the not-answered kinds are the asked unsupported parts, never a declined or background one
+            asked = sorted({m["subject"] for m in rec["mentions"]
+                            if m["stance"] == "asked" and m["subject"] in ("weather", "price", "other")})
+            if sorted(res["not_answered"]) != asked:
+                p.append(f"not answered {sorted(res['not_answered'])}: the asked unsupported parts are {asked}")
         if rec["cutoff_utc"] is not None:
             _utc(rec["cutoff_utc"])
         if rec["demand_forecast_tools"] not in TOOLS:

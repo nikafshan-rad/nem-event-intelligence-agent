@@ -1,5 +1,5 @@
-"""The comparative routing-only evaluation of route contracts v15 and v16 (eval/compare_route_v15_v16/PROTOCOL.md),
-offline. Covered:
+"""The comparative routing-only evaluation of route contracts v15 and v16 (eval/compare_route_v15_v16/PROTOCOL.md, as
+amended by AMENDMENT_1.md before any run), offline. Covered:
 - the sample: 23 development configurations (two duplicates left out), 40 held-out questions and 6 controls, 322
   slots;
 - the gold: the development gold derived from verified sources, the writer's records checked, the comparison of two
@@ -13,6 +13,13 @@ offline. Covered:
   refusal;
 - the scorer: both layers, attribution, every critical violation, silent omission, partial handling, the verdict's
   precedence, the interval and V0;
+- Amendment 1:
+  - the not-answered kinds read from structured metadata, with every gold-asked unsupported part required and no
+    declined or background one;
+  - a prohibited binding retained in a sent-back record, scored apart from eligibility and execution;
+  - silent omission judged against the gold, and partial handling kept outside exact resolution;
+  - the repository scan excluding only this evaluation's files;
+  - the re-freeze, with the first freeze and the protocol kept unchanged;
 - the complete harness, all 322 frozen slots, through the scripted transport and a scratch ledger.
 
 Nothing here calls a model. Every routing decision is SYNTHETIC, and none is written for a held-out question. The
@@ -23,6 +30,7 @@ from __future__ import annotations
 
 import contextlib
 import copy
+import hashlib
 import importlib.util
 import io
 import json
@@ -387,6 +395,30 @@ def test_the_freeze_matches_the_files_the_code_and_the_ceiling():
         "answerable_heldout_questions"]
 
 
+FIRST_FREEZE_SHA256 = "dd34370c0858ec2505940317026b686757f7f051793da6a8f0980970aa5d8251"  # FREEZE.json in 6c06348
+PROTOCOL_SHA256 = "49392940ed7e9424d60302380d0729114b1e20f7b5590704672db6d3474e1257"  # as pre-registered in 3252ff5
+AMENDED = ("score.py", "gold.py", "freeze.py", "PROVENANCE.md", "test_compare_route_v15_v16.py")
+
+
+@needs_freeze
+def test_the_re_freeze_supersedes_the_first_freeze_which_is_kept_with_the_protocol_unchanged():
+    first_p = DIR / "FREEZE_1.json"
+    assert hashlib.sha256(first_p.read_bytes()).hexdigest() == FIRST_FREEZE_SHA256
+    assert hashlib.sha256((DIR / "PROTOCOL.md").read_bytes()).hexdigest() == PROTOCOL_SHA256
+    first = json.loads(first_p.read_text())
+    assert FREEZE["amendment"] == "AMENDMENT_1.md (before any run)" and (DIR / "AMENDMENT_1.md").exists()
+    assert FREEZE["supersedes"] == {"commit": "6c06348fb3953f1c45bdf99692b38df12b95ef70", "file": "FREEZE_1.json",
+                                    "sha256": FIRST_FREEZE_SHA256, "frozen_at": first["frozen_at"],
+                                    "code_commit": first["code_commit"], "run_cap_usd": first["run_cap_usd"]}
+    for k in ("src_tree", "prompts_trees", "model", "route_max_output_tokens", "arms", "reservations_usd", "slots",
+              "run_cap_usd", "denominators", "order_seed", "label", "accounting_paths"):
+        assert FREEZE[k] == first[k], k  # the sample, order, money and code are the first freeze's
+    kept = {rel: h for rel, h in first["files_sha256"].items() if rel.split("/")[-1] not in AMENDED}
+    assert {rel: FREEZE["files_sha256"][rel] for rel in kept} == kept  # questions, gold and runner byte-identical
+    assert set(FREEZE["files_sha256"]) - set(first["files_sha256"]) == {
+        "eval/compare_route_v15_v16/AMENDMENT_1.md", "eval/compare_route_v15_v16/FREEZE_1.json"}
+
+
 @needs_freeze
 def test_the_frozen_reservations_are_remeasured_exactly():
     assert FRZ.measure_reservations(CASES) == FREEZE["reservations_usd"]
@@ -735,13 +767,174 @@ def test_one_of_two_asked_requests_bound_and_the_other_named_is_partial_never_ac
     assert silent["silent_omission"] and not silent["partial"]
 
 
-def test_the_not_answered_kinds_are_read_from_the_bound_kinds_and_the_notes():
-    rq = {"forecast": {"unsupported": ["price"]}, "notes": [
-        "Not answered: the question also asks about a weather forecast. This assistant reviews AEMO's operational "
-        "demand forecasts only and gives no other forecast."]}
-    assert SCORE.not_answered_kinds(rq) == ["price", "weather"]
-    assert SCORE.not_answered_kinds({"notes": ["Not answered: the question also asks about a another kind of "
-                                               "forecast."]}) == ["other"]
+WEATHER_NOTE = ("Not answered: the question also asks about a weather forecast. This assistant reviews AEMO's "
+                "operational demand forecasts only and gives no other forecast.")
+UNCLEAR_NOTE = ("The question also mentions a forecast without showing which, so no AEMO operational demand forecast "
+                "is compared or given for it.")
+# a SYNTHETIC question (a test input, never a held-out question): a demand maximum with a weather and an
+# interconnector-flow forecast asked alongside, so the application's note is built from ["other", "weather"]
+SYN_Q = ("On 29 July 2026, Sydney time, when was NSW dispatch total demand highest across the whole day? Also give "
+         "the weather forecast and the interconnector flow forecast for that day.")
+SYN_CASE = {"config": "SYN-1", "question": SYN_Q, "request": {}}
+
+
+def _syn_plan(weather: str = "asked") -> dict[str, Any]:
+    return _v16("market_event_review", "NSW1", "2026-07-29", [
+        _op("o1", "asked", "demand_maximum", "dispatch_total_demand", "dispatch total demand",
+            "when was NSW dispatch total demand highest", scope="s1"),
+        _op("o2", weather, "forecast_value", "weather", "weather", "the weather forecast"),
+        _op("o3", "asked", "forecast_value", "other", "interconnector flow", "the interconnector flow forecast")],
+        scopes=[("s1", "whole_local_day", "across the whole day")])
+
+
+def _syn_gold(weather: str = "asked") -> dict[str, Any]:
+    """SYNTHETIC gold for SYN_Q, built by the format's rules (test input only)."""
+    asked = sorted(["other", *(["weather"] if weather == "asked" else [])])
+    return {"config": "SYN-1", "question": SYN_Q, "request": {}, "region": "NSW1", "local_dates": ["2026-07-29"],
+            "answerable": True, "outcome": "resolved", "acceptable_outcomes": ["resolved"],
+            "intents": ["forecast_review", "market_event_review"], "cutoff_utc": None,
+            "mentions": [{"stance": "asked", "kind": "demand_maximum", "subject": "dispatch_total_demand",
+                          "primary": True, "anchors": ["when was NSW dispatch total demand highest"]},
+                         {"stance": weather, "kind": "forecast_value", "subject": "weather", "primary": False,
+                          "anchors": ["the weather forecast"]},
+                         {"stance": "asked", "kind": "forecast_value", "subject": "other", "primary": False,
+                          "anchors": ["the interconnector flow forecast"]}],
+            "reader": None,
+            "resolution": {"operation": None, "scope": None,
+                           "run": {"rule": "none", "half_hour_end_utc": None, "issued_at_utc": None},
+                           "maximum": {"measure": "dispatch_total_demand", "window_kind": "whole_local_day",
+                                       "start_utc": "2026-07-28T14:00:00Z", "end_utc": "2026-07-29T14:00:00Z"},
+                           "not_answered": asked},
+            "demand_forecast_tools": "not_used", "unsupported_time": None, "notes": "SYNTHETIC"}
+
+
+def _syn_record(monkeypatch: pytest.MonkeyPatch, weather: str = "asked") -> dict[str, Any]:
+    _arm(monkeypatch, "B")
+    return ROUTE.route_call(SYN_CASE, "B", client=ROUTE.ScriptedTransport({"response": _resp(_syn_plan(weather))}),
+                            write_trace=False)
+
+
+def test_other_beside_weather_is_read_from_the_structured_note_kinds_not_the_note_text(monkeypatch):
+    rec = _syn_record(monkeypatch)
+    rq = rec["resolution"]["requests"]
+    assert rec["resolution"]["status"] == "ok" and rq["maximum"]["status"] == "bound"
+    assert SCORE.note_text_kinds(rq["notes"]) == ["weather"]  # the application's wording drops "other": unchanged
+    assert SCORE.noted(rec) == {"kinds": ["other", "weather"], "unclear": False, "source": "re-resolution"}
+    assert rq["plan"]["not_answered"] == ["other", "weather"]  # B's own structured record agrees
+    l2 = SCORE.assess_resolution(rec, _syn_gold(), "heldout")
+    assert l2["exact"] and l2["acceptable"] and l2["unsupported_parts"]["missing"] == []
+    text_only = {**rec, "decision": None}  # no decision to re-resolve: the record's text alone misses the part
+    lt = SCORE.assess_resolution(text_only, _syn_gold(), "heldout")
+    assert lt["unsupported_parts"]["missing"] == ["other"] and not lt["exact"]
+    assert lt["unsupported_parts"]["source"].startswith("record")
+
+
+def test_every_gold_asked_unsupported_part_is_required_and_a_declined_one_never_is(monkeypatch):
+    g = _syn_gold("declined")
+    assert g["resolution"]["not_answered"] == ["other"]
+    rec = _syn_record(monkeypatch, "declined")
+    assert SCORE.noted(rec)["kinds"] == ["other"]
+    l2 = SCORE.assess_resolution(rec, g, "heldout")
+    assert l2["exact"] and l2["unsupported_parts"]["required"] == ["other"]
+    named_too = SCORE.unsupported_parts(g, {"kinds": ["other", "weather"], "unclear": False, "source": "test"})
+    assert not named_too["accounted"] and named_too["declined_or_background_named"] == ["weather"]
+    missing = SCORE.unsupported_parts(_syn_gold(), {"kinds": ["weather"], "unclear": False, "source": "test"})
+    assert missing["missing"] == ["other"] and not missing["accounted"]
+    unshown = DEV_GOLD["V15-D08"]  # an asked forecast of an unshown kind: covered by the note for it
+    assert SCORE.unsupported_parts(unshown, {"kinds": [], "unclear": True, "source": "test"})["accounted"]
+    assert SCORE.unsupported_parts(unshown, {"kinds": [], "unclear": False, "source": "test"})["unclear_missing"]
+
+
+def test_an_event_review_without_a_demand_forecast_must_account_for_every_asked_part():
+    g = DEV_GOLD["V15-D09"]  # an asked weather forecast only
+    ok = _syn(intent="market_event_review", region="SA1", q=g["question"], notes=(WEATHER_NOTE,))
+    unclear = _syn(intent="market_event_review", region="SA1", q=g["question"], notes=(UNCLEAR_NOTE,))
+    assert SCORE.assess_resolution(ok, g, "development")["acceptable"]
+    l2 = SCORE.assess_resolution(unclear, g, "development")
+    assert l2["outcome"] == "event_review_without_demand_forecast" and not l2["acceptable"]
+    assert l2["unsupported_parts"]["missing"] == ["weather"]
+
+
+def test_the_gold_names_as_not_answered_exactly_its_asked_unsupported_parts():
+    for g in [*DEV_GOLD.values(), *(GOLD or {}).values()]:
+        if g["resolution"] is not None:
+            asked = sorted({m["subject"] for m in g["mentions"]
+                            if m["stance"] == "asked" and m["subject"] in ("weather", "price", "other")})
+            assert sorted(g["resolution"]["not_answered"]) == asked, g["config"]
+            assert GOLDMOD.check(g) == [], g["config"]
+    bad = copy.deepcopy(DEV_GOLD["V15-N04"])  # a declined weather forecast is never a not-answered part
+    bad["resolution"]["not_answered"] = ["weather"]
+    assert any("not answered" in p for p in GOLDMOD.check(bad))
+
+
+@pytest.mark.parametrize("config", ["V15-D03", "V15-N04", "V15-D09", "V15-D10", "E2E-D01"])
+def test_the_note_kinds_come_from_an_exact_re_resolution_in_both_arms(config, monkeypatch):
+    for arm in ("A", "B"):
+        rec = _record(monkeypatch, config, arm)
+        calls, source = SCORE.note_calls(rec)
+        assert source == "re-resolution" and calls is not None, (arm, source)
+        assert len(calls) == sum(n.startswith(("Not answered:", "The question also mentions a forecast"))
+                                 for n in rec["resolution"]["requests"]["notes"])
+
+
+def test_a_prohibited_binding_retained_in_a_sent_back_record_is_scored_apart_from_eligibility_and_execution():
+    g = DEV_GOLD["V15-N04"]
+    stance = SCORE.assess_resolution(_syn(status="needs_clarification", fa=_fa(spans=[_span("subject", "weather forecast")])),
+                                     g, "development")
+    assert [v[:38] for v in stance["violations"]] == ["C4 (retained in a sent-back record): a"]
+    assert stance["outcome"] == "clarify" and not stance["retained_mis_binding"]  # no tool offered, none executed
+    mx = {"status": "bound", "measures": ["total demand"], "window_kind": "day", "window_utc": TARGET}
+    kept = _syn(status="needs_clarification", mx=mx)
+    l2 = SCORE.assess_resolution(kept, g, "development")
+    assert l2["violations"] == [] and l2["retained_mis_binding"] == [
+        "a maximum is bound (['total demand']) where the gold resolves none"]
+    assert not SCORE.control_safe(kept)  # a control holding a binding is not sent back safely
+    proceeding = SCORE.assess_resolution(_syn(fa=_fa(), mx=mx, tools=tuple(DEMAND)), g, "development")
+    assert _codes(proceeding) == ["C3"] and proceeding["retained_mis_binding"] == []
+    freeze, gold, recs = _verdict_setup()
+    b = next(s for s in freeze["slots"] if s["arm"] == "B" and s["config"] != "C01")
+    recs[b["slot"]] = ("saved", _syn(status="needs_clarification", fa=_fa(spans=[_span("subject", "weather forecast")])),
+                       recs[b["slot"]][2])
+    out = SCORE.decide(freeze, gold, recs, v0=False)
+    assert out["verdict"] == "B FAILS" and out["arms"]["B"]["c4_retained_in_sent_back_records"] == 1
+    assert out["arms"]["B"]["violations"]["C4"] == 1 and out["arms"]["B"]["violations"]["C1"] == 0
+
+
+def test_silent_omission_is_judged_against_the_gold():
+    g = DEV_GOLD["V15-N04"]  # an asked demand forecast; the gold accepts a forecast review only
+    weather_only = _syn(intent="market_event_review", notes=(WEATHER_NOTE,))
+    assert SCORE.assess_resolution(weather_only, g, "development")["silent_omission"]  # another kind's note
+    served = _syn(intent="market_event_review", tools=tuple(DEMAND))
+    assert SCORE.assess_resolution(served, g, "development")["silent_omission"]  # an investigation the gold rejects
+    accepts = {**copy.deepcopy(g), "intents": ["forecast_review", "market_event_review"]}
+    l2 = SCORE.assess_resolution(served, accepts, "development")
+    assert l2["served_not_bound"] and not l2["silent_omission"] and not l2["exact"] and not l2["acceptable"]
+
+
+def test_partial_handling_is_never_exact_even_where_the_gold_resolves_one_request():
+    g = {**_two_requests(), "resolution": copy.deepcopy(DEV_GOLD["E2E-D01"]["resolution"]),
+         "acceptable_outcomes": ["resolved"], "outcome": "resolved", "intents": ["market_event_review"],
+         "demand_forecast_tools": "not_used"}
+    mx = {"status": "bound", "measures": ["total demand"], "window_kind": "day",
+          "window_utc": ["2026-07-28T14:00:00Z", "2026-07-29T14:00:00Z"]}
+    l2 = SCORE.assess_resolution(_syn(intent="market_event_review", region="NSW1", mx=mx, notes=(UNCLEAR_NOTE,),
+                                      q=g["question"]), g, "heldout")
+    assert l2["partial"] and not l2["violations"] and not l2["exact"] and not l2["acceptable"]
+
+
+def test_the_repository_scan_excludes_only_this_evaluations_own_files():
+    from tests.provider import test_requested_maximum as scan
+
+    names = scan.COMPARE_ROUTE_V15_V16
+    assert names == ("compare_route_v15_v16", "CMP-route-v15-v16", "CMP-route-v15-v16-run")  # exact names, no prefix
+    files = sorted(ROOT.glob("eval/**/*.json")) + sorted(ROOT.glob("artifacts/live/**/*.json"))
+    excluded = [f.relative_to(ROOT) for f in files if any(p in names for p in f.relative_to(ROOT).parts)]
+    assert excluded and all(f.parts[:2] == ("eval", "compare_route_v15_v16") or
+                            (f.parts[:2] == ("artifacts", "live") and f.parts[2] in names[1:]) for f in excluded)
+    ours = {c["question"] for c in (CASES or [])} | {c["question"] for c in DEV_CASES.values()} | \
+        {c["question"] for c in (WRITER or {}).get("cases", [])}
+    held = _load("build_kit")._questions([json.loads((ROOT / f).read_text()) for f in excluded])
+    assert held and set(held) <= ours  # nothing but this evaluation's own questions is excluded
 
 
 # ------------------------------------------------------------------------------------------------ the verdict
