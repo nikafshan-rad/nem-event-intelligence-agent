@@ -15,6 +15,8 @@ real pinned store, and the ledger is a scratch one (tests/conftest.py). Covered:
 from __future__ import annotations
 
 import json
+import re
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -583,3 +585,389 @@ def test_without_a_key_the_page_says_guided_structured_input_not_extraction(sel,
     assert C.preview_label(C.draft_of(t_state)) == C.STRUCTURED_LABEL
     state, _ = _start(Q_MAX, P_MAX)
     assert C.preview_label(C.draft_of(state)) == C.INTERPRETATION_LABEL
+
+
+# ------------------------------------------------------------------------------------------------ a maximum alone
+def _confirmed_maximum(sel: Any, region: str, day: str, measure: str, scope: str) -> dict[str, Any]:
+    """A session holding a complete maximum request, built from structured choices (no model)."""
+    d = C.Draft(question=f"When was {measure} highest in {region} on {day}?", origin="structured")
+    for f, v in (("operation", "demand_maximum"), ("measure", measure), ("region", region), ("date", day),
+                 ("scope_kind", scope)):
+        d = C.apply(d, f, v, sel)
+    state = C.new_state()
+    state["draft"] = d.model_dump()
+    return state
+
+
+UNREQUESTED = re.compile(r"mean absolute error|\bmae\b|largest|forecast run|poe50|poe10|poe90|dispatch price|"
+                         r"\$/mwh|market notice", re.I)
+
+
+def test_the_confirmed_qld1_maximum_runs_only_its_own_calculation(sel, tool_calls):
+    """Regression (the demo run of 2026-10-05, revision 5df77825cea9): the confirmed QLD1 operational-demand maximum for
+    the whole local day of 29 July 2026 also ran the forecast-review plan (forecast runs, two forecast comparisons and
+    two document searches) and headlined an unrequested forecast MAE. Only the requested maximum runs now, and the
+    report carries nothing else."""
+    state = _confirmed_maximum(sel, "QLD1", "2026-07-29", "operational demand", "day")
+    x, res = _run(state, sel)
+    assert (x.operation, x.measure, x.region, x.scope_kind, x.start_utc, x.end_utc) == (
+        "demand_maximum", "operational demand", "QLD1", "day", "2026-07-28T14:00:00Z", "2026-07-29T14:00:00Z")
+    assert tool_calls == ["get_actual_demand"] and [r.name for r in res.records] == ["get_actual_demand"]
+    (a,) = res.report.answer
+    assert (a.kind, a.status, a.verification) == ("demand_maximum", "established", "verified")
+    assert "7548 MW" in a.statement and "18:30 AEST" in a.statement
+    rep = res.report
+    assert rep.summary == [] and rep.forecast_comparison is None and rep.possible_explanations == []
+    assert rep.citations == [] and rep.published_findings == []
+    assert not UNREQUESTED.search(json.dumps(rep.model_dump(mode="json")))
+    assert rep.status == "answered" and rep.uncertainties == [C.scope_note(x)]  # its tool ran, its result verified
+    assert rep.validation.get("final_passed", rep.validation.get("passed"))
+
+
+@pytest.mark.parametrize("measure, tool", [("operational demand", "get_actual_demand"),
+                                           ("total demand", "get_price_timeline")])
+def test_every_confirmed_maximum_runs_only_its_measures_tool(measure, tool, sel, tool_calls):
+    ev = sel.events[0]
+    day = datetime.fromisoformat(ev.peak_interval_end_utc.replace("Z", "+00:00")).astimezone(
+        C.region_zone(ev.region)).date().isoformat()
+    for scope in ("day", "event"):  # a whole day (forecast review) and an event window (event review)
+        tool_calls.clear()
+        _, res = _run(_confirmed_maximum(sel, ev.region, day, measure, scope), sel)
+        assert tool_calls == [tool], (scope, tool_calls)
+        (a,) = res.report.answer
+        assert (a.kind, a.verification) == ("demand_maximum", "verified") and not res.report.summary
+        assert not UNREQUESTED.search(json.dumps(res.report.model_dump(mode="json"))), scope
+
+
+def test_the_page_shows_the_verified_requested_result_first_and_no_unrequested_metric(sel, monkeypatch):
+    from streamlit.testing.v1 import AppTest
+
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    at = AppTest.from_file(str(ROOT / "app" / "streamlit_app.py"), default_timeout=180)
+    at.session_state["confirm_flow"] = _confirmed_maximum(sel, "QLD1", "2026-07-29", "operational demand", "day")
+    at.run()
+    at.sidebar.toggle[0].set_value(True).run()
+    next(b for b in at.button if b.label == "Confirm and run").click().run()
+    assert not at.exception
+    shown = [m.value for m in at.markdown]
+    first = next(i for i, m in enumerate(shown) if m == "### Computed answer")
+    head = next(i for i, m in enumerate(shown) if m.startswith("**Report headline**"))
+    assert first < head and "7548 MW" in shown[first + 1]
+    assert not UNREQUESTED.search(" ".join(_texts(at)))
+
+
+# ------------------------------------------------------------------------------------------------ the confirmed request decides the tools
+def _confirmed(sel: Any, steps: list[tuple[str, Any]]) -> dict[str, Any]:
+    d = C.Draft(question="SYNTHETIC confirmed request", origin="structured")
+    for f, v in steps:
+        d = C.apply(d, f, v, sel)
+    state = C.new_state()
+    state["draft"] = d.model_dump()
+    return state
+
+
+POINT = [("operation", "single_interval_comparison"), ("region", "SA1"), ("date", "2026-08-20"),
+         ("half_hour_end", "08:00"), ("run", "last_issued_before")]
+AGGREGATE = [("operation", "window_comparison"), ("region", "NSW1"), ("date", "2026-07-31"), ("scope_kind", "day"),
+             ("run", "latest_before_each")]
+MAXIMUM = [("operation", "demand_maximum"), ("measure", "operational demand"), ("region", "QLD1"),
+           ("date", "2026-07-29"), ("scope_kind", "day")]
+CONFIRMED = {
+    "point, last run before": (POINT, "compare_forecast_actual",
+                               {"target_start_utc": "2026-08-19T22:00:00Z", "target_end_utc": "2026-08-19T22:30:00Z",
+                                "run_selector": "run_id", "as_of_utc": None}),
+    "point, run issued at": (POINT[:4] + [("run", "issued_at"), ("issued_at", "2026-08-19T21:57:01Z")],
+                             "compare_forecast_actual",
+                             {"target_start_utc": "2026-08-19T22:00:00Z", "target_end_utc": "2026-08-19T22:30:00Z",
+                              "run_selector": "run_id", "as_of_utc": None}),
+    "aggregate, latest before each": (AGGREGATE, "compare_forecast_actual",
+                                      {"target_start_utc": "2026-07-30T14:00:00Z",
+                                       "target_end_utc": "2026-07-31T14:00:00Z", "run_selector": "latest_before_target",
+                                       "as_of_utc": None}),
+    "aggregate, under a cutoff": (AGGREGATE + [("cutoff", "2026-07-31T02:00:00Z")], "compare_forecast_actual",
+                                  {"target_start_utc": "2026-07-30T14:00:00Z", "target_end_utc": "2026-07-31T14:00:00Z",
+                                   "run_selector": "latest_available_as_of", "as_of_utc": "2026-07-31T02:00:00Z"}),
+    "maximum": (MAXIMUM, "get_actual_demand",
+                {"start_utc": "2026-07-28T14:00:00Z", "end_utc": "2026-07-29T14:00:00Z", "as_of_utc": None}),
+}
+
+
+@pytest.mark.parametrize("name", list(CONFIRMED))
+def test_the_confirmed_request_decides_exactly_which_tool_runs_and_how(name, sel, tool_calls):
+    steps, tool, want = CONFIRMED[name]
+    x, res = _run(_confirmed(sel, steps), sel)
+    assert tool_calls == [tool], tool_calls  # one call: no supplementary comparison, run listing or document search
+    (rec,) = res.records
+    assert {k: (rec.args or {}).get(k) for k in want} == want  # exactly the confirmed target or window, policy, cutoff
+    if want.get("run_selector") == "run_id":  # the run the request names, chosen by issue time, is the one compared
+        assert rec.args["run_id"] == res.resolution.forecast_run["run_id"] is not None
+    (a,) = res.report.answer
+    assert a.verification == "verified" and a.status in ("established", "not_established", "partial")
+    rep = res.report
+    assert rep.summary == [] and rep.citations == [] and rep.forecast_comparison is None
+    assert rep.uncertainties[0] == C.scope_note(x)
+    # "answered" exactly when the one result is verified and established: a partial result keeps its caveat
+    assert rep.status == ("answered" if a.status == "established" else "answered_with_caveats")
+    assert not any("required tool not executed" in m for m in rep.missing_evidence)
+    assert rep.validation.get("final_passed", rep.validation.get("passed")) and not rep.validation["fallback_applied"]
+
+
+@pytest.mark.parametrize("name", ["point, last run before", "aggregate, latest before each", "maximum"])
+def test_the_requested_verified_result_is_unchanged_from_the_full_plan(name, sel):
+    """The same confirmed request run through the full scripted plan (as before this correction) gives the same
+    verified result: only the unrequested extras are gone."""
+    from nem_agent.agent.dispatcher import Dispatcher
+    from nem_agent.agent.replay import ReplayController
+    from nem_agent.evidence import EvidenceRegistry
+    from nem_agent.report import Versions
+    from nem_agent.service import _shared
+    from nem_agent.trace import Trace
+
+    steps, _, _ = CONFIRMED[name]
+    x, now = _run(_confirmed(sel, steps), sel)
+    store = _shared()[0]
+    res = C.to_resolution(x, sel)
+    reg = EvidenceRegistry()
+    disp = Dispatcher(store, sel, Trace(), reg, res.intent, res.as_of, res.requests.ineligible_tools)
+    full = ReplayController(disp, reg, Versions(code="t", data=store.data_version, corpus=None, prompt="p", model=None,
+                                                controller="replay")).run(res)
+    assert len(disp.records) > 1  # the full plan ran extras
+    key = [(a.kind, a.status, a.verification, a.statement, a.source_row_ids) for a in full.answer]
+    assert [(a.kind, a.status, a.verification, a.statement, a.source_row_ids) for a in now.report.answer] == key
+
+
+def test_unavailable_comparisons_stay_unavailable_and_nothing_stands_in(sel, tool_calls):
+    # a point whose named run was not public by the cutoff: the run lookup finds none, so no comparison call is made
+    x, res = _run(_confirmed(sel, POINT + [("cutoff", "2026-08-19T21:10:00Z")]), sel)
+    (a,) = res.report.answer
+    assert (a.status, tool_calls, res.resolution.forecast_run["run_id"]) == ("unavailable", [], None)
+    assert "No other forecast run or half-hour is given in its place." in a.statement
+    # a period with no forecast held (October 2025): one call for exactly that period, and no other window or run
+    tool_calls.clear()
+    x, res = _run(_confirmed(sel, [("operation", "window_comparison"), ("region", "NSW1"), ("date", "2025-10-05"),
+                                   ("scope_kind", "day"), ("run", "latest_before_each")]), sel)
+    (a,) = res.report.answer
+    assert a.status == "unavailable" and tool_calls == ["compare_forecast_actual"]
+    assert (res.records[0].args["target_start_utc"], res.records[0].args["target_end_utc"]) == (x.start_utc,
+                                                                                                x.end_utc)
+    assert "No other window or run selection is given in its place." in a.statement
+
+
+def test_the_page_shows_a_confirmed_comparison_first_and_nothing_else(sel, monkeypatch):
+    from streamlit.testing.v1 import AppTest
+
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    at = AppTest.from_file(str(ROOT / "app" / "streamlit_app.py"), default_timeout=180)
+    at.session_state["confirm_flow"] = _confirmed(sel, AGGREGATE)
+    at.run()
+    at.sidebar.toggle[0].set_value(True).run()
+    next(b for b in at.button if b.label == "Confirm and run").click().run()
+    assert not at.exception
+    shown = [m.value for m in at.markdown]
+    first = next(i for i, m in enumerate(shown) if m == "### Computed answer")
+    head = next(i for i, m in enumerate(shown) if m.startswith("**Report headline**"))
+    assert first < head and "mean absolute error" in shown[first + 1]
+    assert not any(m.startswith("**Narrative**") for m in shown)  # no scripted narrative beside it
+
+
+# ------------------------------------------------------------------------------------------------ the confirmed status
+STATUS_NOTE = 'The status is "answered with caveats", not "answered": '
+SA1_PERIOD = [("operation", "window_comparison"), ("region", "SA1"), ("date", "2026-08-20"),
+              ("period", ("07:00", "09:00")), ("run", "latest_before_each")]
+NSW1_EVENING = [("operation", "window_comparison"), ("region", "NSW1"), ("date", "2026-07-31"),
+                ("period", ("17:00", "21:00")), ("run", "latest_before_each")]
+VIC1_EVENING = [("operation", "window_comparison"), ("region", "VIC1"), ("date", "2026-08-17"),
+                ("period", ("17:00", "19:00")), ("run", "latest_before_each")]
+QLD1_UNHELD = [("operation", "demand_maximum"), ("measure", "operational demand"), ("region", "QLD1"),
+               ("date", "2025-01-15"), ("scope_kind", "day")]
+POINT_UNDER_CUTOFF = POINT + [("cutoff", "2026-08-19T21:10:00Z")]  # its named run was not public by then
+COMPLETE = {
+    "maximum": (MAXIMUM, "get_actual_demand", ("7548 MW", "18:30 AEST")),
+    "point": (POINT, "compare_forecast_actual", ("a POE50 of 1594 MW", "was 1567 MW", "an error of +27 MW")),
+    "aggregate": (SA1_PERIOD, "compare_forecast_actual",
+                  ("a mean absolute error of 29.75 MW", "a mean error of -18.75 MW", "over the 4 half-hours")),
+}
+
+
+def _note(rep: Any) -> str:
+    (note,) = [u for u in rep.uncertainties if u.startswith(STATUS_NOTE)]
+    return note
+
+
+def _clean(rep: Any) -> bool:
+    v = rep.validation
+    return bool(v["final_passed"]) and not v["fallback_applied"] and v["initial"]["violations"] == []
+
+
+@pytest.mark.parametrize("name", list(COMPLETE))
+def test_a_complete_confirmed_result_is_answered(name, sel, tool_calls):
+    """The operation's own tool ran successfully, once, and its one result is verified and established: the report is
+    "answered", the validator holds it to the confirmed requirement and raises nothing, and the values are unchanged."""
+    steps, tool, values = COMPLETE[name]
+    x, res = _run(_confirmed(sel, steps), sel)
+    assert tool_calls == [tool] and [(r.name, r.status) for r in res.records] == [(tool, "ok")]
+    (a,) = res.report.answer
+    assert (a.status, a.verification) == ("established", "verified")
+    assert all(v in a.statement for v in values), a.statement
+    (r,) = res.report.results
+    assert (r.result.identity.kind, r.server_verification.outcome) == (C.RESULT_KIND[x.operation], "verified")
+    rep = res.report
+    assert rep.status == "answered" and rep.uncertainties == [C.scope_note(x)] and _clean(rep)
+
+
+KEPT = {
+    "partial aggregate": (NSW1_EVENING, [("compare_forecast_actual", "ok")], "partial",
+                          "the result is partial."),
+    "unavailable aggregate": (VIC1_EVENING, [("compare_forecast_actual", "unavailable")], "unavailable",
+                              "comparison was unavailable; the result is unavailable."),
+    "unavailable maximum": (QLD1_UNHELD, [("get_actual_demand", "unavailable")], "unavailable",
+                            "data was unavailable; the result is unavailable."),
+}
+
+
+@pytest.mark.parametrize("name", list(KEPT))
+def test_partial_and_unavailable_confirmed_results_keep_their_status(name, sel):
+    """A partial or unavailable result is reported as it is, and the report says why it is not "answered"."""
+    steps, calls, status, why = KEPT[name]
+    _x, res = _run(_confirmed(sel, steps), sel)
+    assert [(r.name, r.status) for r in res.records] == calls
+    (a,) = res.report.answer
+    assert (a.status, a.verification) == (status, "verified")  # the result's own status is kept
+    rep = res.report
+    assert rep.status == "answered_with_caveats" and _note(rep).endswith(why) and _clean(rep)
+
+
+def test_a_point_whose_run_was_not_public_makes_no_call_and_is_not_answered(sel, tool_calls):
+    """The unavailable-point path: the run the request names was not public by the confirmed cutoff, so no comparison
+    call is made. None is forced to meet the requirement, no other run stands in, and the report is not "answered"."""
+    _x, res = _run(_confirmed(sel, POINT_UNDER_CUTOFF), sel)
+    assert tool_calls == [] and res.records == [] and res.resolution.forecast_run["run_id"] is None
+    (a,) = res.report.answer
+    assert (a.status, a.verification) == ("unavailable", "verified")
+    rep = res.report
+    assert rep.status == "answered_with_caveats" and _clean(rep)
+    assert _note(rep) == (STATUS_NOTE + "the forecast-versus-actual comparison did not run, because the run the "
+                          "question asks for is not provably public by the as-of cutoff; no other run is substituted; "
+                          "the result is unavailable.")
+
+
+def test_an_unverified_confirmed_result_is_not_answered(sel, monkeypatch):
+    """A result that fails runtime verification is not admitted: the tool ran successfully, but that is not enough."""
+    from nem_agent import results
+
+    monkeypatch.setattr(results, "_rederive", lambda *a, **k: ("failed", ["SYNTHETIC: the re-derived result differs"]))
+    _x, res = _run(_confirmed(sel, MAXIMUM), sel)
+    assert [(r.name, r.status) for r in res.records] == [("get_actual_demand", "ok")]
+    (r,) = res.report.results
+    assert (r.result.status, r.server_verification.outcome) == ("established", "failed")
+    rep = res.report
+    assert rep.status == "answered_with_caveats" and _note(rep).endswith("the result is not verified (failed).")
+
+
+def _forced(res: Any, x: Any, records: Any = None, requirement: Any = "derived") -> Any:
+    """The report validated again as the service validates it, with its status forced to "answered"."""
+    from nem_agent.trace import Trace
+    from nem_agent.validation import validate_and_finalize
+
+    forced = res.report.model_copy(update={"status": "answered", "validation": {}})
+    kw = {} if requirement is None else {"confirmed": C.requirement(x) if requirement == "derived" else requirement}
+    return validate_and_finalize(forced, res.registry, res.records if records is None else records, res.resolution,
+                                 Trace(), **kw)
+
+
+def _overclaims(out: Any) -> list[str]:
+    return [v["detail"] for v in out.validation["initial"]["violations"]
+            if v["code"] == "STATUS_OVERCLAIMS" and v["severity"] == "critical"]
+
+
+TOOL_FAILED = "the confirmed operation's tool did not run successfully: "
+NOT_ONE_VERIFIED = "the confirmed result is not one verified, established "
+FORCED = {
+    "missing tool": (MAXIMUM, "none", [TOOL_FAILED + "['get_actual_demand']"]),
+    "failed tool": (MAXIMUM, "error", [TOOL_FAILED + "['get_actual_demand']"]),
+    "unavailable tool": (QLD1_UNHELD, None, [TOOL_FAILED + "['get_actual_demand']",
+                                             NOT_ONE_VERIFIED + "demand_maximum result"]),
+    "partial result": (NSW1_EVENING, None, [NOT_ONE_VERIFIED + "forecast_aggregate result"]),
+    "unavailable point, no call": (POINT_UNDER_CUTOFF, None, [TOOL_FAILED + "['compare_forecast_actual']",
+                                                              NOT_ONE_VERIFIED + "forecast_point result"]),
+}
+
+
+@pytest.mark.parametrize("name", list(FORCED))
+def test_the_validator_rejects_a_forced_answered_status(name, sel):
+    """Forced to "answered", a confirmed report whose tool is missing or did not succeed, or whose result is not one
+    verified and established result, fails with STATUS_OVERCLAIMS, and the fallback lowers the status."""
+    import dataclasses
+
+    steps, records, want = FORCED[name]
+    x, res = _run(_confirmed(sel, steps), sel)
+    recs = [] if records == "none" else [dataclasses.replace(r, status=records) for r in res.records] if records \
+        else None
+    out = _forced(res, x, recs)
+    got = _overclaims(out)
+    assert [g[:len(w)] for g, w in zip(got, want, strict=True)] == want, got
+    assert out.status != "answered" and out.validation["fallback_applied"]
+
+
+def test_the_validator_rejects_a_forced_answered_status_on_an_unverified_result(sel, monkeypatch):
+    from nem_agent import results
+
+    monkeypatch.setattr(results, "_rederive", lambda *a, **k: ("failed", ["SYNTHETIC: the re-derived result differs"]))
+    x, res = _run(_confirmed(sel, MAXIMUM), sel)
+    out = _forced(res, x)
+    assert _overclaims(out) == [NOT_ONE_VERIFIED + "demand_maximum result: [('demand_maximum', 'established', "
+                                "'failed')]"]
+    assert out.status != "answered"
+
+
+def test_the_validator_accepts_answered_only_for_the_confirmed_result_kind(sel):
+    """The requirement checks the result's kind: an established maximum does not meet an aggregate's requirement."""
+    from nem_agent.validation import ConfirmedRequirement
+
+    x, res = _run(_confirmed(sel, MAXIMUM), sel)
+    assert _overclaims(_forced(res, x)) == []  # its own requirement: met
+    other = ConfirmedRequirement("window_comparison", ("compare_forecast_actual",), "forecast_aggregate")
+    got = _overclaims(_forced(res, x, requirement=other))
+    assert got[0] == TOOL_FAILED + "['compare_forecast_actual']" and got[1].startswith(NOT_ONE_VERIFIED + "forecast_")
+
+
+def test_without_a_requirement_the_default_validation_is_unchanged(sel):
+    """Every other caller passes no requirement: an "answered" report is held to the intent's full playbook, as
+    before (the confirmed maximum runs one of its tools, so the rest are reported as not run)."""
+    from nem_agent.agent.playbook import PLAYBOOKS
+
+    x, res = _run(_confirmed(sel, MAXIMUM), sel)
+    out = _forced(res, x, requirement=None)
+    miss = [t for t in PLAYBOOKS[res.resolution.intent].required if t != "get_actual_demand"]
+    assert miss and _overclaims(out) == [f"required tools not run: {miss}"]
+
+
+DERIVED = {
+    "operational-demand maximum": (MAXIMUM, "get_actual_demand", "demand_maximum"),
+    "total-demand maximum": ([*MAXIMUM[:1], ("measure", "total demand"), *MAXIMUM[2:]], "get_price_timeline",
+                             "demand_maximum"),
+    "point": (POINT, "compare_forecast_actual", "forecast_point"),
+    "aggregate": (AGGREGATE, "compare_forecast_actual", "forecast_aggregate"),
+}
+
+
+@pytest.mark.parametrize("name", list(DERIVED))
+def test_the_requirement_is_derived_by_code_from_the_confirmed_operation(name, sel):
+    """The requirement is computed from the confirmed operation and measure alone (no model or user input is read),
+    and is exactly the one tool the dispatcher allows."""
+    steps, tool, kind = DERIVED[name]
+    x = C.executable(C.draft_of(_confirmed(sel, steps)), sel)
+    req = C.requirement(x)
+    assert (req.operation, req.tools, req.result_kind) == (x.operation, (tool,), kind)
+    assert C.confirmed_playbook(x).required == req.tools and C.confirmed_playbook(x).max_calls_per_required_tool == 1
+
+
+def test_an_empty_or_hand_made_requirement_cannot_bypass_the_status_check(sel):
+    from nem_agent.validation import ConfirmedRequirement
+
+    for tools, kind in (((), "demand_maximum"), (("",), "demand_maximum"), (("get_actual_demand",), "")):
+        with pytest.raises(ValueError, match="empty one would bypass"):
+            ConfirmedRequirement("demand_maximum", tools, kind)
+    x, res = _run(_confirmed(sel, MAXIMUM), sel)
+    with pytest.raises(TypeError, match="derived from the confirmed operation"):
+        _forced(res, x, requirement=("get_actual_demand",))

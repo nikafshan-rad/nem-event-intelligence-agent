@@ -163,7 +163,14 @@ def execute_confirmed(x: Any, *, original: dict[str, Any] | None = None, store: 
     from its fields (``confirm.to_resolution``), with no model call, and run by the scripted controller with the
     existing calculations, runtime verification, computed-answer renderer and validator. Both the original
     interpretation and the confirmed request are kept in the trace. A request that does not resolve runs nothing."""
-    from .agent.confirm import Executable, revision_id, to_resolution
+    from .agent.confirm import (
+        ConfirmedOnly,
+        Executable,
+        confirmed_playbook,
+        requirement,
+        revision_id,
+        to_resolution,
+    )
 
     if not isinstance(x, Executable):
         raise TypeError("only a complete, confirmed request (confirm.Executable) is executed")
@@ -183,10 +190,13 @@ def execute_confirmed(x: Any, *, original: dict[str, Any] | None = None, store: 
         report = _non_answer(res.request, res, trace, versions)
     else:
         disp = Dispatcher(store, selection, trace, registry, res.intent, res.as_of, res.requests.ineligible_tools)
-        report = ReplayController(disp, registry, versions).run(res)
+        disp.playbook = confirmed_playbook(x)  # the confirmed request decides which tool runs: nothing else can
+        report = ConfirmedOnly(disp, registry, versions, x).run(res)
         records = disp.records
     from .validation import validate_and_finalize
-    report = validate_and_finalize(report, registry, records, res, trace)
+    # an "answered" status is held to the confirmed operation's own tool and verified result, derived from the
+    # confirmed request by code (D32)
+    report = validate_and_finalize(report, registry, records, res, trace, confirmed=requirement(x))
     notes = res.requests.notes if res.requests is not None and res.status == "ok" else []
     if notes:
         report = report.model_copy(update={"uncertainties": [*notes, *report.uncertainties]})

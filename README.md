@@ -212,6 +212,19 @@ investigation remains the default and is unchanged.
   - **a period with no run named:** each half-hour is compared under the latest run issued before it (the existing
     definition), and the preview says so.
 - **Periods:** a stated period lies within one local day, on the hour or half-hour.
+- **The confirmed request decides which tool runs**, once:
+  - **a demand maximum:** the measure's own tool;
+  - **a forecast point or aggregate:** one forecast/actual comparison, with exactly the confirmed half-hour or
+    period, run policy and cutoff.
+
+  No supplementary comparison (such as a 24-hour-lead one), forecast-run listing, price review, document search
+  or narrative is added.
+- **Status:** "answered" only when the confirmed operation's own tool ran successfully and its one result is
+  verified and established. The independent validator checks the same requirement, derived by code from the
+  confirmed operation.
+  - **A partial, unavailable or unverified result:** "answered with caveats". The report says why.
+  - **A point whose named run was not public by the cutoff:** no comparison runs and none is forced. The status is
+    "answered with caveats".
 - **Answers:** the narrative beside the computed answer is the scripted controller's. No model-written interpretation
   is produced in this workflow.
 - **No accuracy claim:** how well a hosted model fills the request plan is not measured (a comparative routing-only

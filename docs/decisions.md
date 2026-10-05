@@ -1766,3 +1766,30 @@ re-verified, and no replacement is created.
     and no model-written interpretation.
   - **Periods:** stated within one local day.
   - **Forecast values:** a forecast's values alone are not computed here.
+- **The confirmed request decides which tool runs** (2026-10-05, after the demo run of revision `5df77825cea9`).
+  - **The defect:** mapping a whole-day maximum to the forecast-review plan ran forecast runs, two forecast
+    comparisons and two document searches, and the scripted narrative headlined an unrequested forecast MAE. The
+    aggregate plan likewise added a 24-hour-lead comparison, a forecast-run listing and document searches; the
+    point plan added a run listing, the actuals and a document search.
+  - **The fix:** a confirmed request's dispatcher playbook holds exactly the tool its computation calls, once
+    (`confirm.confirmed_playbook`): the measure's own tool for a maximum, one forecast/actual comparison for a
+    point or aggregate. `confirm.ConfirmedOnly` computes, verifies and renders that result with the existing
+    code and reports nothing else. Unavailable results stay unavailable, and the page shows the verified result
+    first. The standard investigation is unchanged.
+  - **The status mismatch:** the validator held "answered" to every tool of the intent's full playbook
+    (`PLAYBOOKS[intent].required`). Marked "answered", a verified confirmed maximum or point raised
+    `STATUS_OVERCLAIMS` for tools the confirmed request does not use, so every confirmed result was "answered with
+    caveats".
+  - **The status correction** (approved 2026-10-05):
+    - **The requirement:** `confirm.requirement` derives a `validation.ConfirmedRequirement` from the confirmed
+      operation and measure alone, never from the model or the user. It names the operation's tool and its result
+      kind, it cannot be empty, and the dispatcher's playbook uses the same tool.
+    - **The controller:** `ConfirmedOnly` reports "answered" only when that tool ran successfully (status `ok`) and
+      the one result is of the confirmed kind, verified in the run and established (`confirm.shortfall`). Otherwise
+      the status is "answered with caveats", and the report says why. A tool executing is not enough.
+    - **The validator:** `execute_confirmed` passes the requirement to `validate_and_finalize`. An "answered"
+      confirmed report is held to it instead of the full playbook. A missing or unsuccessful tool, or a result
+      that is not one verified, established result of the confirmed kind, raises `STATUS_OVERCLAIMS`.
+    - **Other callers:** they pass no requirement, and their validation is unchanged.
+    - **The unavailable point:** a point whose named run was not public by the cutoff makes no comparison call.
+      None is forced, and its report says the comparison did not run and why.

@@ -2091,16 +2091,51 @@ def polarity_violations(where: str, text: str, passages: dict[str, tuple[str, st
     return out
 
 
+@dataclass(frozen=True)
+class ConfirmedRequirement:
+    """What an "answered" status needs for a confirmed request (D32): the operation's own tool, run successfully, and
+    exactly one result of the operation's kind, verified in the run and established. It is derived by code from the
+    confirmed operation (``agent.confirm.requirement``), never taken from the model or the user, and is never empty:
+    an empty requirement would let "answered" through unchecked."""
+    operation: str
+    tools: tuple[str, ...]
+    result_kind: str
+
+    def __post_init__(self) -> None:
+        if not self.tools or not all(self.tools) or not self.result_kind:
+            raise ValueError("a confirmed requirement names its tool and its result kind; an empty one would bypass "
+                             "the status check")
+
+
+def _confirmed_overclaims(report: InvestigationReport, records: list[Any] | None,
+                          confirmed: ConfirmedRequirement) -> list[str]:
+    """Why an "answered" confirmed report overclaims: its tool did not run successfully, or its result is not one
+    verified, established result of the confirmed kind (a run's tool executing is not enough)."""
+    out = []
+    failed = [t for t in confirmed.tools if not any(r.name == t and r.status == "ok" for r in records or [])]
+    if failed:
+        out.append(f"the confirmed operation's tool did not run successfully: {failed}")
+    mine = [r for r in report.results if r.result.identity.kind == confirmed.result_kind]
+    good = [r for r in mine if r.server_verification.outcome == "verified" and r.result.status == "established"]
+    if len(report.results) != 1 or len(good) != 1:
+        out.append(f"the confirmed result is not one verified, established {confirmed.result_kind} result: "
+                   f"{[(r.result.identity.kind, r.result.status, r.server_verification.outcome) for r in report.results]}")
+    return out
+
+
 def validate(report: InvestigationReport, registry: EvidenceRegistry, *, as_of: datetime | None = None,
              window: tuple[datetime, datetime] | None = None, records: list[Any] | None = None,
              forecast_run: dict[str, Any] | None = None, demand_max: list[dict[str, Any]] | None = None,
              required_tools: tuple[str, ...] = (), event_kind: str | None = None,
              approval_records: Sequence[Any] = (), not_admitted: list[Any] | None = None,
              forecast_primary: dict[str, Any] | None = None,
-             forecast_request: dict[str, Any] | None = None) -> ValidationResult:
+             forecast_request: dict[str, Any] | None = None,
+             confirmed: ConfirmedRequirement | None = None) -> ValidationResult:
     """``approval_records``: approval records (``approvals.Approval``) that belong to this answer. An investigation
     never has one, so the service passes none and every action claim fails. ``forecast_request``: the operation and
-    the half-hour or period a forecast review asks for (D28, ``forecast_compare.request_scope``)."""
+    the half-hour or period a forecast review asks for (D28, ``forecast_compare.request_scope``). ``confirmed``: a
+    confirmed request's requirement (D32), which an "answered" status must meet in full; None for every other
+    caller, whose checks are unchanged."""
     res = ValidationResult()
     V = res.violations
     as_of = as_of or (parse_iso(report.as_of) if report.as_of else None)
@@ -2662,7 +2697,11 @@ def validate(report: InvestigationReport, registry: EvidenceRegistry, *, as_of: 
     res.checks_run.append("status")
     if report.status == "answered" and not report.observations and not report.citations:
         V.append(Violation("EMPTY_ANSWER", "critical", "status 'answered' without observations or citations"))
-    if records is not None and required_tools and report.status == "answered":
+    if confirmed is not None:  # a confirmed request (D32): held to its own tool and verified result instead
+        if report.status == "answered":
+            V.extend(Violation("STATUS_OVERCLAIMS", "critical", why)
+                     for why in _confirmed_overclaims(report, records, confirmed))
+    elif records is not None and required_tools and report.status == "answered":
         ran = {r.name for r in records if r.status not in ("blocked",)}
         miss = [t for t in required_tools if t not in ran]
         if miss:
@@ -2914,12 +2953,20 @@ def _forecast_request_scope(res: Any) -> dict[str, Any] | None:
 
 
 def validate_and_finalize(report: InvestigationReport, registry: EvidenceRegistry, records: list[Any], res: Any,
-                          trace: Any) -> InvestigationReport:
+                          trace: Any, confirmed: ConfirmedRequirement | None = None) -> InvestigationReport:
+    """``confirmed``: a confirmed request's requirement (D32). An "answered" status is then held to the confirmed
+    operation's own tool and result instead of the intent's full playbook; without one (every other caller), the
+    required tools are the intent's playbook's, exactly as before."""
     from .agent.playbook import PLAYBOOKS
 
+    if confirmed is not None and not isinstance(confirmed, ConfirmedRequirement):
+        raise TypeError("a confirmed requirement is a ConfirmedRequirement, derived from the confirmed operation")
     window = res.window if res is not None else None
     as_of = res.as_of if res is not None else None
-    req = PLAYBOOKS[res.intent].required if res is not None and res.intent else ()
+    if confirmed is not None:
+        req = confirmed.tools
+    else:
+        req = PLAYBOOKS[res.intent].required if res is not None and res.intent else ()
     kind = res.kind if res is not None else None
     run = getattr(res, "forecast_run", None)
     maxima = getattr(res, "demand_max", None)
@@ -2928,7 +2975,7 @@ def validate_and_finalize(report: InvestigationReport, registry: EvidenceRegistr
     asked = _forecast_request_scope(res)
     first = validate(report, registry, as_of=as_of, window=window, records=records, required_tools=req, event_kind=kind,
                      forecast_run=run, demand_max=maxima, not_admitted=unadmitted, forecast_primary=primary,
-                     forecast_request=asked)
+                     forecast_request=asked, confirmed=confirmed)
     info: dict[str, Any] = {"initial": first.as_dict(), "fallback_applied": False,
                             "repair_attempted": bool(report.validation.get("repair_attempted"))}
     final = report
@@ -2937,7 +2984,7 @@ def validate_and_finalize(report: InvestigationReport, registry: EvidenceRegistr
         final = facts_only(report, registry, first, as_of, maxima, diag=fb, forecast_primary=primary)
         second = validate(final, registry, as_of=as_of, window=window, records=records, required_tools=req,
                           event_kind=kind, forecast_run=run, demand_max=maxima, not_admitted=unadmitted,
-                          forecast_primary=primary, forecast_request=asked)
+                          forecast_primary=primary, forecast_request=asked, confirmed=confirmed)
         # a kept result must also pass the fallback's own validation (I-21): one named there is not kept
         named_kept = frozenset(r["answer_index"] for r in fb.get("result_retained", []) for v in second.critical
                                if v.detail.startswith((f"answer[{r['fallback_answer_index']}]",
@@ -2948,7 +2995,7 @@ def validate_and_finalize(report: InvestigationReport, registry: EvidenceRegistr
                                forecast_primary=primary)
             second = validate(final, registry, as_of=as_of, window=window, records=records, required_tools=req,
                               event_kind=kind, forecast_run=run, demand_max=maxima, not_admitted=unadmitted,
-                              forecast_primary=primary, forecast_request=asked)
+                              forecast_primary=primary, forecast_request=asked, confirmed=confirmed)
         info.update(fallback_applied=True, after_fallback=second.as_dict())
         if fb.get("result_retained") or fb.get("result_not_retained"):
             # diagnostics only, outside the displayed answer: the controller's result kept or not, and every model
