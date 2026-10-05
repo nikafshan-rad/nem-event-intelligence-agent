@@ -7,6 +7,7 @@ confirmed revision runs once, whatever reruns follow.
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import Callable
 from datetime import date
 from typing import Any
@@ -19,6 +20,9 @@ from nem_agent.ui_data import observation_table, result_provenance
 
 KEY = "confirm_flow"
 LABEL = "Experimental: confirm the request first"
+# progress shown while a routing call may run: feedback only, with no promised duration
+READING_QUESTION = "Reading your question with the routing model. Nothing runs until you confirm the request."
+READING_REPLY = "Reading your answer (the routing model reads it only if the parsers cannot)."
 HISTORY = "Diagnostics: how the routing model read the question (historical)"
 CURRENT = ("**Needs clarification** is worked out from the request as it stands now, and changes as you answer or edit "
            "it.")
@@ -86,9 +90,12 @@ def render(sel: Selection, live_ok: bool, md: Callable[[str], str]) -> None:
     if prompt:
         try:
             if d is None or done or d.refused:
-                C.start(state, prompt, _interpreter(live_ok))
+                with st.spinner(READING_QUESTION) if live_ok else contextlib.nullcontext():
+                    C.start(state, prompt, _interpreter(live_ok))
             else:
-                C.reply(state, prompt, sel, _interpreter(live_ok) if state.get("model_replies", True) else None)
+                model = live_ok and state.get("model_replies", True)
+                with st.spinner(READING_REPLY) if model else contextlib.nullcontext():
+                    C.reply(state, prompt, sel, _interpreter(live_ok) if model else None)
         except Exception as exc:  # the routing call failed (budget, API): nothing changed and nothing ran
             state["error"] = f"The routing call failed ({type(exc).__name__}: {str(exc)[:300]}); nothing ran."
         st.rerun()

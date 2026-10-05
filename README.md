@@ -155,6 +155,17 @@ route contract v16 with prompts v17. The model returns a typed request plan, and
 [`docs/decisions.md`](docs/decisions.md)). `NEM_AGENT_PLAN_POLICY` chooses the stated-basis policy: `V1` (default) or
 `V0`. It is verified offline only, with scripted plans: no claim is made about how a hosted model fills the plan.
 
+**Routing reasoning effort (opt-in, D33):** `NEM_AGENT_ROUTE_REASONING_EFFORT` sets the reasoning effort that routing
+calls request: `minimal`, `low`, `medium` or `high`. Any other value is refused before any call.
+- **Routing calls only:** a question's routing call, and a reply the routing model reads. Tool, synthesis and repair
+  calls never send it.
+- **Unset (the default):** nothing is sent, and the provider's default applies, exactly as before.
+- **Unchanged:** the model, the output cap (reasoning included) and the rejection of incomplete output.
+- **Recorded:** each routing call's trace records the effort requested and the effort the provider reports.
+- **Not measured:** its effect on latency and on extraction quality.
+- **Frozen evaluations:** their runners never run with it. Each refuses unless the code is its frozen code, which
+  predates this setting.
+
 ### Experimental: confirm the request first (opt-in workflow in the app)
 
 `make app`, then switch on **"Experimental: confirm the request first"** at the top of the sidebar. The standard
@@ -189,6 +200,7 @@ investigation remains the default and is unchanged.
 - **With `OPENAI_API_KEY`:** reading the question is one routing call (route contract v16, prompts v17, policy V1,
   under the same ledger and caps as Live). A typed reply that the parsers cannot read may use one more routing call for
   that reply, which fills only fields still open. You can switch this off in the page.
+  A progress message is shown while the routing model may be reading; it is feedback, not a speed-up.
 - **After confirmation:** no model call. The request runs on the scripted controller.
   - **Your confirmation** records exactly which request you chose to run; it does not validate the routing model's
     reading.
