@@ -1793,3 +1793,11 @@ re-verified, and no replacement is created.
     - **Other callers:** they pass no requirement, and their validation is unchanged.
     - **The unavailable point:** a point whose named run was not public by the cutoff makes no comparison call.
       None is forced, and its report says the comparison did not run and why.
+- **Current requirements in the preview** (2026-10-05, after the owner's walkthrough of an open QLD1 maximum).
+  - **The defect:** the preview's "Interpretation notes" row repeated the routing call's notes as recorded when it read
+    the question. After the date and the whole local day were supplied and the request ran, it still said the window
+    was unresolved and no maximum could be given.
+  - **The fix (display only):** the preview no longer shows those notes. "Needs clarification" is worked out from the
+    draft as it stands (`confirm.issues`), on every render, so an edit that reopens a requirement shows it. Every
+    routing reading, with its notes, is kept in a diagnostics section labelled historical. Routing, prompts,
+    calculations, validation and scope are unchanged.

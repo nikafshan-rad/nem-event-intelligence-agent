@@ -19,6 +19,9 @@ from nem_agent.ui_data import observation_table, result_provenance
 
 KEY = "confirm_flow"
 LABEL = "Experimental: confirm the request first"
+HISTORY = "Diagnostics: how the routing model read the question (historical)"
+CURRENT = ("**Needs clarification** is worked out from the request as it stands now, and changes as you answer or edit "
+           "it.")
 
 
 def _state() -> dict[str, Any]:
@@ -96,6 +99,8 @@ def _draft_panel(state: dict[str, Any], d: C.Draft, sel: Selection, md: Callable
         st.markdown("**Request preview**")
         st.caption(C.preview_label(d))
         st.table([{"field": k, "value": v} for k, v in C.preview(d, sel)])
+        st.caption(CURRENT)
+    _history(state, md)
     if d.refused:
         st.error(md(d.refused))
         st.button("Start over", on_click=_restart, key=f"cf-restart-{d.revision}")
@@ -129,6 +134,24 @@ def _draft_panel(state: dict[str, Any], d: C.Draft, sel: Selection, md: Callable
                                        value=state.get("model_replies", True), key=f"cf-model-{d.revision}")
     _edit_form(state, d, sel)
     st.button("Start over", on_click=_restart, key=f"cf-restart-{d.revision}")
+
+
+def _history(state: dict[str, Any], md: Callable[[str], str]) -> None:
+    """Every routing model reading of this question, with its notes as recorded at the time: history, not current
+    requirements (those are in the preview)."""
+    readings = state.get("interpretations") or []
+    if not readings:
+        return
+    with st.expander(HISTORY):
+        st.caption("Recorded when the routing model read the question (and any reply it was given). These notes are "
+                   "not updated as the request changes and are not current warnings; what is still needed now is under "
+                   "**Needs clarification** in the preview.")
+        for n, r in enumerate(readings, 1):
+            st.markdown(f"**Reading {n}**{' (the original interpretation)' if n == 1 else ''}, status "
+                        f"`{r.get('status')}`, as recorded then")
+            for note in r.get("reasons") or []:
+                st.markdown(md(f"- Note at that time: {note}"))
+            st.json(r, expanded=False)
 
 
 def _edit_form(state: dict[str, Any], d: C.Draft, sel: Selection) -> None:
@@ -225,8 +248,9 @@ def _result(state: dict[str, Any], rid: str, sel: Selection, md: Callable[[str],
     with st.expander("Uncertainties and missing evidence"):
         for u in rep["uncertainties"] + rep["missing_evidence"]:
             st.markdown(md(f"- {u}"))
-    with st.expander("Diagnostics: the original interpretation and the confirmed request"):
-        st.markdown("**Original interpretation** (the routing model's reading, compiled by code)")
+    with st.expander("Diagnostics: the original interpretation (historical) and the confirmed request"):
+        st.markdown("**Original interpretation** (historical: the routing model's first reading, compiled by code; its "
+                    "notes are as recorded then, not current)")
         st.json(state.get("original") or {"source": "no model: built from your choices"}, expanded=False)
         st.markdown("**Confirmed request** (what ran)")
         confirmed = next((e for e in res.trace.as_dict()["events"] if e.get("name") == "confirmed_request"), {})

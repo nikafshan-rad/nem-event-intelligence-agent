@@ -169,9 +169,11 @@ investigation remains the default and is unchanged.
    - the forecast run, where it applies;
    - the cutoff and any request-field override;
    - the parts named as not answered;
-   - what still needs clarification.
+   - what still needs clarification, worked out from the request as it stands now. It updates as you answer or
+     edit, so a settled point is not shown as open.
 
-   The preview is the system's interpretation of the request, not proof that the question was understood.
+   The preview is the system's interpretation of the request, not proof that the question was understood. The routing
+   model's readings, with their notes as recorded then, are kept in a diagnostics section labelled historical.
 3. **One question at a time** settles what is open: a missing date, the period, the forecast run, an unreadable cutoff,
    or a choice between analyses. Choices map straight into the request. Typed answers are read by the existing parsers
    (dates such as `29 July 2026`, times such as `18:30`, periods such as `17:00-21:00`, ISO timestamps with a zone).
