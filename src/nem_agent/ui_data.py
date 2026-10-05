@@ -86,7 +86,10 @@ def price_chart(df: pd.DataFrame, region: str, tz_name: str, theme: str = "light
         f"{region} dispatch price (5-minute, interval-ending)", anchor="start"))
 
 
-def demand_chart(df: pd.DataFrame, region: str, tz_name: str, theme: str = "light") -> Any:
+def demand_chart(df: pd.DataFrame, region: str, tz_name: str, theme: str = "light",
+                 no_forecast: str = "no forecast runs were retrieved") -> Any:
+    """``no_forecast``: what the title says when no forecast line is drawn. The finished page keeps the default; the
+    Live progress panel says what is known at its stage (D36), since forecasts may still be retrieved."""
     colors = SERIES[theme]
     x = alt.X("t:T", title=f"Half-hour end, local time ({tz_name})", scale=alt.Scale(type="utc"),
               axis=alt.Axis(format="%d %b %H:%M", labelOverlap=True, grid=False))
@@ -116,7 +119,7 @@ def demand_chart(df: pd.DataFrame, region: str, tz_name: str, theme: str = "ligh
     return alt.layer(lines, points, labels).properties(
         height=380, title=alt.TitleParams(
             f"{region} operational demand: actual vs latest AEMO forecast (half-hourly)" if LABEL_FORECAST in present
-            else f"{region} operational demand: actual (half-hourly; no forecast runs were retrieved)", anchor="start"))
+            else f"{region} operational demand: actual (half-hourly; {no_forecast})", anchor="start"))
 
 
 def observation_table(report: dict[str, Any]) -> pd.DataFrame:

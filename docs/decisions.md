@@ -1954,6 +1954,12 @@ validated model answers.
     - the intervals a cutoff left out;
     - what the drawn results report missing;
     - a chart retrieval that returned no data, or was made for another region, window or cutoff.
+  - **The demand chart's title** says only what is known at its stage when no forecast line is drawn:
+    - "no forecast retrieved so far" while tools may still run;
+    - "no forecast runs were retrieved" once the last tool has run, before synthesis;
+    - "... before the run failed" after a failure.
+
+    The finished page keeps its title, the default of `demand_chart(no_forecast=...)`.
   - **No model text** before the run is finalized.
 - **The outcome:**
   - **A result:** an answer, a fallback, a budget stop or a clarification. Its own provenance label becomes the
@@ -1964,6 +1970,21 @@ validated model answers.
   reappears after it.
 - **A click while a run is underway** (a Streamlit rerun or stop request) takes effect once the run ends, after its
   result is kept. This is as before, so a click never cuts short a run that has already spent.
+  - **Why this is needed:** Streamlit raises such a request at the script's next Streamlit command.
+    - **Without the panel,** the script issues no command while the investigation runs, so the request waits until
+      the run ends.
+    - **The panel** issues commands between stages. Raised there and left alone, a request would end the
+      investigation at that stage boundary. Every call already sent would be settled and no reservation left open,
+      but the trace would not be written and no result kept for what was spent.
+  - **How it is kept:** the request is recognised as an exception that derives from `BaseException` but not from
+    `Exception`, which is how Streamlit raises it. No Streamlit internals are imported. It is kept until the result
+    is stored (`live_progress.LiveProgress._kept`), then raised (`resume`).
+    - **Errors** (`Exception`) go to the controller, which drops the callback and records it once.
+    - **`KeyboardInterrupt`, `SystemExit` and `GeneratorExit`** are never kept.
+    - **If Streamlit ever raised such a request as an `Exception`,** the controller would drop the panel and record
+      it, and the run would go on unchanged. Only the click would be lost.
+  - **A model call in flight** is never interrupted. Panel updates happen only between calls: before a call's
+    reservation, or after its settlement.
 
 **Unchanged:**
 - model calls, prompts, settings, budgets and caps;
@@ -1981,3 +2002,8 @@ validated model answers.
 - the matching and coverage rules;
 - the page: the stages and the finished result; a failure after an earlier answer (the charts kept and labelled,
   no model text, the earlier result cleared); a budget stop; Replay with no panel.
+- the panel's own logic, with a stand-in for Streamlit:
+  - a simulated rerun request mid-run is kept: the run is identical and the request is raised afterwards;
+  - an interrupt is never kept, and it leaves no reservation open;
+  - the demand chart's title at each stage and after a failure;
+  - the finished page's title is unchanged.

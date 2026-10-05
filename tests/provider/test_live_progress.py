@@ -19,6 +19,7 @@ import json
 import re
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -314,3 +315,137 @@ def test_replay_shows_no_progress_panel(real_store, monkeypatch):
     at = AppTest.from_file(str(ROOT / "app" / "streamlit_app.py"), default_timeout=180).run()
     _investigate(at)
     assert not at.exception and at.get("status") == [] and "REPLAY" in _texts(at)
+
+
+# -- the panel's own logic, with a stand-in for Streamlit (no running page) ------------------------------------------
+class StubStreamlit:
+    """Just enough of Streamlit for the panel: it records what the panel draws, in order."""
+
+    def __init__(self) -> None:
+        self.drawn: list[tuple[str, Any]] = []
+        self.context = SimpleNamespace(theme=SimpleNamespace(type="light"))
+
+    def status(self, label: str, expanded: bool = True) -> Any:
+        return _Box(self)
+
+    def empty(self) -> Any:
+        return _Slot(self)
+
+    def caption(self, text: str) -> None:
+        self.drawn.append(("caption", text))
+
+    def markdown(self, text: str) -> None:
+        self.drawn.append(("markdown", text))
+
+    def altair_chart(self, chart: Any, width: Any = None) -> None:
+        self.drawn.append(("chart", chart.to_dict()["title"]["text"]))
+
+
+class _Block:
+    def __init__(self, st: StubStreamlit) -> None:
+        self.st = st
+
+    def __enter__(self) -> Any:
+        return self
+
+    def __exit__(self, *exc: Any) -> bool:
+        return False
+
+
+class _Box(_Block):
+    def update(self, **kw: Any) -> None:
+        self.st.drawn.append(("status", kw.get("label")))
+
+
+class _Slot(_Block):
+    def markdown(self, text: str) -> None:
+        self.st.drawn.append(("markdown", text))
+
+    def container(self) -> Any:
+        return _Block(self.st)
+
+    def empty(self) -> None:
+        self.st.drawn.append(("cleared", None))
+
+
+class Request(BaseException):
+    """Stands in for Streamlit's rerun or stop request: a BaseException that is not an Exception, raised by the next
+    Streamlit command after a click."""
+
+
+@pytest.fixture
+def panel(monkeypatch: pytest.MonkeyPatch) -> Any:
+    import sys
+
+    monkeypatch.syspath_prepend(str(ROOT / "app"))
+    sys.modules.pop("live_progress", None)
+    import live_progress
+
+    st = StubStreamlit()
+    monkeypatch.setattr(live_progress, "st", st)
+    return live_progress, st
+
+
+def _raising_after(p: Any, exc: BaseException, stage: str = "tool_results") -> None:
+    real = p._update
+
+    def update(ev: Progress) -> None:
+        real(ev)
+        if ev.stage == stage and ev.turn == 1:
+            raise exc
+
+    p._update = update
+
+
+def test_a_click_during_the_run_is_kept_until_the_result_is_stored(ev, panel):
+    """No internal Streamlit import: the request is recognised by what it is, a BaseException that is not an Exception.
+    The run goes on unchanged, and the request is raised by ``resume``, after the page keeps the result."""
+    live_progress, st = panel
+    p = live_progress.LiveProgress()
+    _raising_after(p, Request())
+    a_fake, b_fake = _fake(ev), _fake(ev)
+    a, b = _run(a_fake), _run(b_fake, p)
+    assert _outcome(a_fake, a) == _outcome(b_fake, b)  # not cut short: every call made, the same report
+    assert isinstance(p.deferred, Request)
+    assert not [e for e in b.trace.events if e["kind"] == "progress"]  # not a display failure
+    assert any(k == "status" and "Final validation" in v for k, v in st.drawn)  # the panel went on
+    with pytest.raises(Request):
+        p.resume()
+
+
+def test_an_interrupt_is_never_kept_and_leaves_no_reservation_open(ev, panel):
+    """An interrupt between stages ends the run there: every call sent has settled its reservation."""
+    from nem_agent import budget
+
+    live_progress, _ = panel
+    p = live_progress.LiveProgress()
+    _raising_after(p, KeyboardInterrupt())
+    fake = _fake(ev)
+    with pytest.raises(KeyboardInterrupt):
+        _run(fake, p)
+    assert _kinds(fake) == ["RouteDecision", "tools"] and p.deferred is None
+    rows = [json.loads(x) for x in budget.ledger_path().read_text().splitlines()]
+    assert {r["id"] for r in rows if r["kind"] == "reserve"} == {r["id"] for r in rows if r["kind"] == "settle"}
+
+
+def test_the_demand_chart_title_says_what_is_known_at_each_stage(ev, panel):
+    live_progress, st = panel
+    p = live_progress.LiveProgress()
+    _run(_fake(ev), p)  # _required_turn asks for no forecast comparison, so the demand chart has no forecast line
+    demand = [v for k, v in st.drawn if k == "chart" and "operational demand" in v]
+    assert demand == ["SA1 operational demand: actual (half-hourly; no forecast retrieved so far)",  # after turn 1
+                      "SA1 operational demand: actual (half-hourly; no forecast runs were retrieved)"]  # retrieval done
+    p.fail(RuntimeError("synthetic"))
+    assert [v for k, v in st.drawn if k == "chart" and "operational demand" in v][-1] == \
+        "SA1 operational demand: actual (half-hourly; no forecast runs were retrieved before the run failed)"
+
+
+def test_the_finished_page_keeps_its_demand_chart_title():
+    import pandas as pd
+
+    from nem_agent.ui_data import demand_chart
+
+    df = pd.DataFrame([{"t": "2026-07-31T00:30:00Z", "utc": "2026-07-31T00:30:00Z", "series": "Actual", "mw": 1500.0,
+                        "evidence_id": "ev1", "detail": "revision: updated"}])
+    assert demand_chart(df, "SA1", "Australia/Adelaide").to_dict()["title"]["text"] == \
+        "SA1 operational demand: actual (half-hourly; no forecast runs were retrieved)"
