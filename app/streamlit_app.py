@@ -15,7 +15,14 @@ from nem_agent.agent.request import InvestigateRequest
 from nem_agent.approvals import CaseNoteStore, note_content_from_report
 from nem_agent.selection import load_selection
 from nem_agent.timeutil import REGION_TZ, local_str, parse_iso, region_zone
-from nem_agent.ui_data import demand_chart, frames, observation_table, price_chart, result_provenance
+from nem_agent.ui_data import (
+    NO_MODEL_ANSWER,
+    demand_chart,
+    frames,
+    observation_table,
+    price_chart,
+    result_provenance,
+)
 
 st.set_page_config(page_title="NEM Event Intelligence", layout="wide")
 
@@ -117,7 +124,7 @@ v = rep["validation"]
 prov = result_provenance(rep, res.usage)
 # the label comes from the report on screen, never from the mode selector
 banner = {"replay": st.info, "live_answer": st.success, "live_fallback": st.warning, "live_no_answer": st.info,
-          "live_no_interpretation": st.warning}
+          "live_no_interpretation": st.warning, "live_stopped": st.warning}
 banner[prov["kind"]](f"**Result shown: {prov['label']}** · trace `{rep['trace_id']}`")
 if rep["mode"] != mode:
     st.warning(f"The result below was produced in {rep['mode'].upper()} mode. Press **Investigate** to run "
@@ -125,8 +132,8 @@ if rep["mode"] != mode:
 short_status = {"answered": "answered", "answered_with_caveats": "caveats", "needs_clarification": "clarify",
                 "abstained": "abstained", "refused": "refused"}[rep["status"]]
 short_validation = {"passed on the first draft": "passed", "passed after one repair": "passed (1 repair)",
-                    "passed": "passed"}.get(prov["validation"], "facts only" if "fallback" in prov["validation"]
-                                            else prov["validation"])
+                    "passed": "passed", NO_MODEL_ANSWER: "no answer"}.get(
+    prov["validation"], "facts only" if "fallback" in prov["validation"] else prov["validation"])
 cols = st.columns(4)
 cols[0].metric("Status", f"{status_icon} {short_status}")  # metric tiles truncate long values; full text below
 cols[1].metric("Validation", short_validation)

@@ -2937,6 +2937,11 @@ def interpretation_status(report: InvestigationReport, fallback: bool) -> str:
     if report.mode != "live":
         return "scripted"
     if (report._provenance or {}).get("interpretation") == "absent":
+        stop = (report._provenance or {}).get("stop")
+        if stop:  # D34: no model answer, because a budget limit stopped the run first
+            return ("absent: not started; the budget preflight refused the run before any model call"
+                    if stop.get("stage") == "preflight" else
+                    "absent: the run stopped at a budget limit before the model wrote an answer")
         return "absent: the model produced no valid output"
     if not str(report.generator).startswith("live-model:"):
         return "none: no answer was generated"
@@ -3008,10 +3013,14 @@ def validate_and_finalize(report: InvestigationReport, registry: EvidenceRegistr
                 trace.add("validate", "fallback_withheld", items=fb["withheld"])
     if not first.critical and first.ruled_out:  # the answer is shown: its validated exclusions (I-7c)
         info["ruled_out_explanations"] = first.ruled_out
-    # D25: with a computed answer, the interpretation's status is recorded apart from it (``answer``); an answer without
-    # one is recorded exactly as before
-    if report.answer:
+    # D25: with a computed answer, the interpretation's status is recorded apart from it (``answer``). D34: so is a
+    # missing model answer, with or without a computed one, and the budget stop that caused it, if any: validating an
+    # empty abstention is not the validation of an answer
+    prov = report._provenance or {}
+    if report.answer or prov.get("interpretation") == "absent":
         info["interpretation"] = interpretation_status(report, info["fallback_applied"])
+    if prov.get("stop"):
+        info["stopped"] = prov["stop"]
     info["passed"] = not (first.critical and info.get("after_fallback", {}).get("n_critical", 1))
     info["final_passed"] = (not first.critical) or info.get("after_fallback", {}).get("n_critical", 1) == 0
     final = final.model_copy(update={"validation": {**report.validation, **info}})

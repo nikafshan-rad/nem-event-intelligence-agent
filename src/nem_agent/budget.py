@@ -28,7 +28,10 @@ from . import config, paths
 
 
 class BudgetExceeded(RuntimeError):
-    pass
+    """A model call, or (at the preflight) a whole Live investigation, that a cap does not allow. ``stage``: the
+    model-call stage refused, or ``preflight`` before any call (set by the live controller, D34)."""
+
+    stage: str | None = None
 
 
 def ledger_path() -> Path:
@@ -78,6 +81,19 @@ def _locked() -> Iterator[Any]:
             yield fh
         finally:
             fcntl.flock(fh, fcntl.LOCK_UN)
+
+
+def preflight(required_usd: float) -> tuple[float, float]:
+    """Whether work whose bounded worst case is ``required_usd`` fits under the task-wide cap now, with everything
+    already spent or reserved counted: (committed, cap), or refused (BudgetExceeded). It reserves nothing: each call is
+    still reserved and settled on its own (``reserve``, ``settle``), so nothing is counted twice (D34)."""
+    cap = total_budget()
+    with _locked() as fh:
+        committed = _committed(fh)
+    if committed + required_usd > cap:
+        raise BudgetExceeded(f"task budget {cap:.2f} USD: {committed:.4f} spent or reserved, and this investigation's "
+                             f"bounded worst case is {required_usd:.4f}, so it is not started")
+    return committed, cap
 
 
 def _committed(fh: Any) -> float:

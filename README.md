@@ -140,6 +140,15 @@ Measured with gpt-5-mini over 58 complete real-API question runs ([`docs/live-ga
     because the provider may still bill it; only an HTTP 4xx rejection settles at zero.
   - The SDK makes no retries of its own, so no request can be sent without a reservation.
   - The next call is refused, fail-closed, before it is sent.
+- **Preflight (D34):** before the first paid call, a standard Live investigation must fit its bounded worst case
+  under the cap, with everything already spent or reserved counted. Otherwise it is not started, and no call is made.
+  - **What it counts:** the routing request (known exactly), plus every call the workflow allows at its output cap:
+    5 tool turns, synthesis and the 1 repair. This is about USD 0.15 with gpt-5-mini.
+  - **What it leaves out:** the input of later calls, which depends on what the tools return. Each call's own
+    reservation still covers it.
+  - **Nothing is double-counted:** the preflight reserves nothing.
+  - **A run stopped by a budget limit** says so, with no model answer. It is never shown as an answer or as a passed
+    validation.
 - **Per question:** `NEM_AGENT_SESSION_BUDGET_USD` (default USD 0.50); **per evaluation run:** `NEM_AGENT_EVAL_BUDGET_USD`.
 - **Output caps per stage:** route 2k, tools 8k, synthesis and repair 16k tokens.
 - **Call cap:** at most `MAX_MODEL_CALLS` model calls per question, with **one** repair turn at most, then a
