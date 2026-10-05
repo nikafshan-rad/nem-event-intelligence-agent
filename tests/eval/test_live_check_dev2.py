@@ -164,10 +164,8 @@ def test_every_request_is_reserved_before_it_is_sent(monkeypatch):
 
 
 def test_a_call_the_case_cap_refuses_is_never_sent(monkeypatch):
-    """A call a cap refuses is never sent, and the runner reads the case as a budget stop. D34: a case cap set just
-    below what the synthesis call needs is below the investigation's start requirement, so the case is now refused
-    before its first call (raised: live_diagnose prints STOPPED). A refusal later in the run (here another process
-    reserves just before synthesis) is refused by the ledger, not sent, and read from the saved trace."""
+    """The case cap set just below what the synthesis call needs: that call is refused by the ledger, not sent, and
+    the runner reads the case as a budget stop."""
     monkeypatch.setenv("NEM_AGENT_TOTAL_BUDGET_USD", "1.0")
     _investigate(C0930 / "W19.json", _fake(C0930 / "W19.json", first_draft=True))
     first = _reservations()
@@ -178,26 +176,12 @@ def test_a_call_the_case_cap_refuses_is_never_sent(monkeypatch):
     monkeypatch.setenv("NEM_AGENT_BUDGET_LEDGER", str(Path(budget.ledger_path()).with_name("case.jsonl")))
     monkeypatch.setenv("NEM_AGENT_TOTAL_BUDGET_USD", f"{need - 0.0005:.6f}")
     client = _Sending(_fake(C0930 / "W19.json", first_draft=True))
-    with pytest.raises(BudgetExceeded) as refused:
-        _investigate(C0930 / "W19.json", client)
-    assert refused.value.stage == "preflight" and client.inner.requests == [] and _reservations() == []
-    assert RUN.outcome("[W19] STOPPED: task budget", 0, False, None) == "budget_stop"
-    # later in the run: past the preflight, another process leaves too little for synthesis just before it is reserved
-    monkeypatch.setenv("NEM_AGENT_BUDGET_LEDGER", str(Path(budget.ledger_path()).with_name("later.jsonl")))
-    monkeypatch.setenv("NEM_AGENT_TOTAL_BUDGET_USD", "1.0")
-    real = budget.reserve
-
-    def reserve(model: str, stage: str, usd: float) -> str:
-        if stage == "synthesis":
-            real(MODEL, "repair", budget.total_budget() - budget.spent() - usd + 0.0005)
-        return real(model, stage, usd)
-
-    monkeypatch.setattr(budget, "reserve", reserve)
-    client = _Sending(_fake(C0930 / "W19.json", first_draft=True))
     res = _investigate(C0930 / "W19.json", client)
     sent = [(r.get("text") or {}).get("format", {}).get("name") for r in client.inner.requests]
-    assert "ModelReport" not in sent and len(client.inner.requests) == i
-    assert RUN.outcome("", 0, True, res.trace.as_dict()) == "budget_stop"
+    assert "ModelReport" not in sent and len(client.inner.requests) == i == len(_reservations())
+    assert budget.spent() <= need - 0.0005
+    trace = res.trace.as_dict()
+    assert RUN.outcome("", 0, True, trace) == "budget_stop"
 
 
 def test_an_open_reservation_can_stop_a_case_before_its_first_call(monkeypatch):

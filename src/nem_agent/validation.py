@@ -2937,11 +2937,8 @@ def interpretation_status(report: InvestigationReport, fallback: bool) -> str:
     if report.mode != "live":
         return "scripted"
     if (report._provenance or {}).get("interpretation") == "absent":
-        stop = (report._provenance or {}).get("stop")
-        if stop:  # D34: no model answer, because a budget limit stopped the run first
-            return ("absent: not started; the budget preflight refused the run before any model call"
-                    if stop.get("stage") == "preflight" else
-                    "absent: the run stopped at a budget limit before the model wrote an answer")
+        if (report._provenance or {}).get("stop"):  # D34: no model answer, because a budget limit stopped the run
+            return "absent: the run stopped at a budget limit before the model wrote an answer"
         return "absent: the model produced no valid output"
     if not str(report.generator).startswith("live-model:"):
         return "none: no answer was generated"

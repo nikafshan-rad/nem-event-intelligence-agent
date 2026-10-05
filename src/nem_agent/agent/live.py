@@ -229,14 +229,8 @@ def route_reasoning_effort() -> str | None:
     return value
 
 
-def structured_request(schema_model: type[BaseModel], instructions: str, input_items: list[Any]) -> dict[str, Any]:
-    """The request of a structured call (``LiveController._structured``): instructions, input and a strict schema."""
-    fmt = {"type": "json_schema", "name": schema_model.__name__, "schema": strict_json_schema(schema_model), "strict": True}
-    return {"instructions": instructions, "input": input_items, "text": {"format": fmt}}
-
-
 def _stop(exc: BudgetExceeded) -> dict[str, Any]:
-    """What a budget refusal stopped (D34): the call's stage, or ``preflight``, and the refusal."""
+    """What a budget refusal stopped (D34): the refused call's stage, and the refusal."""
     return {"cause": "budget", "stage": exc.stage, "detail": str(exc)}
 
 
@@ -881,15 +875,9 @@ class LiveController:
         return config.PLAN_PROMPT_VERSION if self.request_plan else config.PROMPT_VERSION
 
     # -- model call with bounds ------------------------------------------------------------------------------
-    @staticmethod
-    def _with_settings(stage: str, kwargs: dict[str, Any]) -> dict[str, Any]:
-        """The request as ``_call`` sends it (apart from the model, ``store`` and the output cap)."""
-        if stage == "route" and (effort := route_reasoning_effort()) is not None:  # routing only (D33)
-            return {**kwargs, "reasoning": {"effort": effort}}  # recorded as requested, with the effort reported
-        return kwargs
-
     def _call(self, trace: Any, stage: str, **kwargs: Any) -> dict[str, Any]:
-        kwargs = self._with_settings(stage, kwargs)
+        if stage == "route" and (effort := route_reasoning_effort()) is not None:  # routing only (D33)
+            kwargs["reasoning"] = {"effort": effort}  # recorded as requested, with the effort reported (diagnostics)
         try:
             if self.usage.model_calls >= config.MAX_MODEL_CALLS:
                 raise BudgetExceeded(f"model call cap reached ({config.MAX_MODEL_CALLS})")
@@ -936,7 +924,8 @@ class LiveController:
 
     def _structured(self, trace: Any, stage: str, schema_model: type[BaseModel], instructions: str,
                     input_items: list[Any]) -> tuple[BaseModel | None, str]:
-        resp = self._call(trace, stage, **structured_request(schema_model, instructions, input_items))
+        fmt = {"type": "json_schema", "name": schema_model.__name__, "schema": strict_json_schema(schema_model), "strict": True}
+        resp = self._call(trace, stage, instructions=instructions, input=input_items, text={"format": fmt})
         raw = _texts(resp)
         if resp.get("status") not in (None, "completed") or resp.get("incomplete_details"):
             # A response that did not finish (cut off at max_output_tokens, or failed) is no answer, even when its
@@ -951,69 +940,19 @@ class LiveController:
             trace.add("model", f"{stage}:invalid_json", error=str(exc)[:400])
             return None, raw
 
-    # -- 0. the budget preflight (D34) -------------------------------------------------------------------------
-    def start_requirement(self, question: str) -> list[dict[str, Any]]:
-        """What the preflight requires to start a standard Live investigation (D34), by stage, in the ledger's own terms
-        (``budget.worst_case_cost``: input characters / 2 at the input price, plus the output cap at the output price):
-
-        - **route:** one call; its request is known now, so its input is counted exactly;
-        - **tools:** every turn the loop allows (``MAX_MODEL_CALLS`` less the routing call and the ``RESERVED_CALLS``
-          kept for synthesis and repair, the reminder about a missing required tool included), output at its cap;
-        - **synthesis:** output at its cap;
-        - **repair:** the allowance (``MAX_REPAIR_ATTEMPTS``), output at its cap.
-
-        A conservative start requirement, not a complete bound on the run's cost: every output is counted at its cap,
-        which calls rarely reach, but the input of the calls after routing (it grows with what the tools return, and
-        configuration does not bound it) is not counted. Each call is still reserved at its own full worst case, input
-        included, and refused before it is sent if the cap would be passed."""
-        schema_model, instructions, items = self._route_request(question)
-        route_chars = len(json.dumps(self._with_settings("route", structured_request(schema_model, instructions, items)),
-                                     default=str))
-        plan = [("route", 1, route_chars), ("tools", config.MAX_MODEL_CALLS - 1 - RESERVED_CALLS, None),
-                ("synthesis", 1, None), ("repair", min(config.MAX_REPAIR_ATTEMPTS, RESERVED_CALLS - 1), None)]
-        return [{"stage": stage, "calls": n, "max_output_tokens": config.MAX_OUTPUT_TOKENS[stage],
-                 "input": "counted exactly" if chars is not None else "not counted: checked when the call is reserved",
-                 "input_chars": chars or 0,
-                 "counted_usd": round(n * budget.worst_case_cost(self.model, chars or 0,
-                                                                 config.MAX_OUTPUT_TOKENS[stage]), 6)}
-                for stage, n, chars in plan]
-
-    def preflight(self, question: str, trace: Any) -> None:
-        """Refuse (BudgetExceeded, stage ``preflight``) before the first paid call when what is already spent or
-        reserved, plus this investigation's start requirement (``start_requirement``), would pass the task-wide cap
-        (D34). Passing it does not guarantee the run can finish: each later call is still checked against the cap when
-        it is reserved, and refused before it is sent. It reserves nothing."""
-        calls = self.start_requirement(question)  # an unknown price is refused here, as at any call (unchanged)
-        required = round(sum(c["counted_usd"] for c in calls), 6)
-        try:
-            committed, cap = budget.preflight(required)
-        except BudgetExceeded as exc:
-            exc.stage = "preflight"
-            trace.add("budget", "preflight", passed=False, reason=str(exc))
-            raise
-        trace.add("budget", "preflight", passed=True, required_usd=required, committed_usd=round(committed, 6),
-                  cap_usd=cap, calls=calls, basis="start requirement: every call's output at its cap, plus the routing "
-                  "request; not a complete bound (later input is checked as each call is reserved)")
-
     # -- 1. route ---------------------------------------------------------------------------------------------
-    def _route_request(self, question: str) -> tuple[type[BaseModel], str, list[Any]]:
-        """The routing call's schema, instructions and input: contract v16 when the request plan is on, else v15."""
-        items: list[Any] = [{"role": "user", "content": question}]
-        if self.request_plan:
-            return request_plan.PlanRouteDecision, prompt("route", self.prompt_version), items
-        return RouteDecision, prompt("route"), items
-
     def route(self, question: str, trace: Any) -> RouteDecision | request_plan.PlanRouteDecision | None:
         """The routing decision: contract v15 by default; v16, the request plan, when it is turned on (D31 Amendment
         1). Either is one call, and an incomplete or invalid response is None (sent back, failing closed)."""
-        schema_model, instructions, items = self._route_request(question)
         if self.request_plan:
-            plan, _ = self._structured(trace, "route", schema_model, instructions, items)
+            plan, _ = self._structured(trace, "route", request_plan.PlanRouteDecision,
+                                       prompt("route", self.prompt_version), [{"role": "user", "content": question}])
             if plan is None:
                 return None
             assert isinstance(plan, request_plan.PlanRouteDecision)
             return request_plan.checked_plan_route(plan)
-        dec, _ = self._structured(trace, "route", schema_model, instructions, items)
+        dec, _ = self._structured(trace, "route", RouteDecision, prompt("route"),
+                                  [{"role": "user", "content": question}])
         if dec is None:
             return None
         assert isinstance(dec, RouteDecision)

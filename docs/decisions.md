@@ -1871,86 +1871,53 @@ only, with no promised duration; it is not a latency reduction.
 No comparative evaluation is prepared here.
 
 
-## D34. Live budget stops: a preflight before the first paid call, and no answer shown when none was written (2026-10-05)
+## D34. Live budget stops shown truthfully: no answer shown when none was written (2026-10-05)
 
 **Why:** two standard Live investigations in the demo ended abstained after spending money, and the page showed them as
 validated model answers.
 - **The runs:** TAS1 (`tr-6e226e92a8bc`) and NSW1 (`tr-c050b5983be0`), each under the demo's USD 0.10 cap.
 - **What each spent first:** a routing call and two tool turns, USD 0.0171 and 0.0183.
-- **Where each stopped:** the task budget refused the next call before it was sent. For TAS1 that was synthesis
-  (worst case USD 0.0433). For NSW1 it was the reminder tool turn after a blocked required tool call (worst case
-  USD 0.0275).
+- **Where each stopped:** the task budget refused the next call before it was sent, as designed. For TAS1 that was
+  synthesis (worst case USD 0.0433). For NSW1 it was the reminder tool turn after a blocked required tool call (worst
+  case USD 0.0275).
 - **The wrong labels:** the controller recorded `interpretation: absent`, but the validator kept that marker only when
   there was a computed answer. So the page showed "LIVE — answer written by gpt-5-mini, checked by the independent
   validator" and "passed on the first draft". The validation had passed only because an empty abstention contains
   nothing to reject.
 
-**Decision 1 (display):**
+**Decision (display; enforcement unchanged):**
 - **The marker:** a missing model answer is recorded whether or not there is a computed answer, together with the
-  budget stop that caused it (`validation.stopped`: the refused call's stage, or `preflight`, and the refusal).
-- **The page:** shows "not started …" or "stopped at a budget limit before the model wrote an answer: no model answer
-  was produced". The validation shows "not applicable: no model answer was produced", never "passed".
-- **A repair the budget refused:** no longer reported as attempted.
+  budget stop that caused it (`validation.stopped`: the refused call's stage, and the refusal). Every refusal names
+  its stage (`BudgetExceeded.stage`).
+- **The page:** shows "LIVE (model) — stopped at a budget limit before the model wrote an answer: no model answer was
+  produced". The validation shows "not applicable: no model answer was produced (stopped at a budget limit)", never
+  "passed".
+- **A repair the budget refused:** no longer reported as attempted (`repair_attempted` false, `repair_stopped`
+  recorded). The page says "the repair was not run".
+- **A routing call refused by its own reservation:** raised exactly as before (`BudgetExceeded`), which the evaluation
+  runners and `scripts/live_diagnose.py` read as a budget stop. It now carries its no-answer result
+  (`service._not_started`), which the page shows instead of an error.
 - **Also fixed:** the same marker was lost for a schema-invalid model report without a computed answer. That report is
   now shown as "the model produced no valid answer".
 - **Unchanged:** the abstained status and every diagnostic.
 
-**Decision 2 (preflight):** a conservative start requirement before the first paid call, with per-call enforcement
-throughout. `LiveController.preflight` requires that what is already spent or reserved, plus the investigation's start
-requirement (`LiveController.start_requirement`), fit under the task-wide cap. Otherwise the investigation is not
-started: no model call, an abstained report, and the refusal shown. It is not a complete bound on the run's cost, and
-passing it does not guarantee the run can finish.
-- **As before, a refusal before anything is sent is raised** (`BudgetExceeded`). That covers the preflight, and a
-  routing call refused by its own reservation. The evaluation runners and `scripts/live_diagnose.py` stop on that
-  exception and read it as a budget stop. It now carries the not-started result (`service._not_started`), which the
-  page shows.
-- **A refusal after routing:** still ends in the abstained report, as before.
-- **The amount checked:** in the ledger's own terms (`budget.worst_case_cost`: input characters / 2 at the input price,
-  plus the output cap at the output price):
-  - **route:** 1 call, its request counted exactly (12,274 characters with contract v15: USD 0.0055);
-  - **tool turns:** 5, the most the loop allows (`MAX_MODEL_CALLS` 8, less the routing call and the 2
-    `RESERVED_CALLS`), the reminder about a missing required tool included: 5 × 8,000 output tokens = USD 0.080;
-  - **synthesis:** 1 × 16,000 = USD 0.032;
-  - **repair:** the allowance of 1 × 16,000 = USD 0.032.
-
-  The total is about **USD 0.1495** with gpt-5-mini, plus what is already spent or reserved.
-- **Costs it does not cover:** the input of every call after routing. It grows with what the tools return, and
-  configuration does not bound it.
-  - **In the two saved runs:** the second tool turn alone read 19,577 and 21,354 input tokens (about USD 0.005 each
-    at list price), none of which the start requirement counts.
-  - **Where it is enforced:** each call's own reservation, unchanged, counts that input before the call is sent.
-- **Why it is still conservative:** every output is counted at its cap, which calls rarely reach. Complete runs have
-  cost USD 0.014–0.047, against a start requirement of about USD 0.15. It is not an upper bound: a complete bound
-  would need a bound on input that this scope does not add.
-- **Remaining reasons a run can still stop at a later call,** each shown as a budget stop with no model answer
-  (Decision 1):
-  - another session spending or reserving meanwhile;
-  - a call whose input pushes its own reservation past the cap;
-  - the per-question session budget (`NEM_AGENT_SESSION_BUDGET_USD`, unchanged);
-  - the model-call cap (unchanged).
-- **No double counting:** the preflight writes nothing to the ledger. Each call is still reserved, checked and settled
-  on its own.
-- **An unknown model price:** still refused before any call, by an exception, exactly as before.
-
-**Intended consequence under the demo's cap:** with USD 0.10, a standard Live investigation cannot pass the preflight
-even on a fresh ledger (0.1495 > 0.10), so it is refused without spending.
-- **Before this change:** a fresh run there could complete (one did, for USD 0.031), but a run after earlier spending
-  could stop mid-way, as the two above did.
-- **The cap:** the owner's decision, and unchanged here.
-- **The experimental confirmed-request workflow:** unaffected. It makes one routing call per question, which the
-  per-call guard covers.
+**Budget enforcement is unchanged:**
+- **Per call:** each call is still reserved at its own worst case and refused before it is sent when the task-wide
+  cap would be passed.
+- **Per question:** the session budget and the model-call cap still apply.
+- **Withdrawn:** a start-requirement preflight was drafted in this PR and withdrawn at the owner's direction
+  (2026-10-05). None is added.
 
 **Unchanged:** model settings, prompts, the validators' substantive checks and the budget caps.
 
 **Tests:** fake transport and scratch ledgers only (`tests/provider/test_live_budget_stop.py`):
-- **The start requirement:** what it counts, that it writes nothing, and that it is not a complete bound (a completed
-  run's later calls reserved input it did not count).
-- **The two saved runs, and a fresh ledger under the same cap:** refused with zero calls.
+- **The TAS1 path** (synthesis refused) and **the NSW1 path** (the reminder tool turn refused after a blocked required
+  tool): each with no model answer and the refused stage shown.
 - **A routing call refused by its own reservation:** raised with its no-answer result.
-- **Later refusals:** before synthesis, and of the reminder tool turn, each with no model answer and the reason shown.
-- **The live check's runner test** (`tests/eval/test_live_check_dev2.py`): a case cap below the start requirement is
-  now refused before the first call, and a later refusal is still refused, not sent and read as a budget stop.
 - **A refused repair:** not reported as attempted.
 - **The schema-invalid case:** shown as no valid answer.
-- **The page's banner and validation tile.**
+- **The page:** for a later refusal and for a refused routing call, a warning, no success banner, and the
+  validation tile "no answer".
+- **Per-call enforcement:** the existing tests (`tests/provider/test_live_loop.py`, `tests/eval/test_live_check_dev2.py`)
+  run unchanged.
 

@@ -89,12 +89,11 @@ def investigate(req: InvestigateRequest, *, store: Store | None = None, selectio
                                                        prompt=prompt_version(), model=None, controller="live"),
                               client=live_client)
         try:
-            live.preflight(req.question, trace)  # D34: before the first paid call
             decision = live.route(req.question, trace)
         except BudgetExceeded as exc:
-            # refused before anything was sent (the preflight, or the routing call's own reservation): raised exactly
-            # as before, now with the not-started result to show. An unknown price (no stage) is raised as it was.
-            if exc.stage in ("preflight", "route"):
+            # the routing call refused before it was sent: raised exactly as before, now with its no-answer result to
+            # show (D34). An unknown price (no stage) is raised as it was.
+            if exc.stage == "route":
                 exc.result = _not_started(req, exc, live, store, registry, trace, t0, write_trace)
             raise
         res = resolve_routed(req, decision, selection, trace)
@@ -309,19 +308,16 @@ def route_policy(req: InvestigateRequest, decision: Any) -> tuple[dict[str, Any]
 
 def _not_started(req: InvestigateRequest, exc: BudgetExceeded, live: Any, store: Store, registry: EvidenceRegistry,
                  trace: Trace, t0: float, write_trace: bool) -> InvestigationResult:
-    """A Live investigation refused before anything was sent (D34): by the budget preflight, or by the routing call's
-    own reservation. No model call was made, so there is no routing, no resolution and no model answer. Abstained,
-    with the refusal shown and recorded; ``investigate`` raises the refusal with this result attached."""
+    """A Live investigation whose routing call a budget limit refused before it was sent (D34): no model call was made,
+    so there is no routing, no resolution and no model answer. Abstained, with the refusal shown and recorded;
+    ``investigate`` raises the refusal with this result attached."""
     from .validation import validate_and_finalize
 
     versions = Versions(code=code_version(), data=store.data_version, corpus=corpus_version(), prompt=live.prompt_version,
                         model=live.model, controller="live-responses-controller/1")
     report = InvestigationReport(
         question=req.question, mode="live", intent=None, region=None, as_of=req.as_of_utc, event_window=None,
-        headline=("Not started: the remaining budget is below this investigation's start requirement (every call's "
-                  "output at its cap, plus the routing request), so no model call was made." if exc.stage == "preflight"
-                  else
-                  "Not started: a budget limit refused the routing call before it was sent, so no model call was made."),
+        headline="Not started: a budget limit refused the routing call before it was sent, so no model call was made.",
         summary=[], uncertainties=[], missing_evidence=[f"Live run not started: {exc}"], status="abstained",
         trace_id=trace.trace_id, versions=versions, generator=f"live-model:{live.model}")
     report._provenance = {"interpretation": "absent", "stop": {"cause": "budget", "stage": exc.stage,
