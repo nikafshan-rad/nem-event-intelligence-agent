@@ -1870,3 +1870,54 @@ only, with no promised duration; it is not a latency reduction.
 
 No comparative evaluation is prepared here.
 
+
+## D34. Live budget stops shown truthfully: no answer shown when none was written (2026-10-05)
+
+**Why:** two standard Live investigations in the demo ended abstained after spending money, and the page showed them as
+validated model answers.
+- **The runs:** TAS1 (`tr-6e226e92a8bc`) and NSW1 (`tr-c050b5983be0`), each under the demo's USD 0.10 cap.
+- **What each spent first:** a routing call and two tool turns, USD 0.0171 and 0.0183.
+- **Where each stopped:** the task budget refused the next call before it was sent, as designed. For TAS1 that was
+  synthesis (worst case USD 0.0433). For NSW1 it was the reminder tool turn after a blocked required tool call (worst
+  case USD 0.0275).
+- **The wrong labels:** the controller recorded `interpretation: absent`, but the validator kept that marker only when
+  there was a computed answer. So the page showed "LIVE — answer written by gpt-5-mini, checked by the independent
+  validator" and "passed on the first draft". The validation had passed only because an empty abstention contains
+  nothing to reject.
+
+**Decision (display; enforcement unchanged):**
+- **The marker:** a missing model answer is recorded whether or not there is a computed answer, together with the
+  budget stop that caused it (`validation.stopped`: the refused call's stage, and the refusal). Every refusal names
+  its stage (`BudgetExceeded.stage`).
+- **The page:** shows "LIVE (model) — stopped at a budget limit before the model wrote an answer: no model answer was
+  produced". The validation shows "not applicable: no model answer was produced (stopped at a budget limit)", never
+  "passed".
+- **A repair the budget refused:** no longer reported as attempted (`repair_attempted` false, `repair_stopped`
+  recorded). The page says "the repair was not run".
+- **A routing call refused by its own reservation:** raised exactly as before (`BudgetExceeded`), which the evaluation
+  runners and `scripts/live_diagnose.py` read as a budget stop. It now carries its no-answer result
+  (`service._not_started`), which the page shows instead of an error.
+- **Also fixed:** the same marker was lost for a schema-invalid model report without a computed answer. That report is
+  now shown as "the model produced no valid answer".
+- **Unchanged:** the abstained status and every diagnostic.
+
+**Budget enforcement is unchanged:**
+- **Per call:** each call is still reserved at its own worst case and refused before it is sent when the task-wide
+  cap would be passed.
+- **Per question:** the session budget and the model-call cap still apply.
+- **Withdrawn:** a start-requirement preflight was drafted in this PR and withdrawn at the owner's direction
+  (2026-10-05). None is added.
+
+**Unchanged:** model settings, prompts, the validators' substantive checks and the budget caps.
+
+**Tests:** fake transport and scratch ledgers only (`tests/provider/test_live_budget_stop.py`):
+- **The TAS1 path** (synthesis refused) and **the NSW1 path** (the reminder tool turn refused after a blocked required
+  tool): each with no model answer and the refused stage shown.
+- **A routing call refused by its own reservation:** raised with its no-answer result.
+- **A refused repair:** not reported as attempted.
+- **The schema-invalid case:** shown as no valid answer.
+- **The page:** for a later refusal and for a refused routing call, a warning, no success banner, and the
+  validation tile "no answer".
+- **Per-call enforcement:** the existing tests (`tests/provider/test_live_loop.py`, `tests/eval/test_live_check_dev2.py`)
+  run unchanged.
+

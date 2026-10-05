@@ -140,6 +140,8 @@ Measured with gpt-5-mini over 58 complete real-API question runs ([`docs/live-ga
     because the provider may still bill it; only an HTTP 4xx rejection settles at zero.
   - The SDK makes no retries of its own, so no request can be sent without a reservation.
   - The next call is refused, fail-closed, before it is sent.
+  - **A run stopped this way (D34)** is shown as stopped at a budget limit, with no model answer and the refused call
+    named. It is never shown as a written answer or as a passed validation.
 - **Per question:** `NEM_AGENT_SESSION_BUDGET_USD` (default USD 0.50); **per evaluation run:** `NEM_AGENT_EVAL_BUDGET_USD`.
 - **Output caps per stage:** route 2k, tools 8k, synthesis and repair 16k tokens.
 - **Call cap:** at most `MAX_MODEL_CALLS` model calls per question, with **one** repair turn at most, then a

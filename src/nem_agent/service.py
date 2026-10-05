@@ -24,6 +24,7 @@ from .agent.request import (
     half_hour_after_cutoff,
     resolve,
 )
+from .budget import BudgetExceeded
 from .evidence import EvidenceRegistry
 from .report import InvestigationReport, Versions
 from .selection import Selection, load_selection
@@ -87,7 +88,14 @@ def investigate(req: InvestigateRequest, *, store: Store | None = None, selectio
         live = LiveController(None, registry, Versions(code=code_version(), data=store.data_version, corpus=corpus_version(),
                                                        prompt=prompt_version(), model=None, controller="live"),
                               client=live_client)
-        decision = live.route(req.question, trace)
+        try:
+            decision = live.route(req.question, trace)
+        except BudgetExceeded as exc:
+            # the routing call refused before it was sent: raised exactly as before, now with its no-answer result to
+            # show (D34). An unknown price (no stage) is raised as it was.
+            if exc.stage == "route":
+                exc.result = _not_started(req, exc, live, store, registry, trace, t0, write_trace)
+            raise
         res = resolve_routed(req, decision, selection, trace)
     else:
         res = resolve(req, selection)
@@ -296,6 +304,32 @@ def route_policy(req: InvestigateRequest, decision: Any) -> tuple[dict[str, Any]
         else:
             override = "needs_clarification"
     return upd, override, notes
+
+
+def _not_started(req: InvestigateRequest, exc: BudgetExceeded, live: Any, store: Store, registry: EvidenceRegistry,
+                 trace: Trace, t0: float, write_trace: bool) -> InvestigationResult:
+    """A Live investigation whose routing call a budget limit refused before it was sent (D34): no model call was made,
+    so there is no routing, no resolution and no model answer. Abstained, with the refusal shown and recorded;
+    ``investigate`` raises the refusal with this result attached."""
+    from .validation import validate_and_finalize
+
+    versions = Versions(code=code_version(), data=store.data_version, corpus=corpus_version(), prompt=live.prompt_version,
+                        model=live.model, controller="live-responses-controller/1")
+    report = InvestigationReport(
+        question=req.question, mode="live", intent=None, region=None, as_of=req.as_of_utc, event_window=None,
+        headline="Not started: a budget limit refused the routing call before it was sent, so no model call was made.",
+        summary=[], uncertainties=[], missing_evidence=[f"Live run not started: {exc}"], status="abstained",
+        trace_id=trace.trace_id, versions=versions, generator=f"live-model:{live.model}")
+    report._provenance = {"interpretation": "absent", "stop": {"cause": "budget", "stage": exc.stage,
+                                                                "detail": str(exc)},
+                          "controller_notes": {"uncertainties": [], "missing_evidence": [0]}}
+    report = validate_and_finalize(report, registry, [], None, trace)
+    latency = round((time.monotonic() - t0) * 1000, 1)
+    usage = live.usage.as_dict()
+    trace.add("done", report.status, latency_ms=latency, usage=usage)
+    if write_trace:
+        trace.write()
+    return InvestigationResult(report, trace, [], registry, None, latency, usage)
 
 
 def _non_answer(req: InvestigateRequest, res: Resolution, trace: Trace, versions: Versions) -> InvestigationReport:

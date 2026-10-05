@@ -28,7 +28,12 @@ from . import config, paths
 
 
 class BudgetExceeded(RuntimeError):
-    pass
+    """A model call a cap does not allow, refused before it is sent. ``stage``: the call's stage (set by the live
+    controller, D34). ``result``: for an investigation refused before anything was sent (its routing call), the
+    no-answer result to show (``service.investigate``)."""
+
+    stage: str | None = None
+    result: Any = None
 
 
 def ledger_path() -> Path:

@@ -124,6 +124,9 @@ def observation_table(report: dict[str, Any]) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+NO_MODEL_ANSWER = "not applicable: no model answer was produced (stopped at a budget limit)"
+
+
 def result_provenance(rep: dict[str, Any], usage: dict[str, Any] | None = None) -> dict[str, Any]:
     """Who wrote the report on screen, taken from the report itself (never from the UI's mode selector).
 
@@ -139,6 +142,7 @@ def result_provenance(rep: dict[str, Any], usage: dict[str, Any] | None = None) 
     # D25: the computed answer (code, from verified results) and the interpretation are reported apart
     answers = rep.get("answer") or []
     absent = str(v.get("interpretation", "")).startswith("absent")
+    stopped = v.get("stopped") or {}  # D34: a budget limit stopped the run before the model wrote an answer
     computed = ("; ".join(f"{a['status'].replace('_', ' ')} ({a['verification']})" for a in answers) if answers
                 else "none")
     if rep.get("mode") != "live":
@@ -148,6 +152,10 @@ def result_provenance(rep: dict[str, Any], usage: dict[str, Any] | None = None) 
                         "and validated tool facts only") if answers else
                        f"LIVE ({model}) — the model's answer failed validation; showing validated tool facts only",
                        "live_fallback")
+    elif generated and absent and stopped:
+        label, kind = (f"LIVE ({model}) — stopped at a budget limit before the model wrote an answer: no model answer "
+                       "was produced" + ("; showing only the answer computed by code" if answers else ""),
+                       "live_stopped")
     elif generated and absent:
         label, kind = ((f"LIVE ({model}) — the model produced no valid interpretation; showing only the answer "
                         "computed by code") if answers else
@@ -162,6 +170,10 @@ def result_provenance(rep: dict[str, Any], usage: dict[str, Any] | None = None) 
         validation = "no generated answer"
     elif fallback:
         validation = "rejected after one repair: facts-only fallback" if repaired else "rejected: facts-only fallback"
+        if v.get("repair_stopped"):
+            validation += " (the repair was not run: stopped at a budget limit)"
+    elif absent and stopped:
+        validation = NO_MODEL_ANSWER
     elif absent:
         validation = "no valid model output to validate"
     else:
