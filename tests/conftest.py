@@ -64,8 +64,8 @@ def _session_budget_ledger(tmp_path_factory):
 
 
 # D31 Amendment 1: the request plan is opt-in; tests that use it turn it on themselves, so a setting in the shell
-# never changes which routing contract the suite exercises
-_ROUTE_PLAN_SETTINGS = ("NEM_AGENT_ROUTE_PLAN", "NEM_AGENT_PLAN_POLICY")
+# never changes which routing contract the suite exercises. D33: nor which reasoning effort routing calls request.
+_ROUTE_PLAN_SETTINGS = ("NEM_AGENT_ROUTE_PLAN", "NEM_AGENT_PLAN_POLICY", "NEM_AGENT_ROUTE_REASONING_EFFORT")
 
 
 @pytest.fixture(autouse=True)

@@ -1825,3 +1825,48 @@ re-verified, and no replacement is created.
 
     The fixed "the maximum ... is given in the computed answer" is gone.
   - **Unchanged:** routing, prompts, calculations, validation, the result statuses and the standard investigation.
+
+
+## D33. Routing reasoning effort, configurable and opt-in (2026-10-05)
+
+**Why:** in the experimental confirmed-request workflow, the user's wait is almost all the routing call.
+- **Measured from the app's traces of 2026-10-05:** four routing calls took 16.1, 17.1, 16.5 and 23.5 s. Everything
+  else is under 0.3 s:
+  - local compile: 2–5 ms;
+  - the confirmed tool, verification and validation: 33–208 ms;
+  - page reruns, measured offline: 23–66 ms.
+- **Where the routing time goes:** each call produced 1,164–1,986 output tokens at 68–84 tokens per second, and
+  77–85% of them were reasoning. The request sent no reasoning setting, so the provider's default applied: reported
+  as `medium`.
+- **A truncation risk:** one call used 1,986 of the routing stage's 2,000-token cap, which includes reasoning.
+
+**Decision (approved 2026-10-05):** `NEM_AGENT_ROUTE_REASONING_EFFORT` (`minimal`, `low`, `medium` or `high`) sets the
+effort of routing calls only.
+- **Where it applies:** a question's routing call and a reply the routing model reads, both in the `route` stage
+  (`live.route_reasoning_effort`, applied in `LiveController._call`). Tool, synthesis and repair calls never send it.
+- **Unset:** nothing is sent, exactly as before.
+- **Another value:** refused before any reservation or call.
+- **Unchanged:** the model, the output cap, the rejection of incomplete output, the compiler, confirmation, cutoff
+  semantics and verification.
+- **Recorded:** the trace records the effort requested and the effort reported (`diagnostics.settings`).
+
+**Frozen evaluations:** every frozen runner (`eval/*/FREEZE.json`) refuses to start unless the code's `src` tree is its
+frozen one, and the runners are frozen material, so they are not edited.
+- **With this code:** each one refuses before any call.
+- **At its own frozen commit:** the setting does not exist, so its frozen configuration holds (no effort sent).
+- **Future freezes:** `test_no_frozen_evaluation_runner_can_send_an_effort_its_freeze_does_not_record` requires a
+  runner frozen on code that has the setting to refuse it.
+- **The one-off live check of 2026-09-29:** it has no freeze and runs only once; it refuses to start because its run
+  log exists.
+- **PR #81:** still paused, and its frozen files are unchanged.
+
+**Progress:** the experimental page shows a progress message while the routing model may be reading. This is feedback
+only, with no promised duration; it is not a latency reduction.
+
+**Not measured:**
+- the latency of any effort other than the default;
+- the effect of any effort on extraction quality;
+- the frequency of truncation.
+
+No comparative evaluation is prepared here.
+

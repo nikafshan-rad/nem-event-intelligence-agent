@@ -210,6 +210,25 @@ def model_id_from_env() -> str:
     return os.environ.get("NEM_AGENT_MODEL", "gpt-5-mini")
 
 
+# D33: the reasoning effort of routing calls only, opt-in. The values gpt-5-mini accepts; anything else is refused.
+ROUTE_REASONING_EFFORT_ENV = "NEM_AGENT_ROUTE_REASONING_EFFORT"
+ROUTE_REASONING_EFFORTS = ("minimal", "low", "medium", "high")
+
+
+def route_reasoning_effort() -> str | None:
+    """The reasoning effort requested for routing calls (the ``route`` stage: a question's routing call, and a reply
+    the routing model reads), from ``NEM_AGENT_ROUTE_REASONING_EFFORT``. None when it is not set: nothing is sent and
+    the provider's default applies, exactly as before. Any value other than a supported one is refused, before any
+    reservation or call. Tool, synthesis and repair calls never send it."""
+    value = os.environ.get(ROUTE_REASONING_EFFORT_ENV)
+    if value is None:
+        return None
+    if value not in ROUTE_REASONING_EFFORTS:
+        raise ValueError(f"{ROUTE_REASONING_EFFORT_ENV}={value!r} is not supported: set one of "
+                         f"{', '.join(ROUTE_REASONING_EFFORTS)}, or leave it unset (the provider's default)")
+    return value
+
+
 def prompt(name: str, version: str | None = None) -> str:
     """A prompt of ``version`` (a directory under src/nem_agent/), by default ``config.PROMPT_VERSION``."""
     v = version or config.PROMPT_VERSION
@@ -852,6 +871,8 @@ class LiveController:
 
     # -- model call with bounds ------------------------------------------------------------------------------
     def _call(self, trace: Any, stage: str, **kwargs: Any) -> dict[str, Any]:
+        if stage == "route" and (effort := route_reasoning_effort()) is not None:  # routing only (D33)
+            kwargs["reasoning"] = {"effort": effort}  # recorded as requested, with the effort reported (diagnostics)
         if self.usage.model_calls >= config.MAX_MODEL_CALLS:
             raise BudgetExceeded(f"model call cap reached ({config.MAX_MODEL_CALLS})")
         if model_prices(self.model) is None:  # without a price the budget cannot be enforced: fail closed

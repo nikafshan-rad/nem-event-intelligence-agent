@@ -1195,3 +1195,42 @@ def test_an_unverified_maximum_headline_gives_no_maximum(sel, monkeypatch):
     assert res.report.headline == ("QLD1 operational demand: no verified maximum is given for the confirmed window: "
                                    "the computed result could not be verified against the pinned data (failed).")
     _consistent(res.report)
+
+
+# ------------------------------------------------------------------------------------------------ progress while routing
+READING_QUESTION = "Reading your question with the routing model. Nothing runs until you confirm the request."
+READING_REPLY = "Reading your answer (the routing model reads it only if the parsers cannot)."  # app/confirm_flow.py
+
+
+def _spinners(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    import streamlit
+
+    shown: list[str] = []
+    real = streamlit.spinner
+
+    def spy(text: str = "", *a: Any, **k: Any) -> Any:
+        shown.append(text)
+        return real(text, *a, **k)
+
+    monkeypatch.setattr(streamlit, "spinner", spy)
+    return shown
+
+
+def test_the_page_shows_progress_while_the_routing_model_may_run_and_promises_no_duration(sel, monkeypatch):
+    """Feedback only (D33), not a latency reduction: a progress message while the routing model reads the question,
+    or may read a reply. It promises no duration."""
+    shown = _spinners(monkeypatch)
+    fake = Scripted(P_OPEN)
+    at = _page(monkeypatch, fake)
+    at.chat_input[0].set_value(Q_OPEN).run()
+    at.chat_input[0].set_value("29 July 2026").run()  # read by the date parser: no model call
+    assert not at.exception and fake.calls == 1
+    assert shown == [READING_QUESTION, READING_REPLY]
+    assert not any(re.search(r"\d", s) for s in shown)
+
+
+def test_without_a_key_no_routing_progress_is_shown(sel, monkeypatch):
+    shown = _spinners(monkeypatch)
+    at = _page(monkeypatch, None)
+    at.chat_input[0].set_value(Q_OPEN).run()
+    assert not at.exception and shown == []  # no model can run: nothing claims one is reading
