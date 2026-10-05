@@ -26,6 +26,7 @@ from .agent.request import (
 )
 from .budget import BudgetExceeded
 from .evidence import EvidenceRegistry
+from .progress import ProgressCallback
 from .report import InvestigationReport, Versions
 from .selection import Selection, load_selection
 from .store import Store
@@ -73,7 +74,11 @@ def reset_cache() -> None:
 
 
 def investigate(req: InvestigateRequest, *, store: Store | None = None, selection: Selection | None = None,
-                live_client: Any = None, write_trace: bool = True) -> InvestigationResult:
+                live_client: Any = None, write_trace: bool = True,
+                progress: ProgressCallback | None = None) -> InvestigationResult:
+    """One investigation. ``progress`` (Live only; D36): an optional display callback told each stage as it starts,
+    with the resolved request and the tool records so far, never model text. Replay ignores it, and without it
+    nothing changes."""
     t0 = time.monotonic()
     if store is None or selection is None:
         s, sel = _shared()
@@ -87,7 +92,8 @@ def investigate(req: InvestigateRequest, *, store: Store | None = None, selectio
 
         live = LiveController(None, registry, Versions(code=code_version(), data=store.data_version, corpus=corpus_version(),
                                                        prompt=prompt_version(), model=None, controller="live"),
-                              client=live_client)
+                              client=live_client, progress=progress)
+        live.notify(trace, "routing")
         try:
             decision = live.route(req.question, trace)
         except BudgetExceeded as exc:
@@ -102,6 +108,8 @@ def investigate(req: InvestigateRequest, *, store: Store | None = None, selectio
     trace.add("route", res.intent or "none", status=res.status, routing=res.routing, reasons=res.reasons,
               region=res.region, as_of=res.as_of.isoformat() if res.as_of else None,
               window=[w.isoformat() for w in res.window] if res.window else None)
+    if live is not None:
+        live.notify(trace, "routed", res, status=res.status)
     model_id = live.model if live else None
     versions = Versions(code=code_version(), data=store.data_version, corpus=corpus_version(),
                         prompt=live.prompt_version if live else config.PROMPT_VERSION, model=model_id,
@@ -121,6 +129,7 @@ def investigate(req: InvestigateRequest, *, store: Store | None = None, selectio
         records = disp.records
     if live is not None:
         usage = live.usage.as_dict()
+        live.notify(trace, "finalizing", res)
     from .validation import validate_and_finalize
     report = validate_and_finalize(report, registry, records, res, trace)
     notes = res.requests.notes if res.requests is not None and res.status == "ok" else []

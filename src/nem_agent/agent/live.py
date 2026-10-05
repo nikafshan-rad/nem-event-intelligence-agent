@@ -28,6 +28,7 @@ from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, ValidationError,
 from .. import budget, config
 from ..budget import BudgetExceeded
 from ..evidence import EvidenceItem, EvidenceRegistry
+from ..progress import Progress, ProgressCallback, Stage
 from ..render import RenderedResult, render_result
 from ..report import (
     Citation,
@@ -854,7 +855,8 @@ TIED_RUNS = forecast_compare.TIED_RUNS
 
 class LiveController:
     def __init__(self, dispatcher: Dispatcher | None, registry: EvidenceRegistry, versions: Versions,
-                 client: Transport | None = None, model: str | None = None, plan: bool | None = None) -> None:
+                 client: Transport | None = None, model: str | None = None, plan: bool | None = None,
+                 progress: ProgressCallback | None = None) -> None:
         self.d = dispatcher
         self.reg = registry
         self.versions = versions
@@ -868,11 +870,26 @@ class LiveController:
         # default prompts, exactly as before. ``plan``: the experimental confirmed-request workflow asks for v16
         # itself; None (every other caller) follows the switch
         self.request_plan = request_plan.enabled() if plan is None else plan
+        # D36: an optional display callback, told each stage as it starts (never model text); None changes nothing
+        self.progress = progress
 
     @property
     def prompt_version(self) -> str:
         """The prompts this controller reads: v17 with the request plan, else ``config.PROMPT_VERSION``."""
         return config.PLAN_PROMPT_VERSION if self.request_plan else config.PROMPT_VERSION
+
+    def notify(self, trace: Any, stage: Stage, res: Resolution | None = None, **fields: Any) -> None:
+        """Tell the progress callback, if any, that ``stage`` starts (D36), with the resolved region, window and cutoff
+        and a snapshot of the tool records. The callback only displays: an exception it raises is recorded once and it
+        is not called again, so the run goes on exactly as without it (no retry, no repeated tool or model call)."""
+        if self.progress is None:
+            return
+        try:
+            self.progress(Progress(stage=stage, region=res.region if res else None, window=res.window if res else None,
+                                   as_of=res.as_of if res else None, **fields))
+        except Exception as exc:  # a display failure never affects the investigation
+            self.progress = None
+            trace.add("progress", "callback_failed", stage=stage, error=type(exc).__name__)
 
     # -- model call with bounds ------------------------------------------------------------------------------
     def _call(self, trace: Any, stage: str, **kwargs: Any) -> dict[str, Any]:
@@ -1014,6 +1031,7 @@ class LiveController:
             items.append({"role": "user", "content": self._question_retrieval(res, trace)})
         tools = openai_function_tools(allowed)
         nudged = False
+        turn = 0  # tool-choosing model turns, for display only (D36)
         stopped: list[str] = []
         try:
             while True:
@@ -1022,6 +1040,8 @@ class LiveController:
                                    f"{config.MAX_MODEL_CALLS} calls; {RESERVED_CALLS} kept for synthesis and repair).")
                     trace.add("model", "tool_loop_stopped", reason=stopped[-1])
                     break
+                turn += 1
+                self.notify(trace, "tools", res, turn=turn)
                 resp = self._call(trace, "tools", instructions=prompt("system", self.prompt_version), input=items,
                                   tools=tools,
                                   tool_choice="auto", parallel_tool_calls=True)
@@ -1037,6 +1057,7 @@ class LiveController:
                                   chars_sent=len(payload), items_omitted=omitted)
                     items.append({"type": "function_call_output", "call_id": c["call_id"], "output": payload})
                 if calls:
+                    self.notify(trace, "tool_results", res, turn=turn, records=tuple(self.d.records))
                     continue
                 missing = self.d.required_missing()
                 if missing and not nudged:
@@ -1063,6 +1084,9 @@ class LiveController:
                           notices=[n["doc_id"] for n in timing["notices"]])
                 items.append({"role": "user", "content": "Notice timing computed by the controller (JSON):\n" +
                               json.dumps(timing, indent=1, ensure_ascii=False)})
+            # every tool result, the controller's own computations included, before the report is written (D36)
+            self.notify(trace, "tool_results", res, records=tuple(self.d.records))
+            self.notify(trace, "synthesis", res)
             items.append({"role": "user", "content": prompt("synthesis", self.prompt_version)})
             draft, raw = self._structured(trace, "synthesis", synthesis_schema(res.intent),
                                           prompt("system", self.prompt_version), items)
@@ -1076,6 +1100,7 @@ class LiveController:
         # -- 4. one bounded repair turn driven by the independent validator
         from ..validation import validate
 
+        self.notify(trace, "checking", res)
         first = validate(report, self.reg, as_of=res.as_of, window=res.window, records=self.d.records,
                          forecast_run=res.forecast_run, demand_max=res.demand_max,
                          required_tools=pb.required, event_kind=res.kind, not_admitted=res.results_not_admitted,
@@ -1090,6 +1115,7 @@ class LiveController:
             items += [{"role": "assistant", "content": raw or ""},
                       {"role": "user", "content": repair_message(first, report, texts)}]
             mrep2: BaseModel | None = None
+            self.notify(trace, "repair", res)
             try:
                 if scoped and isinstance(mrep, ModelReport):
                     patch, _ = self._structured(trace, "repair", RepairPatch, prompt("system", self.prompt_version),

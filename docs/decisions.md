@@ -1921,3 +1921,63 @@ validated model answers.
 - **Per-call enforcement:** the existing tests (`tests/provider/test_live_loop.py`, `tests/eval/test_live_check_dev2.py`)
   run unchanged.
 
+
+
+## D36. Standard Live: incremental progress and early data charts (2026-10-06)
+
+**Why:** a standard Live investigation showed one spinner until it ended.
+- **The wait:** in the two TAS1 runs of 2026-10-05, the page was blank for about 108 s (`tr-8b3de6e4d9e7`: 108.8 s;
+  `tr-c96b581ba88c`: 108.0 s).
+- **The data:** the price and demand tool results, which are the charts' only inputs, existed at 22.5 s and 20.4 s.
+
+**Decision (approved 2026-10-06; display only):**
+- **The callback:** `service.investigate` takes an optional `progress` callback (`nem_agent.progress`), for Live
+  only.
+  - **When it is told:** as each stage starts: routing; the resolved request; each tool-choosing turn; the tool
+    results after each turn and before synthesis; synthesis; the validator's check; the repair; the final
+    validation.
+  - **What it gets:** the resolved region, window and cutoff, and a snapshot of the tool records. Never model text.
+  - **Not affected:** Replay and the API, which pass no callback.
+- **A failing callback:** it is dropped after its first failure, and the trace records it once
+  (`progress:callback_failed`). The run goes on exactly as without it: no retry, and no repeated tool or model call.
+- **The page:** a status panel for standard Live.
+  - **The current stage and the elapsed time:** updated at each stage, not continuously.
+  - **Early charts:** the existing `frames`, `price_chart` and `demand_chart`, drawn as the tools return, from
+    successful results that match the resolved request (`ui_data.early_chart_records`):
+    - the same region;
+    - the same cutoff (none, or the same instant);
+    - a window inside the resolved window.
+  - **Their label:** retrieved data from the pinned snapshot, not a validated model answer or a verified analytical
+    result.
+  - **Their notes** (`ui_data.early_chart_notes`):
+    - the intervals of the resolved window that the drawn series hold, when not all;
+    - the intervals a cutoff left out;
+    - what the drawn results report missing;
+    - a chart retrieval that returned no data, or was made for another region, window or cutoff.
+  - **No model text** before the run is finalized.
+- **The outcome:**
+  - **A result:** an answer, a fallback, a budget stop or a clarification. Its own provenance label becomes the
+    panel's label. The early charts go, and the finished result below draws its own as before.
+  - **A failure:** the panel says the run failed and that no answer was produced. The early charts stay, relabelled
+    as retrieved before the failure. The error propagates as before.
+- **A new investigation** clears the earlier result at once, its charts included, and the earlier result never
+  reappears after it.
+- **A click while a run is underway** (a Streamlit rerun or stop request) takes effect once the run ends, after its
+  result is kept. This is as before, so a click never cuts short a run that has already spent.
+
+**Unchanged:**
+- model calls, prompts, settings, budgets and caps;
+- validation and the final report;
+- Replay, the API and the confirmed-request workflow;
+- the finished page.
+
+**Not claimed:** any reduction of total latency. This shortens the blank wait only.
+
+**Tests:** fake transport and scratch ledgers only (`tests/provider/test_live_progress.py`):
+- the stage order;
+- the chart data present before the synthesis call is sent;
+- an identical run without a callback, and with one that fails at any of four stages;
+- the repair stage, and a budget stop before synthesis;
+- the matching and coverage rules;
+- the page: the stages and the finished result; a failure after an earlier answer (the charts kept and labelled,
+  no model text, the earlier result cleared); a budget stop; Replay with no panel.
