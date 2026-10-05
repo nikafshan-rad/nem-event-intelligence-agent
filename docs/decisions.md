@@ -1766,3 +1766,10 @@ re-verified, and no replacement is created.
     and no model-written interpretation.
   - **Periods:** stated within one local day.
   - **Forecast values:** a forecast's values alone are not computed here.
+- **A confirmed demand maximum runs alone** (2026-10-05, after the demo run of revision `5df77825cea9`). Mapping a
+  whole-day maximum to the forecast-review plan ran forecast runs, two forecast comparisons and two document
+  searches, and the scripted narrative headlined an unrequested forecast MAE. Now the dispatcher's playbook for a
+  confirmed maximum holds the measure's own tool only (`confirm.maximum_playbook`), and `confirm.MaximumOnly`
+  computes and renders that maximum and nothing else. The status is "answered with caveats", with the scope
+  stated, because the validator holds "answered" to the intent's full playbook. The page shows the verified
+  result first. Forecast points and aggregates are unchanged.

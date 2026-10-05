@@ -15,6 +15,8 @@ real pinned store, and the ledger is a scratch one (tests/conftest.py). Covered:
 from __future__ import annotations
 
 import json
+import re
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -583,3 +585,72 @@ def test_without_a_key_the_page_says_guided_structured_input_not_extraction(sel,
     assert C.preview_label(C.draft_of(t_state)) == C.STRUCTURED_LABEL
     state, _ = _start(Q_MAX, P_MAX)
     assert C.preview_label(C.draft_of(state)) == C.INTERPRETATION_LABEL
+
+
+# ------------------------------------------------------------------------------------------------ a maximum alone
+def _confirmed_maximum(sel: Any, region: str, day: str, measure: str, scope: str) -> dict[str, Any]:
+    """A session holding a complete maximum request, built from structured choices (no model)."""
+    d = C.Draft(question=f"When was {measure} highest in {region} on {day}?", origin="structured")
+    for f, v in (("operation", "demand_maximum"), ("measure", measure), ("region", region), ("date", day),
+                 ("scope_kind", scope)):
+        d = C.apply(d, f, v, sel)
+    state = C.new_state()
+    state["draft"] = d.model_dump()
+    return state
+
+
+UNREQUESTED = re.compile(r"mean absolute error|\bmae\b|largest|forecast run|poe50|poe10|poe90|dispatch price|"
+                         r"\$/mwh|market notice", re.I)
+
+
+def test_the_confirmed_qld1_maximum_runs_only_its_own_calculation(sel, tool_calls):
+    """Regression (the demo run of 2026-10-05, revision 5df77825cea9): the confirmed QLD1 operational-demand maximum for
+    the whole local day of 29 July 2026 also ran the forecast-review plan (forecast runs, two forecast comparisons and
+    two document searches) and headlined an unrequested forecast MAE. Only the requested maximum runs now, and the
+    report carries nothing else."""
+    state = _confirmed_maximum(sel, "QLD1", "2026-07-29", "operational demand", "day")
+    x, res = _run(state, sel)
+    assert (x.operation, x.measure, x.region, x.scope_kind, x.start_utc, x.end_utc) == (
+        "demand_maximum", "operational demand", "QLD1", "day", "2026-07-28T14:00:00Z", "2026-07-29T14:00:00Z")
+    assert tool_calls == ["get_actual_demand"] and [r.name for r in res.records] == ["get_actual_demand"]
+    (a,) = res.report.answer
+    assert (a.kind, a.status, a.verification) == ("demand_maximum", "established", "verified")
+    assert "7548 MW" in a.statement and "18:30 AEST" in a.statement
+    rep = res.report
+    assert rep.summary == [] and rep.forecast_comparison is None and rep.possible_explanations == []
+    assert rep.citations == [] and rep.published_findings == []
+    assert not UNREQUESTED.search(json.dumps(rep.model_dump(mode="json")))
+    assert rep.status == "answered_with_caveats" and C.SCOPE_NOTE in rep.uncertainties  # said, not hidden
+    assert rep.validation.get("final_passed", rep.validation.get("passed"))
+
+
+@pytest.mark.parametrize("measure, tool", [("operational demand", "get_actual_demand"),
+                                           ("total demand", "get_price_timeline")])
+def test_every_confirmed_maximum_runs_only_its_measures_tool(measure, tool, sel, tool_calls):
+    ev = sel.events[0]
+    day = datetime.fromisoformat(ev.peak_interval_end_utc.replace("Z", "+00:00")).astimezone(
+        C.region_zone(ev.region)).date().isoformat()
+    for scope in ("day", "event"):  # a whole day (forecast review) and an event window (event review)
+        tool_calls.clear()
+        _, res = _run(_confirmed_maximum(sel, ev.region, day, measure, scope), sel)
+        assert tool_calls == [tool], (scope, tool_calls)
+        (a,) = res.report.answer
+        assert (a.kind, a.verification) == ("demand_maximum", "verified") and not res.report.summary
+        assert not UNREQUESTED.search(json.dumps(res.report.model_dump(mode="json"))), scope
+
+
+def test_the_page_shows_the_verified_requested_result_first_and_no_unrequested_metric(sel, monkeypatch):
+    from streamlit.testing.v1 import AppTest
+
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    at = AppTest.from_file(str(ROOT / "app" / "streamlit_app.py"), default_timeout=180)
+    at.session_state["confirm_flow"] = _confirmed_maximum(sel, "QLD1", "2026-07-29", "operational demand", "day")
+    at.run()
+    at.sidebar.toggle[0].set_value(True).run()
+    next(b for b in at.button if b.label == "Confirm and run").click().run()
+    assert not at.exception
+    shown = [m.value for m in at.markdown]
+    first = next(i for i, m in enumerate(shown) if m == "### Computed answer")
+    head = next(i for i, m in enumerate(shown) if m.startswith("**Report headline**"))
+    assert first < head and "7548 MW" in shown[first + 1]
+    assert not UNREQUESTED.search(" ".join(_texts(at)))

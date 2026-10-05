@@ -45,6 +45,7 @@ from ..timeutil import (
     parse_iso,
     region_zone,
 )
+from .replay import Composer, ReplayController
 from .request import Resolution, extract_dates, extract_regions
 
 Operation = Literal["demand_maximum", "single_interval_comparison", "window_comparison"]
@@ -663,6 +664,8 @@ def to_resolution(x: Executable, sel: Selection) -> Resolution:
         rr.cutoff = CutoffRequest(status="bound", as_of=as_of, provenance={"as_of": src}, detected_by=["request"])
     event = next((e for e in sel.events if e.event_id == x.event_id), None) if x.event_id else _event_for(
         sel, x.region, day)
+    if x.operation == "demand_maximum":
+        event = None  # the maximum's window is the confirmed one; no event context is reviewed
     target: tuple[datetime, datetime] | None = None
     if x.operation == "demand_maximum":
         rr.maximum = MaxRequest(status="bound", measures=[x.measure], window_kind=x.scope_kind if x.scope_kind != "half_hour"
@@ -698,6 +701,44 @@ def to_resolution(x: Executable, sel: Selection) -> Resolution:
     kind = event.kind if event is not None else "high_price"
     return _finish(req, x.intent, x.region, event, window, as_of, kind, [], [x.region], [day],
                    {"router": "confirmed request (experimental)", "region_tz": REGION_TZ[x.region]}, target, rr)
+
+
+# ------------------------------------------------------------------------------------------------ a demand maximum alone
+SCOPE_NOTE = ("Only the analysis in the confirmed request ran: the demand maximum, computed by code from the pinned "
+              "data. No forecast comparison, price review or document search was run, so none is reported; the "
+              "status says the answer is limited to the confirmed request.")
+
+
+def maximum_playbook(x: Executable) -> Any:
+    """The dispatcher's playbook for a confirmed demand maximum: the measure's own tool, called once, and nothing else
+    (any other tool is blocked before it runs)."""
+    from .demand_max import MEASURES
+    from .playbook import PLAYBOOKS, Playbook
+
+    return Playbook(PLAYBOOKS[x.intent].intent, required=(MEASURES[x.measure][0],), optional=(),
+                    max_calls_per_required_tool=1)
+
+
+class MaximumOnly(ReplayController):
+    """The confirmed demand maximum and nothing else: the measure's maximum over the confirmed window, computed and
+    rendered as the computed answer (``_render_maxima``, the existing calculation, runtime verification and renderer).
+    The forecast and event-review plans are not run, so no forecast metric, price figure or other narrative is
+    reported. The status is "answered with caveats": the investigation's other analyses did not run (the validator
+    holds an "answered" report to the intent's full playbook)."""
+
+    def run(self, res: Resolution) -> Any:
+        from .demand_max import MEASURES
+
+        comp = Composer(self.reg, res.region)
+        self._render_maxima(res, comp)
+        measure = res.requests.maximum.measures[0]
+        headline = (f"{res.region} {MEASURES[measure][5]}: the maximum over the confirmed window is given in the "
+                    "computed answer.")
+        uncertainties = [SCOPE_NOTE]
+        if res.as_of:
+            uncertainties.append(self._standard_uncertainties(res)[-1])  # the as-of view
+        return self._base(res, comp, headline, [], forecast_comparison=None, possible_explanations=[],
+                          published_findings=[], uncertainties=uncertainties, status="answered_with_caveats")
 
 
 # ------------------------------------------------------------------------------------------------ the conversation

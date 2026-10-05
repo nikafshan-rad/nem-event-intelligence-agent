@@ -199,10 +199,9 @@ def _result(state: dict[str, Any], rid: str, sel: Selection, md: Callable[[str],
     st.info(f"**Request:** read by {who}. **Your confirmation** of revision `{rid}` records the exact request you "
             "chose to run; it does not validate the routing model's reading. **Execution:** "
             f"{prov['label']}; no model call after confirmation.")
-    st.subheader(md(rep["headline"]))
-    if rep.get("answer"):
-        st.markdown("**Computed answer** (computed by code from the pinned data; a value is shown only when its result "
-                    "was verified)")
+    if rep.get("answer"):  # the verified requested result first
+        st.markdown("### Computed answer")
+        st.caption("Computed by code from the pinned data; a value is shown only when its result was verified.")
         for a in rep["answer"]:
             st.markdown(md(f"- {a['statement']}"))
             for lim in a["limitations"]:
@@ -211,6 +210,7 @@ def _result(state: dict[str, Any], rid: str, sel: Selection, md: Callable[[str],
                 st.caption("source rows: " + ", ".join(f"`{r}`" for r in a["source_row_ids"]))
     else:
         st.markdown("**No computed answer**: " + md(" ".join(rep.get("uncertainties") or [])[:600]))
+    st.markdown(f"**Report headline** (scripted): {md(rep['headline'])}")
     st.caption(f"Status: {rep['status'].replace('_', ' ')} · independent validator on the scripted report "
                f"(numbers, sources, scope): {prov['validation']} · computed answer: {prov['computed_answer']} · "
                "model-written interpretation: none in this workflow")

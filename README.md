@@ -212,6 +212,9 @@ investigation remains the default and is unchanged.
   - **a period with no run named:** each half-hour is compared under the latest run issued before it (the existing
     definition), and the preview says so.
 - **Periods:** a stated period lies within one local day, on the hour or half-hour.
+- **A demand maximum** runs its own calculation only, with no forecast, price or document analysis beside it.
+  Its status is "answered with caveats", and the report says why: the full investigation's other analyses were
+  not run.
 - **Answers:** the narrative beside the computed answer is the scripted controller's. No model-written interpretation
   is produced in this workflow.
 - **No accuracy claim:** how well a hosted model fills the request plan is not measured (a comparative routing-only
