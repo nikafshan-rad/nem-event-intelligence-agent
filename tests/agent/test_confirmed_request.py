@@ -971,3 +971,82 @@ def test_an_empty_or_hand_made_requirement_cannot_bypass_the_status_check(sel):
     x, res = _run(_confirmed(sel, MAXIMUM), sel)
     with pytest.raises(TypeError, match="derived from the confirmed operation"):
         _forced(res, x, requirement=("get_actual_demand",))
+
+
+# ------------------------------------------------------------------------------------------------ open requirements, now
+TEXT_KINDS = ("markdown", "caption", "info", "success", "warning", "error", "json")
+HISTORY = "Diagnostics: how the routing model read the question (historical)"  # app/confirm_flow.py
+
+
+def _rows(at: Any) -> dict[str, str]:
+    """The request preview on the page, as field -> value."""
+    (table,) = at.table
+    return dict(zip(table.value["field"], table.value["value"], strict=True))
+
+
+def _history(at: Any) -> Any:
+    return next(x for x in at.expander if x.label == HISTORY)
+
+
+def _shown_now(at: Any) -> list[str]:
+    """Every text on the page outside the diagnostics, with the preview's values: what reads as current."""
+    inside = [e for x in at.expander if x.label.startswith("Diagnostics") for k in TEXT_KINDS for e in getattr(x, k)]
+    return [*_rows(at).values(), *(str(e.value) for k in TEXT_KINDS for e in getattr(at, k)
+                                   if not any(e is i for i in inside))]
+
+
+def _open_maximum_settled(monkeypatch: pytest.MonkeyPatch, sel: Any) -> tuple[Any, Scripted, str, list[str]]:
+    """The walkthrough of 2026-10-05, offline: an open QLD1 maximum, settled by the user's replies, step by step. Returns
+    the page, the scripted model, the routing model's original note and what "Needs clarification" said at each
+    step."""
+    fake = Scripted(P_OPEN)
+    at = _page(monkeypatch, fake)
+    at.chat_input[0].set_value(Q_OPEN).run()
+    (note,) = at.session_state["confirm_flow"]["original"]["reasons"]
+    steps = [_rows(at)["Needs clarification"]]
+    at.chat_input[0].set_value("29 July 2026").run()  # read by the date parser
+    steps.append(_rows(at)["Needs clarification"])
+    next(b for b in at.button if b.label == "The whole local day (2026-07-29)").click().run()
+    steps.append(_rows(at)["Needs clarification"])
+    return at, fake, note, steps
+
+
+def test_through_the_page_open_requirements_follow_the_draft_and_the_first_reading_is_history(sel, tool_calls,
+                                                                                             monkeypatch):
+    """Missing date -> supplied date -> whole local day -> confirmation. At every step the preview shows what is still
+    needed now. The routing model's note that the window is unresolved and no maximum can be given stays in the
+    diagnostics, labelled historical, and is never shown as a current requirement, before or after the run."""
+    at, fake, note, steps = _open_maximum_settled(monkeypatch, sel)
+    assert "no maximum is given" in note
+    assert steps == ["Which date (the region's local date)?",
+                     "The window of the demand peak is not pinned down. Over which period?", "nothing"]
+    assert "Interpretation notes" not in _rows(at) and not any(note in t for t in _shown_now(at))
+    history = _history(at)
+    assert any(note in m.value for m in history.markdown)  # kept, as recorded then
+    assert any("not current warnings" in c.value for c in history.caption)
+    next(b for b in at.button if b.label == "Confirm and run").click().run()
+    assert not at.exception and fake.calls == 1 and tool_calls == ["get_actual_demand"]  # replies made no model call
+    (res,) = at.session_state["confirm_flow"]["results"].values()
+    (a,) = res.report.answer
+    assert "7548 MW" in a.statement and "18:30 AEST" in a.statement and res.report.status == "answered"
+    assert _rows(at)["Needs clarification"] == "nothing" and not any(note in t for t in _shown_now(at))
+    assert any("Original interpretation** (historical" in m.value for x in at.expander for m in x.markdown)
+
+
+def test_through_the_page_an_edit_that_reopens_a_requirement_shows_it(sel, tool_calls, monkeypatch):
+    """Revising a complete, confirmed request so that it needs something again: the preview names what is needed now,
+    nothing can be confirmed or run, and the answer updates the requirements again. The old note stays history."""
+    at, fake, note, _ = _open_maximum_settled(monkeypatch, sel)
+    next(b for b in at.button if b.label == "Confirm and run").click().run()
+    n = len(tool_calls)
+    next(s for s in at.selectbox if s.label == "Operation").set_value("single_interval_comparison")
+    next(b for b in at.button if b.label == "Apply changes").click().run()
+    assert not at.exception
+    assert _rows(at)["Needs clarification"] == "Which half-hour? Give the time it ends, in the region's local time."
+    assert not [b for b in at.button if b.label == "Confirm and run"] and len(tool_calls) == n  # nothing runs
+    assert any("the request has changed since" in t for t in _texts(at))  # the earlier result is labelled stale
+    at.chat_input[0].set_value("18:30").run()  # the reply settles it: the requirements move on
+    now = _rows(at)["Needs clarification"]
+    assert now != "nothing" and "Which half-hour?" not in now
+    assert C.issues(C.draft_of(at.session_state["confirm_flow"]), sel)[0].field == "run"
+    assert fake.calls == 1 and len(tool_calls) == n and not any(note in t for t in _shown_now(at))

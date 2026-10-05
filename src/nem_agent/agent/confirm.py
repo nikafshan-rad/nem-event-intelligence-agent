@@ -100,7 +100,7 @@ class Draft(BaseModel):
     operation_options: list[str] = Field(default_factory=list)  # the operations still possible; [] = all
     sources: dict[str, str] = Field(default_factory=dict)
     blocked: dict[str, str] = Field(default_factory=dict)
-    reasons: list[str] = Field(default_factory=list)  # why the interpretation was sent back, shown in the preview
+    reasons: list[str] = Field(default_factory=list)  # the routing call's notes when it read the question: history
     refused: str | None = None
     origin: Literal["interpretation", "structured"] = "interpretation"  # structured: no model reading of the question
     revision: int = 0
@@ -602,7 +602,10 @@ def preview_label(d: Draft) -> str:
 
 
 def preview(d: Draft, sel: Selection) -> list[tuple[str, str]]:
-    """The compact request preview: what the draft holds now, with each field's source; open fields say so."""
+    """The compact request preview: what the draft holds now, with each field's source; open fields say so. What is
+    still needed comes from the draft as it stands (``issues``). The routing call's notes from when it read the
+    question are history: the page keeps them in its diagnostics, not here, so a settled note is never shown as a
+    current one."""
     def tag(f: str) -> str:
         s = d.sources.get(f)
         return f" ({s})" if s else ""
@@ -631,8 +634,6 @@ def preview(d: Draft, sel: Selection) -> list[tuple[str, str]]:
     yours = sorted(f for f, s in d.sources.items() if s == "you")
     rows.append(("Your corrections", ", ".join(yours) if yours else "none"))
     rows.append(("Not answered (other kinds of forecast)", ", ".join(d.not_answered) if d.not_answered else "none"))
-    if d.reasons:
-        rows.append(("Interpretation notes", " ".join(d.reasons)))
     open_ = issues(d, sel)
     rows.append(("Needs clarification", "; ".join(i.message for i in open_) if open_ else "nothing"))
     return rows
