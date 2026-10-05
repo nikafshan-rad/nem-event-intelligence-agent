@@ -1870,3 +1870,53 @@ only, with no promised duration; it is not a latency reduction.
 
 No comparative evaluation is prepared here.
 
+
+## D35. Early transition to synthesis after a clean tool turn, opt-in and off by default (2026-10-05)
+
+**Why:** in the owner's standard Live run of 2026-10-05 (`tr-8b3de6e4d9e7`, 108.8 s), the model calls took 106.1 s.
+- **The two largest stages:** synthesis took 42.0 s, and the final tool turn 38.8 s.
+- **The final tool turn:** made no tool calls. It produced 4,024 tokens (2,240 reasoning), whose prose is passed to
+  synthesis as context; synthesis then writes the report itself.
+- **The other saved standard Live traces of that day** (`tr-f8bcbae5b64e`, `tr-6e226e92a8bc`, `tr-c050b5983be0`): the
+  same final no-call turn took 36.3, 46.3 and 49.2 s.
+
+**Decision (approved 2026-10-05):** `NEM_AGENT_LIVE_EARLY_SYNTHESIS` (1, true, yes or on), off by default. When it is
+on, the tool loop goes to synthesis right after a tool turn, instead of asking the model for another turn, only when
+all of the following hold (`LiveController._ready_for_synthesis`):
+- the turn requested tools, and every call in it returned ok: none blocked, failed, refused or unavailable;
+- every required tool has an ok result;
+- no earlier blocked or failed model call is left without an ok result for its tool, so no correction is pending;
+- no required-tool reminder is pending. A reminder is pending only while a required tool lacks an ok result, so the
+  previous conditions cover it.
+
+**How it works:**
+- **Evidence:** every tool output collected so far is already in the synthesis input, unchanged.
+- **The record:** each transition is recorded with its reason, in the trace (`model:early_synthesis`) and in the
+  report's transcript.
+- **Unset or any other value:** the tool loop is exactly as before.
+
+**Disclosed limits:**
+- **Not sufficiency:** required tools succeeding does not establish that the evidence is sufficient.
+- **Optional follow-up:** the option can prevent optional follow-up retrieval, because the model is not offered the
+  further turn in which it might have asked for more.
+- **What synthesis loses:** it no longer sees the prose the skipped turn would have written.
+- **Not measured:** the effect on latency, cost, answer quality, validation failures and repairs. A manual demo trial
+  needs separate approval.
+
+**Unchanged:** validation, repair, permissions (the dispatcher), budget guards (per call and per question), diagnostics,
+the model, prompts and caps.
+
+**Frozen evaluations:** their runners refuse unless the code is their frozen code, which predates this setting. A test
+requires a runner frozen on code that has it to refuse it.
+
+**Tests:** fake transport and scratch ledgers only (`tests/provider/test_live_early_synthesis.py`):
+- the unchanged default path;
+- an early transition after a clean turn, with every tool output passed to synthesis;
+- a turn with a blocked call (no transition, then a transition after the correction);
+- an uncorrected blocked call of an optional tool (a pending correction);
+- a turn that completes the required tools but also has a blocked call;
+- a failed call;
+- a missing required tool, and a reminder answered;
+- repair and budget guards under the option;
+- the frozen runners.
+
