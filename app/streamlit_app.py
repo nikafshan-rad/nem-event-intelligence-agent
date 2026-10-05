@@ -27,6 +27,18 @@ def md(text: str) -> str:
 LIVE_OK = bool(os.environ.get("OPENAI_API_KEY"))
 sel = load_selection()
 
+# the experimental confirmed-request workflow is opt-in; the standard investigation below is the default, unchanged
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from confirm_flow import LABEL as CONFIRM_FLOW  # noqa: E402
+
+if st.sidebar.toggle(CONFIRM_FLOW, value=False, key="workflow_confirm_flow",
+                     help="Off: the standard investigation (default). On: the request is shown as the system read it, "
+                          "what is open is asked one question at a time, and only the request you confirm runs."):
+    import confirm_flow
+
+    confirm_flow.render(sel, LIVE_OK, md)
+    st.stop()
+
 with st.sidebar:
     st.header("Investigation")
     mode = st.radio("Mode", ["replay", "live"], index=0, horizontal=True, disabled=not LIVE_OK,

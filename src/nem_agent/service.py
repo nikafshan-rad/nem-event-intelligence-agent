@@ -125,6 +125,78 @@ def investigate(req: InvestigateRequest, *, store: Store | None = None, selectio
     return InvestigationResult(report, trace, records, registry, res, latency, usage)
 
 
+def interpret_request(question: str, *, store: Store | None = None, selection: Selection | None = None,
+                      live_client: Any = None, write_trace: bool = True) -> Any:
+    """The experimental confirmed-request workflow's interpretation step (``agent.confirm``): one routing call under
+    route contract v16 (prompts v17, the stated-basis policy in force, V1 by default) and the D31 compiler, whatever the
+    request-plan switch says. Nothing runs: the compiled request is returned for preview and confirmation."""
+    from .agent.confirm import Interpretation
+    from .agent.live import LiveController
+
+    if store is None or selection is None:
+        s, sel = _shared()
+        store, selection = store or s, selection or sel
+    trace = Trace()
+    req = InvestigateRequest(question=question, mode="live")
+    live = LiveController(None, EvidenceRegistry(), Versions(code=code_version(), data=store.data_version,
+                                                             corpus=corpus_version(), prompt=config.PLAN_PROMPT_VERSION,
+                                                             model=None, controller="live"),
+                          client=live_client, plan=True)
+    decision = None
+    try:
+        decision = live.route(question, trace)
+    finally:
+        trace.add("route", "experimental_interpretation", usage=live.usage.as_dict())
+    res = resolve_routed(req, decision, selection, trace)
+    trace.add("route", res.intent or "none", status=res.status, reasons=res.reasons, region=res.region,
+              requests=res.requests.as_dict() if res.requests is not None else None)
+    if write_trace:
+        trace.write()
+    return Interpretation(resolution=res, decision=decision.model_dump(mode="json") if decision is not None else None,
+                          usage=live.usage.as_dict(), trace_id=trace.trace_id, model=live.model,
+                          prompt=live.prompt_version, extra={"given": req.model_dump(mode="json")})
+
+
+def execute_confirmed(x: Any, *, original: dict[str, Any] | None = None, store: Store | None = None,
+                      selection: Selection | None = None, write_trace: bool = True) -> InvestigationResult:
+    """The confirmed request (``agent.confirm.Executable``), executed exactly as it was shown: its resolution is built
+    from its fields (``confirm.to_resolution``), with no model call, and run by the scripted controller with the
+    existing calculations, runtime verification, computed-answer renderer and validator. Both the original
+    interpretation and the confirmed request are kept in the trace. A request that does not resolve runs nothing."""
+    from .agent.confirm import Executable, revision_id, to_resolution
+
+    if not isinstance(x, Executable):
+        raise TypeError("only a complete, confirmed request (confirm.Executable) is executed")
+    t0 = time.monotonic()
+    if store is None or selection is None:
+        s, sel = _shared()
+        store, selection = store or s, selection or sel
+    trace = Trace()
+    registry = EvidenceRegistry()
+    res = to_resolution(x, selection)
+    trace.add("route", "confirmed_request", revision=revision_id(x), confirmed=x.model_dump(mode="json"),
+              original_interpretation=original, status=res.status, reasons=res.reasons)
+    versions = Versions(code=code_version(), data=store.data_version, corpus=corpus_version(),
+                        prompt=config.PROMPT_VERSION, model=None, controller=CONTROLLER_VERSION)
+    records: list[ToolCallRecord] = []
+    if res.status != "ok" or res.intent is None:
+        report = _non_answer(res.request, res, trace, versions)
+    else:
+        disp = Dispatcher(store, selection, trace, registry, res.intent, res.as_of, res.requests.ineligible_tools)
+        report = ReplayController(disp, registry, versions).run(res)
+        records = disp.records
+    from .validation import validate_and_finalize
+    report = validate_and_finalize(report, registry, records, res, trace)
+    notes = res.requests.notes if res.requests is not None and res.status == "ok" else []
+    if notes:
+        report = report.model_copy(update={"uncertainties": [*notes, *report.uncertainties]})
+    latency = round((time.monotonic() - t0) * 1000, 1)
+    trace.add("done", report.status, latency_ms=latency)
+    if write_trace:
+        trace.write()
+    return InvestigationResult(report, trace, records, registry, res, latency, {})
+
+
 def resolve_routed(req: InvestigateRequest, decision: Any, selection: Selection, trace: Trace | None = None) -> Resolution:
     """The resolution of a Live question from the routing model's decision (``None``: the model returned invalid
     output), under ``route_policy``; the decision's structured reading of the request goes to ``resolve`` (I-18)."""

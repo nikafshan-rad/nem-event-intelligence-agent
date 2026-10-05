@@ -1735,3 +1735,34 @@ re-verified, and no replacement is created.
 
   These are the recorded semantic limitations (stances trusted, omissions undetected, provenance not meaning), not
   failures of an acceptance criterion. No phrase rule was added for them.
+
+## D32. Experimental confirmed-request workflow: preview, clarify, confirm, compute (2026-10-05)
+- **Status: experimental, opt-in in the app** ("Experimental: confirm the request first"). The standard investigation
+  is the default and is unchanged. No paid run has been made with it, and no improvement in real-model extraction is
+  claimed.
+- **What it is:** an app flow built on D31 (route contract v16, prompts v17, V1, the D31 compiler). It adds no
+  request-understanding architecture and no phrase rule (`agent/confirm.py`):
+  - **interpretation:** at most one routing call per user turn (`service.interpret_request`);
+  - **the draft:** the compiled request becomes a structured draft, with a compact, labelled preview;
+  - **clarification:** code finds the next missing, conflicting or invalid field in dependency order and asks one
+    question about it. Choices map straight into the draft; typed answers are read by the existing parsers. A reply
+    they cannot read may use one routing call, which fills only fields still open;
+  - **confirmation:** applies to one exact revision, and any edit makes a new one;
+  - **execution:** the confirmed request is built into the resolver's own request objects (`confirm.to_resolution`,
+    status from `request._finish`). It runs on the scripted controller with the existing calculations, runtime
+    verification, computed-answer renderer and validator (`service.execute_confirmed`), with no model call. The trace
+    keeps both the original interpretation and the confirmed request.
+- **Never:**
+  - runs anything while a field is open, conflicting or invalid;
+  - salvages invalid or truncated routing output (not even through the question parser's fallback reading);
+  - drops a cutoff, or substitutes a window or run;
+  - chooses between two analyses;
+  - runs an unfinished draft.
+- **Scope:** demand maxima; a named-run comparison for one half-hour; a period aggregate of at most 24 hours.
+  - A period comparison with no run named uses the existing definition, the latest run before each half-hour, and the
+    preview shows it.
+- **Tradeoffs, chosen as the smallest working option:**
+  - **Execution:** the scripted controller, so after confirmation there is a computed answer and a scripted narrative,
+    and no model-written interpretation.
+  - **Periods:** stated within one local day.
+  - **Forecast values:** a forecast's values alone are not computed here.
