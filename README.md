@@ -218,9 +218,13 @@ investigation remains the default and is unchanged.
     period, run policy and cutoff.
 
   No supplementary comparison (such as a 24-hour-lead one), forecast-run listing, price review, document search
-  or narrative is added. The status is "answered with caveats" only because the independent validator holds an
-  "answered" report to every tool of the full investigation's playbook, which a confirmed request does not use.
-  The report says so, and no evidence the result needs is missing.
+  or narrative is added.
+- **Status:** "answered" only when the confirmed operation's own tool ran successfully and its one result is
+  verified and established. The independent validator checks the same requirement, derived by code from the
+  confirmed operation.
+  - **A partial, unavailable or unverified result:** "answered with caveats". The report says why.
+  - **A point whose named run was not public by the cutoff:** no comparison runs and none is forced. The status is
+    "answered with caveats".
 - **Answers:** the narrative beside the computed answer is the scripted controller's. No model-written interpretation
   is produced in this workflow.
 - **No accuracy claim:** how well a hosted model fills the request plan is not measured (a comparative routing-only

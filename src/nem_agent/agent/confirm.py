@@ -710,25 +710,69 @@ WHAT_RAN = {"demand_maximum": "the demand maximum",
             "window_comparison": "the forecast accuracy over the confirmed period, under the confirmed run policy"}
 
 
+RESULT_KIND = {"demand_maximum": "demand_maximum", "single_interval_comparison": "forecast_point",
+               "window_comparison": "forecast_aggregate"}
+CALL_OUTCOME = {"unavailable": "was unavailable", "error": "failed", "refused": "was refused", "blocked": "was blocked"}
+
+
 def scope_note(x: Executable) -> str:
-    """What ran, and why the status is "answered with caveats" (said, so no evidence is implied to be missing)."""
+    """What ran: the confirmed analysis alone."""
     return (f"Only the analysis in the confirmed request ran: {WHAT_RAN[x.operation]}, computed by code from the "
-            "pinned data. No other comparison, price review or document search was run, so none is reported. The "
-            "status is \"answered with caveats\" because the independent validator holds an \"answered\" report to "
-            "every tool of the full investigation's playbook, which the confirmed request does not use; no evidence "
-            "the confirmed result needs is missing.")
+            "pinned data. No other comparison, price review or document search was run, so none is reported.")
+
+
+def requirement(x: Executable) -> Any:
+    """What an "answered" status needs for this confirmed request (``validation.ConfirmedRequirement``), derived by code
+    from the confirmed operation and measure alone, never from the model or the user: the operation's own tool (the
+    measure's tool for a demand maximum, the forecast/actual comparison for a forecast point or aggregate) and the kind
+    of the one result it computes. It is never empty."""
+    from ..validation import ConfirmedRequirement
+    from . import forecast_compare
+    from .demand_max import MEASURES
+
+    tool = MEASURES[x.measure][0] if x.operation == "demand_maximum" else forecast_compare.TOOL
+    return ConfirmedRequirement(operation=x.operation, tools=(tool,), result_kind=RESULT_KIND[x.operation])
 
 
 def confirmed_playbook(x: Executable) -> Any:
-    """The dispatcher's playbook for a confirmed request: exactly the tool its computation calls, once, and nothing
-    else (any other tool is blocked before it runs): the measure's own tool for a demand maximum, the forecast/actual
-    comparison for a forecast point or aggregate."""
-    from . import forecast_compare
-    from .demand_max import MEASURES
+    """The dispatcher's playbook for a confirmed request: exactly the tool its computation calls (``requirement``),
+    once, and nothing else (any other tool is blocked before it runs)."""
     from .playbook import PLAYBOOKS, Playbook
 
-    tool = MEASURES[x.measure][0] if x.operation == "demand_maximum" else forecast_compare.TOOL
-    return Playbook(PLAYBOOKS[x.intent].intent, required=(tool,), optional=(), max_calls_per_required_tool=1)
+    return Playbook(PLAYBOOKS[x.intent].intent, required=requirement(x).tools, optional=(),
+                    max_calls_per_required_tool=1)
+
+
+def shortfall(x: Executable, records: list[Any], results: Any) -> list[str]:
+    """Why a confirmed request's report is not "answered", in plain words, or [] when it is. "Answered" needs the
+    operation's own tool run successfully and its one result, of the confirmed kind, verified in the run (admitted)
+    and established: a tool executing is not enough. A partial, unavailable, not established or unverified result
+    keeps its status. A point whose named run cannot be used (for example, not public by the confirmed cutoff) makes
+    no comparison call, and none is forced to meet the rule: its report says so."""
+    req = requirement(x)
+    tool = req.tools[0]
+    reported = results.reported()
+    one = reported[0] if len(reported) == 1 and reported[0].result.identity.kind == req.result_kind else None
+    out: list[str] = []
+    calls = [r for r in records if r.name == tool]
+    if not calls:
+        why = f", because {one.result.reason}; no other run is substituted" if one and one.result.reason else ""
+        out.append(f"{tool} did not run{why}")
+    elif not any(r.status == "ok" for r in calls):
+        out.append(f"{tool} " + " and ".join(sorted({CALL_OUTCOME.get(r.status, r.status) for r in calls})))
+    if one is None:
+        out.append(f"no single {req.result_kind.replace('_', ' ')} result was computed")
+    else:
+        if results.verified(one.result.result_id) is None:
+            out.append(f"the result is not verified ({one.server_verification.outcome})")
+        if one.result.status != "established":
+            out.append(f"the result is {one.result.status.replace('_', ' ')}")
+    return out
+
+
+def status_note(reasons: list[str]) -> str:
+    """Why a confirmed report is "answered with caveats" (``shortfall``)."""
+    return "The status is \"answered with caveats\", not \"answered\": " + "; ".join(reasons) + "."
 
 
 class ConfirmedOnly(ReplayController):
@@ -742,7 +786,9 @@ class ConfirmedOnly(ReplayController):
       and cutoff.
 
     No supplementary comparison, forecast-run listing, price review or document search runs, so none is reported. An
-    unavailable result stays unavailable: nothing is computed in its place."""
+    unavailable result stays unavailable: nothing is computed in its place. The status is "answered" only when the
+    operation's own tool ran successfully and its one result is verified and established (``shortfall``); otherwise
+    it is "answered with caveats", and the report says why."""
 
     def __init__(self, dispatcher: Any, registry: Any, versions: Any, x: Executable) -> None:
         super().__init__(dispatcher, registry, versions)
@@ -773,11 +819,13 @@ class ConfirmedOnly(ReplayController):
                             "the confirmed run policy, is given in the computed answer.")
             forecast_compare.submit(self.d, res, forecast_compare.compute(self.d, ident))
         self._render_maxima(res, comp)  # computes a requested maximum, and renders every reported result
-        uncertainties = [scope_note(x)]
+        held = shortfall(x, self.d.records, self.d.results)
+        uncertainties = [scope_note(x), *([status_note(held)] if held else [])]
         if res.as_of:
             uncertainties.append(self._standard_uncertainties(res)[-1])  # the as-of view
         return self._base(res, comp, headline, [], forecast_comparison=None, possible_explanations=[],
-                          published_findings=[], uncertainties=uncertainties, status="answered_with_caveats")
+                          published_findings=[], uncertainties=uncertainties,
+                          status="answered_with_caveats" if held else "answered")
 
 
 # ------------------------------------------------------------------------------------------------ the conversation

@@ -1776,11 +1776,20 @@ re-verified, and no replacement is created.
     point or aggregate. `confirm.ConfirmedOnly` computes, verifies and renders that result with the existing
     code and reports nothing else. Unavailable results stay unavailable, and the page shows the verified result
     first. The standard investigation is unchanged.
-  - **The status mismatch, disclosed:** a confirmed result's status is "answered with caveats" only because the
-    validator holds "answered" to every tool of the intent's full playbook (`PLAYBOOKS[intent].required`).
-    Marked "answered", a verified confirmed maximum or point raises `STATUS_OVERCLAIMS` and nothing else. The
-    report states this, and no evidence the result needs is missing.
-  - **The smallest correction, proposed and not implemented:** `validate_and_finalize` takes an optional
-    `required_tools`, defaulting to `PLAYBOOKS[res.intent].required` so every other caller is unchanged.
-    `execute_confirmed` passes the confirmed playbook's tool. An "answered" confirmed report is then held to
-    exactly the tool its computation needs, and still fails with `STATUS_OVERCLAIMS` if that tool did not run.
+  - **The status mismatch:** the validator held "answered" to every tool of the intent's full playbook
+    (`PLAYBOOKS[intent].required`). Marked "answered", a verified confirmed maximum or point raised
+    `STATUS_OVERCLAIMS` for tools the confirmed request does not use, so every confirmed result was "answered with
+    caveats".
+  - **The status correction** (approved 2026-10-05):
+    - **The requirement:** `confirm.requirement` derives a `validation.ConfirmedRequirement` from the confirmed
+      operation and measure alone, never from the model or the user. It names the operation's tool and its result
+      kind, it cannot be empty, and the dispatcher's playbook uses the same tool.
+    - **The controller:** `ConfirmedOnly` reports "answered" only when that tool ran successfully (status `ok`) and
+      the one result is of the confirmed kind, verified in the run and established (`confirm.shortfall`). Otherwise
+      the status is "answered with caveats", and the report says why. A tool executing is not enough.
+    - **The validator:** `execute_confirmed` passes the requirement to `validate_and_finalize`. An "answered"
+      confirmed report is held to it instead of the full playbook. A missing or unsuccessful tool, or a result
+      that is not one verified, established result of the confirmed kind, raises `STATUS_OVERCLAIMS`.
+    - **Other callers:** they pass no requirement, and their validation is unchanged.
+    - **The unavailable point:** a point whose named run was not public by the cutoff makes no comparison call.
+      None is forced, and its report says the comparison did not run and why.
