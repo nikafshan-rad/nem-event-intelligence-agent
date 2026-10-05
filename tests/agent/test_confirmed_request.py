@@ -1124,3 +1124,74 @@ def test_the_page_headline_of_an_unavailable_comparison_says_it_is_unavailable(s
     assert not at.exception
     (head,) = [m.value for m in at.markdown if m.value.startswith("**Report headline**")]
     assert "is unavailable, so no value is given" in head and "compared with the actual" not in head
+
+
+# ------------------------------------------------------------------------------------------------ the maximum headline
+VIC1_PARTLY_HELD = [("operation", "demand_maximum"), ("measure", "operational demand"), ("region", "VIC1"),
+                    ("date", "2026-07-30"), ("scope_kind", "day")]  # not every half-hour of the day is held
+MAX_HEADLINES = {
+    "established": (MAXIMUM, "established",
+                    "QLD1 operational demand: the verified maximum over the confirmed window is given in the computed "
+                    "answer."),
+    "not established": (VIC1_PARTLY_HELD, "not_established",
+                        "VIC1 operational demand: no maximum is established for the confirmed window: not every "
+                        "interval of the window is held, so the computed answer gives only the highest value held, not "
+                        "a maximum."),
+    "not established, total demand": ([*VIC1_PARTLY_HELD[:1], ("measure", "total demand"), *VIC1_PARTLY_HELD[2:]],
+                                      "not_established",
+                                      "VIC1 dispatch total demand (TOTALDEMAND): no maximum is established for the "
+                                      "confirmed window: not every interval of the window is held, so the computed "
+                                      "answer gives only the highest value held, not a maximum."),
+    "unavailable, QLD1 on 15 January 2025": (QLD1_UNHELD, "unavailable",
+                                             "QLD1 operational demand: no verified maximum is given for the confirmed "
+                                             "window: the actual-demand data was unavailable."),
+}
+
+
+def _consistent(rep: Any) -> None:
+    """The headline and the computed answer say the same thing: a maximum is said to be given only when the answer
+    gives a verified, established one; a limitation in one is the same limitation in the other."""
+    (a,) = rep.answer
+    h = rep.headline
+    assert ("the verified maximum over the confirmed window is given" in h) == (
+        (a.status, a.verification) == ("established", "verified")) == ("was highest at" in a.statement)
+    assert ("no maximum is established" in h) == (a.status == "not_established") == (
+        "cannot be established" in a.statement)
+    assert ("no verified maximum is given" in h) == ("cannot be given" in a.statement)
+    assert not re.search(r"\d", h.split(":", 1)[1].replace("TOTALDEMAND", ""))  # no value in the headline
+
+
+@pytest.mark.parametrize("name", list(MAX_HEADLINES))
+def test_a_confirmed_maximum_headline_follows_its_verified_result(name, sel, tool_calls):
+    """The headline of a confirmed demand maximum is worked out from its verified result's status, like a forecast
+    comparison's; no status is added, and the calculation and its validation are unchanged."""
+    steps, status, want = MAX_HEADLINES[name]
+    _x, res = _run(_confirmed(sel, steps), sel)
+    (a,) = res.report.answer
+    assert (a.status, a.verification) == (status, "verified") and len(tool_calls) == 1
+    assert res.report.headline == want and _clean(res.report)
+    _consistent(res.report)
+
+
+def test_the_unavailable_qld1_maximum_headline_does_not_say_a_maximum_is_given(sel, tool_calls):
+    """Regression: QLD1 on 15 January 2025 is outside the pinned data. The computed answer said the maximum cannot be
+    given, but the headline said "the maximum over the confirmed window is given in the computed answer"."""
+    _x, res = _run(_confirmed(sel, QLD1_UNHELD), sel)
+    rep = res.report
+    assert tool_calls == ["get_actual_demand"] and [r.status for r in res.records] == ["unavailable"]
+    assert "cannot be given: the controller's get_actual_demand call returned unavailable" in rep.answer[0].statement
+    assert "is given in the computed answer" not in rep.headline
+    assert rep.headline.endswith("no verified maximum is given for the confirmed window: the actual-demand data was "
+                                 "unavailable.")
+
+
+def test_an_unverified_maximum_headline_gives_no_maximum(sel, monkeypatch):
+    from nem_agent import results
+
+    monkeypatch.setattr(results, "_rederive", lambda *a, **k: ("failed", ["SYNTHETIC: the re-derived result differs"]))
+    _x, res = _run(_confirmed(sel, MAXIMUM), sel)
+    (a,) = res.report.answer
+    assert (a.status, a.verification) == ("not_verified", "failed")
+    assert res.report.headline == ("QLD1 operational demand: no verified maximum is given for the confirmed window: "
+                                   "the computed result could not be verified against the pinned data (failed).")
+    _consistent(res.report)

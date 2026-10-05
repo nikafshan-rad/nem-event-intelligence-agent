@@ -798,6 +798,33 @@ def comparison_headline(x: Executable, region: str, r: Any, verified: bool) -> s
                    "every half-hour in it; the computed answer gives the MAE and mean error.")
 
 
+def maximum_headline(x: Executable, region: str, results: Any, records: list[Any]) -> str:
+    """The headline of a confirmed demand maximum, worked out from its result, as the computed answer is: whether it
+    was verified, then its status. A maximum has no partial status; "not established" (not every interval of the window
+    is held) is its limitation. Only a verified, established maximum is said to be given. A failed call is named by
+    its tool (shown in plain words on the page) and its recorded status."""
+    from .demand_max import MEASURES, NOT_VERIFIED
+
+    head = f"{region} {MEASURES[x.measure][5]}: "
+    mine = [r for r in results.reported() if r.result.identity.kind == "demand_maximum"]
+    if len(mine) != 1:
+        return head + "no maximum was computed for the confirmed window, so none is given."
+    (rr,) = mine
+    r = rr.result
+    if results.verified(r.result_id) is None:
+        return head + ("no verified maximum is given for the confirmed window: "
+                       f"{NOT_VERIFIED.format(rr.server_verification.outcome)}.")
+    if r.status == "unavailable":
+        tool = requirement(x).tools[0]
+        failed = [c.status for c in records if c.name == tool and c.status != "ok"]
+        why = f"{tool} {CALL_OUTCOME.get(failed[0], failed[0])}" if failed else r.reason
+        return head + f"no verified maximum is given for the confirmed window: {why}."
+    if r.status == "not_established":
+        return head + (f"no maximum is established for the confirmed window: {r.reason}, so the computed answer gives "
+                       "only the highest value held, not a maximum.")
+    return head + "the verified maximum over the confirmed window is given in the computed answer."
+
+
 def status_note(reasons: list[str]) -> str:
     """Why a confirmed report is "answered with caveats" (``shortfall``)."""
     return "The status is \"answered with caveats\", not \"answered\": " + "; ".join(reasons) + "."
@@ -824,14 +851,11 @@ class ConfirmedOnly(ReplayController):
 
     def run(self, res: Resolution) -> Any:
         from . import forecast_compare
-        from .demand_max import MEASURES
 
         x = self.x
         comp = Composer(self.reg, res.region)
-        if x.operation == "demand_maximum":
-            headline = (f"{res.region} {MEASURES[x.measure][5]}: the maximum over the confirmed window is given in "
-                        "the computed answer.")
-        else:
+        headline = ""
+        if x.operation != "demand_maximum":
             point = forecast_compare.point_request(res)
             store = self.d.store
             if x.operation == "single_interval_comparison":
@@ -845,6 +869,8 @@ class ConfirmedOnly(ReplayController):
             forecast_compare.submit(self.d, res, r)
             headline = comparison_headline(x, str(res.region), r, self.d.results.verified(r.result_id) is not None)
         self._render_maxima(res, comp)  # computes a requested maximum, and renders every reported result
+        if x.operation == "demand_maximum":
+            headline = maximum_headline(x, str(res.region), self.d.results, self.d.records)
         held = shortfall(x, self.d.records, self.d.results)
         uncertainties = [scope_note(x), *([status_note(held)] if held else [])]
         if res.as_of:

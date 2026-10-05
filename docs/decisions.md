@@ -1814,6 +1814,14 @@ re-verified, and no replacement is created.
       This is said in words: the validator holds an aggregate to what it was computed from, so a count of the
       period's half-hours in the headline is rejected.
     - **Established:** the completed comparison.
-  - **Unchanged:** routing, prompts, calculations, validation and the standard investigation.
-  - **Not covered:** a confirmed maximum's headline (that "the maximum ... is given in the computed answer") is
-    unchanged here.
+  - **Confirmed maxima** (approved as an extension): `confirm.maximum_headline` derives a confirmed maximum's
+    headline the same way, from the result the computed answer renders.
+    - **Not verified:** no verified maximum is given, and why.
+    - **Unavailable:** no verified maximum is given, with the result's own reason (for example, the actual-demand
+      call returned unavailable for QLD1 on 15 January 2025).
+    - **Not established:** no maximum is established, because not every interval of the window is held; the
+      computed answer gives only the highest value held. A maximum has no partial status, and none is added.
+    - **Established:** the verified maximum is given.
+
+    The fixed "the maximum ... is given in the computed answer" is gone.
+  - **Unchanged:** routing, prompts, calculations, validation, the result statuses and the standard investigation.
