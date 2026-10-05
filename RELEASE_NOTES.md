@@ -1,5 +1,273 @@
 # Release notes
 
+## v2.1.0 (2026-10-05, prerelease)
+
+This release collects the changes merged since v2.0.0, as of `main` `6badc0c` (pull requests #80, #82–#84 and
+#86–#88). It adds three opt-in features:
+- a typed request plan for routing;
+- an experimental app workflow that confirms a request before any analysis runs;
+- a routing reasoning-effort setting.
+
+It also labels truthfully a Live run that the budget stopped. With no new setting switched on, the application
+behaves as in v2.0.0, apart from those labels.
+
+> **A prerelease. Live (LLM) mode remains experimental.**
+> - **Not claimed:** Live reliability, production readiness, generalisation, or acceptance of a new architecture.
+> - **Not evaluated in Live:** the request plan (D31) and the confirmed-request workflow (D32). Both are opt-in.
+> - **The verified baseline** is Replay, which uses no language model.
+> - **Unchanged:** every historical PASS and FAIL, frozen protocol, gold file and record.
+> - **Excluded and paused:** pull requests #81 (a comparative routing evaluation, frozen and not run) and #89 (an
+>   opt-in early transition to synthesis).
+
+### What changed since v2.0.0
+
+- **Request plan, opt-in (D31 Amendment 1; PR #80).**
+  - **The switch:** `NEM_AGENT_ROUTE_PLAN=1` gives the routing call route contract v16 with prompts v17.
+  - **The plan:** the model returns operations, each with a stance, a kind and a subject. Their scopes, forecast runs
+    and cutoffs are referenced by id. A deterministic compiler turns the plan into the existing request resolution.
+  - **Admission fails closed:** an incomplete, invalid or conflicting plan is sent back, and nothing runs.
+  - **Policy:** `NEM_AGENT_PLAN_POLICY` chooses the stated-basis policy, `V1` (default) or `V0`.
+  - **Off by default:** the routing call is then exactly v2.0.0's, contract v15 with prompts v16, and a test asserts
+    it.
+  - **Verification:** offline only, with scripted plans.
+- **Confirm the request before any analysis (D32; PR #82).** An experimental app workflow behind the sidebar switch
+  "Experimental: confirm the request first". The standard investigation remains the default.
+  - **Reading the question:**
+    - **With `OPENAI_API_KEY`:** one routing call reads it into a structured request.
+    - **Without a key:** this is guided structured input, and no model reads anything.
+  - **Clarification:** the preview shows the request as read. What is still open is asked one question at a time, and
+    any field can be edited.
+  - **Confirmation:** it applies to one exact revision, and any change makes a new revision to confirm. Nothing runs
+    while a field is open, conflicting or invalid.
+  - **After confirmation:** no model call. The scripted controller runs the existing calculations, runtime
+    verification, computed-answer renderer and validator over the pinned data.
+  - **Scope:**
+    - demand maxima;
+    - a named forecast run against the actual for one half-hour;
+    - MAE and mean error over a period of at most 24 hours within one local day.
+- **Execution restricted to the confirmed maximum or forecast comparison (D32; PR #83).**
+  - **One tool, once:** a confirmed request runs exactly one tool, once. That is the measure's own tool for a maximum,
+    or one forecast/actual comparison for a point or a period.
+  - **Nothing added:** no supplementary comparison, forecast-run listing, document search or price review.
+  - **Status:**
+    - "answered" only when that tool returned `ok` and its one result is verified and established;
+    - otherwise "answered with caveats", with the reason.
+
+    The validator checks the same requirement, derived by code from the confirmed operation.
+- **Verified computed answers and status-aware headlines (D32; PR #86).**
+  - **Shown first:** the computed answer, rendered from the verified result.
+  - **The headline** of a confirmed comparison or maximum follows the result's status: established, partial,
+    unavailable, not established or not verified.
+  - **Unavailable comparisons:** the headline never says such a comparison ran, and no other forecast run or target
+    interval is used in its place.
+- **Current clarification requirements, separated from history (D32; PR #84).**
+  - **What is still open** is worked out from the request as it stands, on every render. A settled point is not
+    shown as open.
+  - **The routing model's readings,** with their notes as recorded at the time, are kept in a diagnostics section
+    labelled historical.
+- **Routing reasoning effort, optional (D33; PR #87).**
+  - **The setting:** `NEM_AGENT_ROUTE_REASONING_EFFORT` (`minimal`, `low`, `medium` or `high`) applies to routing
+    calls only, never to tool, synthesis or repair calls.
+  - **Unset (the default):** nothing is sent, and the provider's default applies.
+  - **Any other value** is refused before any call.
+  - **Traces** record the effort requested and the effort the provider reports.
+  - **Progress:** the experimental page shows a progress message while routing runs. It is feedback, not a speed-up.
+- **Truthful budget-stop and no-answer labels (D34; PR #88).**
+  - **A Live run the budget stopped** is shown as stopped at a budget limit. No model answer is shown, and the refused
+    call's stage is named. Its validation reads "not applicable", never "passed".
+  - **A repair the budget refused** is not reported as attempted.
+  - **A schema-invalid model report** is shown as "the model produced no valid answer".
+  - **Budget enforcement is unchanged:** each call is still reserved at its worst case and refused before it is sent.
+
+### Known limitations
+
+1. **The experimental modes are off by default.** The request plan, the confirmed-request workflow and the routing
+   effort change nothing unless switched on. None of them has been evaluated in Live, and none is adopted as the
+   default architecture.
+2. **Confirmation records the executable request. It does not prove semantic understanding.**
+   - **The preview** is the system's reading of the question.
+   - **Confirming it** records which request the user chose to run. It does not validate the routing model's reading.
+   - **Extraction quality:** how well a hosted model fills the request plan is unmeasured. A comparative routing-only
+     evaluation (pull request #81) is prepared and frozen, but not run.
+3. **The confirmed workflow computes its answers deterministically.**
+   - **No model-written interpretation after confirmation:** the narrative is the scripted controller's.
+   - **Not computed there:** a forecast's values alone, event reviews, document questions and any other analysis.
+4. **Standard Live keeps retrieval and model-written analysis.** The validator checks the analysis, and the
+   limitations listed for v2.0.0 still apply.
+5. **Latency: observations, not a guarantee.** Two standard Live investigations of the same TAS1 question on
+   2026-10-05 took 108.8 s and 108.1 s end to end.
+   - **`tr-8b3de6e4d9e7`:** this release's Live path on `main` `75bfedc`, before PR #88's label-only change, with
+     routing effort `low` as the demo app was configured.
+     - routing: 10.4 s;
+     - three tool turns: 53.6 s, of which 38.8 s was a final turn that requested no tool;
+     - synthesis: 42.0 s.
+   - **`tr-c96b581ba88c`:** an unreleased opt-in change (pull request #89, excluded). It skipped that final turn, but
+     a longer synthesis (56.5 s) and a repair (24.5 s) took the time back.
+
+   Both traces are local records, not in the repository.
+6. **Routing effort: one observation, no general claim.**
+   - **The observation:** in the confirmed-request workflow, one question (the QLD1 operational-demand maximum for the
+     whole local day of 29 July 2026) took 7.35 s to route at effort `low`. Two earlier calls of the same question,
+     at the provider's default, took 16.06 s and 17.12 s.
+   - **The compiled request** was identical.
+   - **What it is:** one matching question compared with two earlier calls. It is not evidence of a general speed-up
+     or of any change in extraction quality.
+7. **Status consistency.**
+   - **The status** of a standard Live report is the synthesis model's choice. It is not checked against the report's
+     own missing-evidence list.
+   - **An example:** `tr-c96b581ba88c` listed three missing-evidence items and still said "answered". With identical
+     tool results, `tr-8b3de6e4d9e7` said "answered with caveats". The synthesis prompt asks for "answered with
+     caveats" when evidence is missing.
+8. **Semantic validation is lexical.**
+   - **Both ways:** wording outside its patterns passes, and wording inside them can be rejected even when it asserts
+     nothing.
+   - **An example:** in `tr-c96b581ba88c`, a missing-evidence item asked for records "to test timing and causes of
+     output changes". It was rejected as a causal claim, which forced a full rewrite repair (24.5 s).
+   - **The D31 compiler** checks provenance and vocabulary, not meaning:
+     - a plausible misreading whose words name demand passes;
+     - an asked run or maximum that the model leaves out of the plan is not detected, unless its words hold a time no
+       entity accounts for;
+     - stances are trusted as given.
+9. **Evidence interpretation.**
+   - **Weakly supported hypotheses can pass,** because hedged hypotheses are checked on their wording.
+   - **Citations:** one can be weakly relevant, and none has to be referenced in the text.
+   - **Material caveats** can differ between runs with identical tool results.
+   - **An example:** compared with `tr-8b3de6e4d9e7`, `tr-c96b581ba88c`:
+     - left out the limitations about binding constraints and price revisions;
+     - offered "higher operational demand" as a hypothesis, at 1,147 MW against a window maximum of 1,408 MW;
+     - referenced neither of its citations in the text, and one of them quotes only a table fragment ("TAS1 20 400").
+
+   That run used this release's synthesis prompt, validators and model.
+10. **Carried over from v2.0.0:**
+    - **Routing truncation:** the 2,000-token routing cap includes reasoning, and one D33 call used 1,986 tokens.
+    - **The resolver:** correct readings rejected, and ambiguous forecast readings accepted.
+    - **Interpretation validators:** lexical.
+    - **Fallbacks:** their frequency.
+    - **The model snapshot:** OpenAI lists `gpt-5-mini-2025-08-07` for removal on December 11, 2026 (deprecations page,
+      read 2026-10-04). Live behaviour on any other model or snapshot is unverified.
+11. **Not claimed or run:**
+    - no claim of production readiness, generalisation to other events, dates, data or wordings, or acceptance of a
+      new architecture;
+    - no L3 evaluation has run on code after `6413076`;
+    - no Live evaluation was run for this release.
+
+### Compatibility and migration
+
+- **Package and API:**
+  - **The version** is `2.1.0`, and `GET /health` returns `"version": "2.1.0"`.
+  - **Unchanged since v2.0.0:** the API module and its endpoints, `InvestigateRequest`, the `POST /investigate`
+    envelope, the report model (`InvestigationReport`), the result schemas and the renderer.
+- **Defaults:**
+  - **Live routing:** with no new setting, it sends exactly v2.0.0's routing call
+    (`test_the_default_route_is_contract_v15_with_prompts_v16_unchanged`).
+  - **Also unchanged:** the model, the budgets, the caps and the prompts in use.
+- **New settings, all off or unset by default** (listed in `.env.example`):
+  - `NEM_AGENT_ROUTE_PLAN` (off);
+  - `NEM_AGENT_PLAN_POLICY` (`V1`, read only when the plan is on);
+  - `NEM_AGENT_ROUTE_REASONING_EFFORT` (unset).
+- **Prompts:** `prompts/v17` is new and used only with the plan on. Prompts v1–v16 are kept.
+- **Report `validation`:**
+  - **New keys:** `stopped`, with the refused call's stage and the refusal, and `repair_stopped`.
+  - **`interpretation: "absent"`** is now recorded whenever there is no model answer, not only when there is a
+    computed answer.
+  - **Confirmed-workflow reports** are held to the confirmed requirement.
+
+  A reader that expects a fixed set of `validation` keys should allow these.
+- **Python callers:**
+  - `budget.BudgetExceeded` has `stage` and `result` attributes.
+  - A refused routing call is still raised as `BudgetExceeded`. It now carries its no-answer result (`.result`).
+- **Traces:**
+  - **Routing diagnostics** record the reasoning effort requested and reported (`settings`).
+  - **With the plan on:**
+    - traces carry v16 decisions, with a `plan` and without `as_of_text` or `requested`. The v15 `RouteDecision`
+      reader rejects them, so readers should dispatch on the `plan` key;
+    - `versions.prompt` is `prompts/v17`;
+    - the report's uncertainties gain the controller's labelled interpretation echo.
+- **Frozen evaluations:** their runners refuse this code, because its `src/` tree differs from each freeze, as before.
+  Pull request #81's freeze is unchanged.
+
+### Installation, startup and checks
+
+From a clean checkout of the tag (Linux or Codespaces, Python 3.12 or later). No API key is needed, and no paid call
+is made:
+
+```bash
+make setup                 # .venv with pinned dependencies; prints "nem_agent 2.1.0 python <version>"
+make store-verify          # the approved-bytes index covers every pin (no network)
+make restore-pinned        # repository collaborators: approved publisher bytes, SHA-256 verified (needs GH_TOKEN)
+make data && make index    # data store and document index
+.venv/bin/python -m nem_agent.cli publisher-downloads --expect-none   # the pinned build contacted no publisher
+make lint typecheck test   # 2,491 tests pass; 3 skip without the git-ignored traces
+make eval && make safety   # Replay evaluation and SYNTHETIC safety suite
+make smoke                 # API: /health ("version": "2.1.0", status ok), a validated Replay investigation,
+                           # a 422 for bad input, and a 400 for live without a key
+make app                   # Streamlit on port 8501; make api: FastAPI on port 8000 (docs at /docs)
+```
+
+**Expected:** `data_version` `8c14c217f5570d32` and `corpus_version` `221b6ea0f21e006d`, the same as v2.0.0.
+- **Without the store:** builds download from AEMO and NASA and verify every file. They are not identical, because
+  notices have rolled off NEMWeb.
+
+### Demo
+
+1. **Replay (no key, no paid call):** run `make app` and follow [`docs/demo.md`](docs/demo.md), sections 1–5:
+   - a real historical event, the SA1 price spike of 31 July 2026;
+   - tracing a value to the publisher's bytes;
+   - the causal-bait question "Did low wind cause the spike?";
+   - out-of-scope, ambiguous and poisoned questions;
+   - the evaluation and the approval boundary.
+2. **The experimental confirmed-request workflow:** run `make app` and switch on **"Experimental: confirm the request
+   first"** at the top of the sidebar.
+   - **Without a key** (guided structured input; no model call, no cost):
+     1. Type a question, for example "What was the highest operational demand in Queensland on 29 July 2026?". It is
+        recorded, but no model reads it.
+     2. Answer the questions asked one at a time. Use the choices, or type values such as `29 July 2026`, `18:30` or
+        `17:00-21:00`.
+     3. Check the preview, then press **Confirm and run**. The computed answer is shown first.
+   - **With `OPENAI_API_KEY`** (paid):
+     - **Reading the question:** one routing call.
+     - **Replies:** a typed reply that the parsers cannot read may use one more routing call. A switch on the page
+       turns this off.
+     - **After confirmation:** no model is called.
+   - **Also try:**
+     - "How accurate were the operational demand forecasts for NSW1 on 31 July 2026?": a period comparison;
+     - "What was the weather forecast for Adelaide on 31 July 2026?": shown as not computed, and nothing runs.
+3. **Standard Live (paid):**
+   1. Set `OPENAI_API_KEY`, a ledger file (`NEM_AGENT_BUDGET_LEDGER`) and a task-wide cap
+      (`NEM_AGENT_TOTAL_BUDGET_USD`; the default is USD 5.00).
+   2. Run `make app` and choose the `live` mode. The README section "Optional: live mode" and `docs/demo.md`
+      section 6 describe the per-call, per-question and task-wide limits.
+   3. Optionally, set `NEM_AGENT_ROUTE_REASONING_EFFORT=low` (see limitation 6).
+   4. Expect an investigation to take a minute or two (limitation 5). That is an observation, not a guarantee.
+
+### Release checks on the candidate commit
+
+- **What they are:** the repository's existing offline checks, re-run. They follow CI's sequence in a fresh git
+  worktree, with no API key, a scratch budget ledger and a new virtual environment.
+- **What they are not:**
+  - **a new evaluation:** no case, gold, threshold or protocol was added or changed. The Replay evaluation (`make
+    eval`) is the existing 40-case offline evaluation, re-run;
+  - **a Live run:** no language model was called, and no paid call was made.
+- **The record:** `artifacts/release/v2.1.0/CHECKS.md`. The scope recorded before any change is in
+  `artifacts/release/v2.1.0/SCOPE.md`.
+- **Result:** every step passed on the release code (commit `86f6573`, Python 3.12.3). That commit's `src/` tree is the
+  release candidate's; the candidate adds documentation and this evidence only.
+  - **Replay evaluation:** no non-volatile difference from v2.0.0's output.
+  - **Retrieval evaluation:** every metric as in v2.0.0. One ranked passage differs, which is consistent with the
+    environment; `CHECKS.md` gives the details.
+- **Candidate checks:** the release pull request reports the same checks on its exact head commit, with CI on Python
+  3.12 and 3.14.
+
+### Paid API use
+
+- **The task-wide ledger** stands as previously recorded at v2.0.0: USD 9.336937, 3,226 lines, SHA-256 prefix
+  `f303c2bc70aadd8f`.
+  - **Not re-verified:** it is not available on the machine that prepared this release.
+  - **No replacement** is created.
+- **Since v2.0.0:** the owner's demonstration sessions ran under a separate local demo ledger, which is not part of
+  this repository.
+- **Preparing this release:** no paid call, no Live check and no new evaluation.
+
 ## v2.0.0 (2026-10-04)
 
 The second release records what the system does today, and what the evidence shows, as of `main` `0f02799`

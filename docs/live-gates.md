@@ -1,5 +1,19 @@
 # Live (OpenAI) path: gates L0–L6
 
+> **Current status (v2.1.0, 2026-10-05, prerelease): Live remains experimental.** No Live gate or evaluation was run
+> for this release, and no verdict changes.
+> - **The changes since v2.0.0** are opt-in or labels only:
+>   - opt-in: the request plan (D31), the confirmed-request workflow (D32) and the routing reasoning effort (D33);
+>   - labels only: Live budget stops (D34).
+>
+>   With no new setting switched on, the default Live path is v2.0.0's, apart from those labels.
+> - **Observations only, not gate results:**
+>   - two standard Live TAS1 investigations on 2026-10-05 took about 108 s each;
+>   - one matching routing call at effort `low` took 7.35 s, against 16.06 s and 17.12 s at the provider's default.
+> - **Summary and known limitations:** `RELEASE_NOTES.md`, v2.1.0.
+>
+> The v2.0.0 status note below is kept as it was.
+
 > **Current status (v2.0.0, 2026-10-04): Live is experimental.** This release does not certify Live reliability.
 > It is not an L3 result, and it is not evidence of generalisation.
 > - **L3: not passed.**
