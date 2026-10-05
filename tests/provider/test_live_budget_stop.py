@@ -3,7 +3,8 @@
 - the preflight counts every bounded call of the standard Live investigation at its worst case, before the first paid
   call, and writes nothing to the ledger;
 - a preflight refusal makes no call: the two runs saved on 2026-10-05 (TAS1 ``tr-6e226e92a8bc``, NSW1
-  ``tr-c050b5983be0``) would not have started, and would have spent nothing;
+  ``tr-c050b5983be0``) would not have started, and would have spent nothing. As before, a refusal before anything is
+  sent is raised (``BudgetExceeded``), now with the not-started result to show;
 - a later refusal (another session spending meanwhile) stops the run with no model answer, and says why;
 - neither is shown as a model answer or as a passed validation, on the page or in the report.
 """
@@ -114,7 +115,10 @@ def test_the_saved_runs_would_not_have_started_and_would_have_spent_nothing(name
         budget.settle(budget.reserve("gpt-5-mini", "route", SAVED[name]), SAVED[name], {})
     before = _entries()
     fake = FakeModel(_route(ev), [_required_turn(ev)], _good_report)
-    res = _run(fake)
+    with pytest.raises(budget.BudgetExceeded) as refused:
+        _run(fake)
+    res = refused.value.result
+    assert refused.value.stage == "preflight" and res is not None
     assert fake.requests == [] and res.usage["model_calls"] == 0 and res.records == []
     assert _entries() == before  # the preflight writes nothing
     prov = _no_answer(res, "preflight")
@@ -122,6 +126,19 @@ def test_the_saved_runs_would_not_have_started_and_would_have_spent_nothing(name
     (note,) = res.report.missing_evidence
     assert note.startswith(f"Live run not started: task budget 0.10 USD: {SAVED[name]:.4f} spent or reserved")
     assert res.report.validation["interpretation"].startswith("absent: not started")
+
+
+def test_a_refusal_of_the_routing_call_is_raised_with_its_no_answer_result(ev, monkeypatch):
+    """Past the preflight, another session reserves before this run's routing call: that call is refused before it
+    is sent, raised as before, with its result: nothing sent, and no model answer."""
+    another_session_before(monkeypatch, 1)
+    fake = FakeModel(_route(ev), [_required_turn(ev)], _good_report)
+    with pytest.raises(budget.BudgetExceeded) as refused:
+        _run(fake)
+    assert refused.value.stage == "route" and fake.requests == []
+    prov = _no_answer(refused.value.result, "route")
+    assert "stopped at a budget limit before the model wrote an answer" in prov["label"]
+    assert refused.value.result.report.headline.startswith("Not started: a budget limit refused the routing call")
 
 
 def test_a_later_refusal_before_synthesis_stops_with_no_model_answer(ev, monkeypatch):

@@ -142,6 +142,7 @@ Measured with gpt-5-mini over 58 complete real-API question runs ([`docs/live-ga
   - The next call is refused, fail-closed, before it is sent.
 - **Preflight (D34):** before the first paid call, a standard Live investigation must fit its bounded worst case
   under the cap, with everything already spent or reserved counted. Otherwise it is not started, and no call is made.
+  The refusal is raised, as before, and the page shows it.
   - **What it counts:** the routing request (known exactly), plus every call the workflow allows at its output cap:
     5 tool turns, synthesis and the 1 repair. This is about USD 0.15 with gpt-5-mini.
   - **What it leaves out:** the input of later calls, which depends on what the tools return. Each call's own

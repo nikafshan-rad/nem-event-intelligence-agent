@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from nem_agent import paths
 from nem_agent.agent.request import InvestigateRequest
 from nem_agent.approvals import CaseNoteStore, note_content_from_report
+from nem_agent.budget import BudgetExceeded
 from nem_agent.selection import load_selection
 from nem_agent.timeutil import REGION_TZ, local_str, parse_iso, region_zone
 from nem_agent.ui_data import (
@@ -108,7 +109,12 @@ if run:
         st.error(f"Invalid request: {exc}")
         st.stop()
     with st.spinner("Running tools, retrieval and validation..."):
-        st.session_state["result"] = investigate(req)
+        try:
+            st.session_state["result"] = investigate(req)
+        except BudgetExceeded as exc:  # D34: refused before any call: shown as a budget stop, with no answer
+            if exc.result is None:
+                raise
+            st.session_state["result"] = exc.result
 
 res = st.session_state.get("result")
 if res is None:

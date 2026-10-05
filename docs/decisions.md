@@ -1897,7 +1897,12 @@ validated model answers.
 
 **Decision 2 (preflight):** before the routing call, `LiveController.preflight` requires that what is already spent or
 reserved, plus the investigation's bounded worst case, fit under the task-wide cap. Otherwise the investigation is not
-started (`service._not_started`): no model call, an abstained report, and the refusal shown.
+started: no model call, an abstained report, and the refusal shown.
+- **As before, a refusal before anything is sent is raised** (`BudgetExceeded`). That covers the preflight, and a
+  routing call refused by its own reservation. The evaluation runners and `scripts/live_diagnose.py` stop on that
+  exception and read it as a budget stop. It now carries the not-started result (`service._not_started`), which the
+  page shows.
+- **A refusal after routing:** still ends in the abstained report, as before.
 - **Accounting:** in the ledger's own terms (`budget.worst_case_cost`: input characters / 2 at the input price, plus
   the output cap at the output price):
   - **route:** 1 call, its request counted exactly (12,274 characters with contract v15: USD 0.0055);
@@ -1930,7 +1935,10 @@ fresh ledger (0.1495 > 0.10), so it is refused without spending.
 **Tests:** fake transport and scratch ledgers only (`tests/provider/test_live_budget_stop.py`):
 - **The preflight's accounting:** checked, and the preflight writes nothing.
 - **The two saved runs, and a fresh ledger under the same cap:** refused with zero calls.
+- **A routing call refused by its own reservation:** raised with its no-answer result.
 - **Later refusals:** before synthesis, and of the reminder tool turn, each with no model answer and the reason shown.
+- **The live check's runner test** (`tests/eval/test_live_check_dev2.py`): a case cap below the bounded worst case is
+  now refused before the first call, and a later refusal is still refused, not sent and read as a budget stop.
 - **A refused repair:** not reported as attempted.
 - **The schema-invalid case:** shown as no valid answer.
 - **The page's banner and validation tile.**

@@ -29,9 +29,11 @@ from . import config, paths
 
 class BudgetExceeded(RuntimeError):
     """A model call, or (at the preflight) a whole Live investigation, that a cap does not allow. ``stage``: the
-    model-call stage refused, or ``preflight`` before any call (set by the live controller, D34)."""
+    model-call stage refused, or ``preflight`` before any call (set by the live controller, D34). ``result``: for an
+    investigation refused before anything was sent, the not-started result to show (``service.investigate``)."""
 
     stage: str | None = None
+    result: Any = None
 
 
 def ledger_path() -> Path:
