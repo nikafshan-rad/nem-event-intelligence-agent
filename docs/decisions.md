@@ -1968,23 +1968,33 @@ validated model answers.
     as retrieved before the failure. The error propagates as before.
 - **A new investigation** clears the earlier result at once, its charts included, and the earlier result never
   reappears after it.
-- **A click while a run is underway** (a Streamlit rerun or stop request) takes effect once the run ends, after its
-  result is kept. This is as before, so a click never cuts short a run that has already spent.
-  - **Why this is needed:** Streamlit raises such a request at the script's next Streamlit command.
-    - **Without the panel,** the script issues no command while the investigation runs, so the request waits until
-      the run ends.
-    - **The panel** issues commands between stages. Raised there and left alone, a request would end the
-      investigation at that stage boundary. Every call already sent would be settled and no reservation left open,
-      but the trace would not be written and no result kept for what was spent.
-  - **How it is kept:** the request is recognised as an exception that derives from `BaseException` but not from
-    `Exception`, which is how Streamlit raises it. No Streamlit internals are imported. It is kept until the result
-    is stored (`live_progress.LiveProgress._kept`), then raised (`resume`).
+- **A click while a run is underway** (a Streamlit rerun or stop request) never cuts the investigation short.
+  - **The mechanism:** Streamlit raises such a request at the script's next yield point, which is a Streamlit command
+    or a session-state read or write.
+    - **The investigation** has no yield point, so it always completes.
+    - **The panel's updates and the result's storing** are yield points.
+    - **A model call in flight** is never interrupted. Panel updates happen only between calls: before a call's
+      reservation, or after its settlement.
+  - **How it is kept:** only Streamlit's own requests are kept. They are recognised as a `BaseException` that is
+    not an `Exception` and whose class Streamlit defines (`live_progress.is_streamlit_request`). No Streamlit
+    internals are imported.
+    - A kept request is held during the run (`LiveProgress._kept`) and raised once the result is stored (`resume`).
     - **Errors** (`Exception`) go to the controller, which drops the callback and records it once.
-    - **`KeyboardInterrupt`, `SystemExit` and `GeneratorExit`** are never kept.
-    - **If Streamlit ever raised such a request as an `Exception`,** the controller would drop the panel and record
-      it, and the run would go on unchanged. Only the click would be lost.
-  - **A model call in flight** is never interrupted. Panel updates happen only between calls: before a call's
-    reservation, or after its settlement.
+    - **Any other `BaseException`** propagates as it would without the panel: an interrupt, an exit, or one from
+      other code.
+  - **Storing the result** (`LiveProgress.store`): writing session state is itself a yield point, so a request still
+    pending is raised by the write, before the write is made.
+    - **A rerun request** is consumed when raised. It is kept and the write is made again.
+    - **A stop request** stays raised at every yield point, so the result cannot be kept in the session.
+  - **Measured with Streamlit 1.64 and the fake transport** (`test_a_click_during_a_live_run`): a request was queued
+    as a click queues one, mid-run or while the trace was written.
+    - **In every case:** the investigation completed once, all four reservations settled, the trace was saved before
+      the request was raised, and no model or tool call repeated.
+    - **A rerun:** the result was kept and shown.
+    - **A stop:** the result was not kept.
+    - **On `main` (`2e35845`), the same experiment:** the investigation also completed once with everything settled
+      and the trace saved. But no click's result was kept: the request was raised at the result's storing, before
+      the write. The panel therefore keeps a rerun click's result that `main` loses, and changes nothing for a stop.
 
 **Unchanged:**
 - model calls, prompts, settings, budgets and caps;
@@ -2003,7 +2013,8 @@ validated model answers.
 - the page: the stages and the finished result; a failure after an earlier answer (the charts kept and labelled,
   no model text, the earlier result cleared); a budget stop; Replay with no panel.
 - the panel's own logic, with a stand-in for Streamlit:
-  - a simulated rerun request mid-run is kept: the run is identical and the request is raised afterwards;
-  - an interrupt is never kept, and it leaves no reservation open;
+  - an unrelated `BaseException` and an interrupt propagate, leaving no reservation open;
   - the demand chart's title at each stage and after a failure;
   - the finished page's title is unchanged.
+- Streamlit's own request classes are recognised and nothing else is (checked against the pinned classes);
+- a real click with the pinned Streamlit: a rerun or stop request, mid-run or at the end (above).

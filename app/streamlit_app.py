@@ -126,7 +126,7 @@ with area:
             except Exception as exc:
                 progress.fail(exc)
                 raise
-            st.session_state["result"] = result
+            progress.store("result", result)  # a request pending at this write is kept (D36)
             progress.finish(result)
             progress.resume()
         else:

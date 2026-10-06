@@ -368,9 +368,8 @@ class _Slot(_Block):
         self.st.drawn.append(("cleared", None))
 
 
-class Request(BaseException):
-    """Stands in for Streamlit's rerun or stop request: a BaseException that is not an Exception, raised by the next
-    Streamlit command after a click."""
+class Unrelated(BaseException):
+    """A BaseException that is not an Exception and not Streamlit's: it must never be taken for a click."""
 
 
 @pytest.fixture
@@ -397,35 +396,126 @@ def _raising_after(p: Any, exc: BaseException, stage: str = "tool_results") -> N
     p._update = update
 
 
-def test_a_click_during_the_run_is_kept_until_the_result_is_stored(ev, panel):
-    """No internal Streamlit import: the request is recognised by what it is, a BaseException that is not an Exception.
-    The run goes on unchanged, and the request is raised by ``resume``, after the page keeps the result."""
-    live_progress, st = panel
-    p = live_progress.LiveProgress()
-    _raising_after(p, Request())
-    a_fake, b_fake = _fake(ev), _fake(ev)
-    a, b = _run(a_fake), _run(b_fake, p)
-    assert _outcome(a_fake, a) == _outcome(b_fake, b)  # not cut short: every call made, the same report
-    assert isinstance(p.deferred, Request)
-    assert not [e for e in b.trace.events if e["kind"] == "progress"]  # not a display failure
-    assert any(k == "status" and "Final validation" in v for k, v in st.drawn)  # the panel went on
-    with pytest.raises(Request):
-        p.resume()
+def test_only_streamlit_requests_are_taken_for_a_click():
+    """Checked against the pinned Streamlit's own classes (imported here, in the test only; the app imports none)."""
+    import sys
+
+    from streamlit.runtime.scriptrunner_utils.exceptions import RerunException, StopException
+
+    sys.path.insert(0, str(ROOT / "app"))
+    from live_progress import is_streamlit_request
+
+    assert is_streamlit_request(RerunException(None)) and is_streamlit_request(StopException())
+    for other in (Unrelated(), KeyboardInterrupt(), SystemExit(), GeneratorExit(), RuntimeError("x")):
+        assert not is_streamlit_request(other)
 
 
-def test_an_interrupt_is_never_kept_and_leaves_no_reservation_open(ev, panel):
-    """An interrupt between stages ends the run there: every call sent has settled its reservation."""
+@pytest.mark.parametrize("exc", [Unrelated(), KeyboardInterrupt()], ids=["unrelated BaseException", "interrupt"])
+def test_an_unrelated_base_exception_propagates_and_leaves_no_reservation_open(exc, ev, panel):
+    """Not a click: it ends the run at that stage boundary, as it would without the panel. Every call sent has settled."""
     from nem_agent import budget
 
     live_progress, _ = panel
     p = live_progress.LiveProgress()
-    _raising_after(p, KeyboardInterrupt())
+    _raising_after(p, exc)
     fake = _fake(ev)
-    with pytest.raises(KeyboardInterrupt):
+    with pytest.raises(type(exc)):
         _run(fake, p)
     assert _kinds(fake) == ["RouteDecision", "tools"] and p.deferred is None
     rows = [json.loads(x) for x in budget.ledger_path().read_text().splitlines()]
     assert {r["id"] for r in rows if r["kind"] == "reserve"} == {r["id"] for r in rows if r["kind"] == "settle"}
+
+
+# -- a real click during a run, with the pinned Streamlit (the app page, fake transport) -----------------------------
+@pytest.mark.parametrize("command,when", [("rerun", "mid-run"), ("rerun", "at the end"), ("stop", "mid-run"),
+                                          ("stop", "at the end")])
+def test_a_click_during_a_live_run(command, when, ev, monkeypatch, tmp_path):
+    """A click while the script runs queues a rerun or stop request, which Streamlit raises at the next yield point.
+    It is queued here exactly so (``ScriptRequests``, in this test only): mid-run, during the first tool-choosing call
+    (the next yield point is a panel update), or at the very end, while the trace is written (the next yield point is
+    the result's storing).
+
+    In every case the investigation completes once, every reservation is settled, the trace is saved before the
+    request is raised, and no model or tool call repeats. A rerun request is honoured after the result is kept, so the
+    result is shown. A stop request stays raised at every yield point, and storing session state is one, so the
+    result cannot be kept in the session: as on ``main``, where no click result is kept at all."""
+    import sys
+
+    from streamlit.runtime.scriptrunner_utils.script_requests import RerunData
+    from streamlit.runtime.scriptrunner_utils.script_run_context import get_script_run_ctx
+    from streamlit.testing.v1 import AppTest
+
+    import nem_agent.paths as paths
+    import nem_agent.service as service
+    import nem_agent.trace as trace_module
+    from nem_agent import budget
+
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-not-a-key")  # presence only: the model is a scripted fake
+    monkeypatch.setattr(paths, "artifacts_dir", lambda: tmp_path)  # traces go to the test's own folder
+    monkeypatch.syspath_prepend(str(ROOT / "app"))
+    sys.modules.pop("live_progress", None)
+    import live_progress
+
+    queued: list[list[str]] = []
+
+    def click() -> None:
+        requests = get_script_run_ctx().script_requests
+        requests.request_rerun(RerunData()) if command == "rerun" else requests.request_stop()
+
+    class ClickDuringToolChoice(FakeModel):
+        def create(self, **kw: Any) -> dict[str, Any]:
+            if when == "mid-run" and not queued and not (kw.get("text") or {}).get("format"):
+                queued.append(_kinds(self))
+                click()
+            return super().create(**kw)
+
+    write = trace_module.Trace.write
+
+    def click_while_the_trace_is_written(self: Any, directory: Any = None) -> Any:
+        if when == "at the end" and not queued:
+            queued.append(_kinds(fake))
+            click()
+        return write(self, directory)
+
+    fake = ClickDuringToolChoice(_route(ev), [_required_turn(ev)], _good_report)
+    real, runs, seen = service.investigate, [], {}
+
+    def investigate(req: Any, **kw: Any) -> Any:
+        runs.append(1)
+        return real(req, live_client=fake, write_trace=True, **kw)
+
+    resume = live_progress.LiveProgress.resume
+
+    def resume_observed(self: Any) -> None:  # the moment the kept request is raised
+        rows = [json.loads(x) for x in budget.ledger_path().read_text().splitlines()]
+        seen.update(request=type(self.deferred).__name__, sent=_kinds(fake),
+                    traces=sorted(t.name for t in (tmp_path / "traces").glob("tr-*.json")),
+                    reserved={r["id"] for r in rows if r["kind"] == "reserve"},
+                    settled={r["id"] for r in rows if r["kind"] == "settle"})
+        resume(self)
+
+    monkeypatch.setattr(trace_module.Trace, "write", click_while_the_trace_is_written)
+    monkeypatch.setattr(service, "investigate", investigate)
+    monkeypatch.setattr(live_progress.LiveProgress, "resume", resume_observed)
+    at = AppTest.from_file(str(ROOT / "app" / "streamlit_app.py"), default_timeout=180)
+    at.run()
+    at.sidebar.radio[0].set_value("live").run()
+    _investigate(at)
+    kept, shown = "result" in at.session_state, any("answer written" in s.value for s in at.success)
+    at.run()  # the page again, after the request: nothing runs again
+    assert not at.exception and runs == [1]
+    assert queued == [["RouteDecision"] if when == "mid-run" else ["RouteDecision", "tools", "tools", "ModelReport"]]
+    assert seen["request"] == {"rerun": "RerunException", "stop": "StopException"}[command]
+    assert seen["sent"] == _kinds(fake) == ["RouteDecision", "tools", "tools", "ModelReport"]  # once each
+    assert seen["reserved"] == seen["settled"] and len(seen["reserved"]) == 4  # every call settled, none open
+    assert len(seen["traces"]) == 1  # saved before the request was raised
+    tools = [e["name"] for e in json.loads((tmp_path / "traces" / seen["traces"][0]).read_text())["events"]
+             if e["kind"] == "tool"]
+    assert len(tools) == len(set(tools)) == 4  # no tool call repeated
+    if command == "rerun":
+        assert kept and shown and any("answer written" in s.value for s in at.success)
+    else:  # a stop: the request is honoured; the session cannot keep the result
+        assert not kept and "result" not in at.session_state
 
 
 def test_the_demand_chart_title_says_what_is_known_at_each_stage(ev, panel):

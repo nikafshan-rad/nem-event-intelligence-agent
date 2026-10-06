@@ -5,13 +5,19 @@ and demand charts from the tool results so far: only successful results that mat
 cutoff, labelled as retrieved data from the pinned snapshot, never as an answer. It shows no model text: the answer
 appears only once the run is finalized, on the page below. This shortens the blank wait; it does not shorten the run.
 
-**Clicks during a run.** Streamlit asks a running script to rerun or stop by raising, at the script's next Streamlit
-command, an exception that derives from ``BaseException`` but not from ``Exception``. Without the panel the script
-issues no command while the investigation runs, so a click takes effect only when it ends. The panel issues commands
-between stages, so it keeps such a request (``_kept``) and raises it once the result is stored (``resume``): the run is
-never cut short, as before. No Streamlit internals are imported. Errors (``Exception``) are not kept: the controller
-drops a failing callback and records it once. Interrupts and exits (``KeyboardInterrupt``, ``SystemExit``,
-``GeneratorExit``) are never kept.
+**Clicks during a run.** Streamlit asks a running script to rerun or stop by raising, at the script's next yield point
+(a Streamlit command, or a session-state read or write), an exception that Streamlit defines, deriving from
+``BaseException`` but not from ``Exception``. The investigation itself has no yield point, so a click never cuts it
+short; the panel's updates and the result's storing are yield points.
+- **Kept:** the panel keeps such a request (``_kept``) and raises it once the result is stored (``resume``). Only such a
+  request is kept (``is_streamlit_request``: recognised by where its class is defined, with no Streamlit internals
+  imported).
+- **Everything else propagates:** errors (``Exception``) go to the controller, which drops a failing callback and
+  records it once; any other ``BaseException`` (an interrupt, an exit, or one from other code) ends the run as it
+  would without the panel.
+- **Storing the result** (``store``): a rerun request still pending is raised by the write itself, before it is made;
+  it is kept and the write made again. A stop request stays raised at every yield point, so after one the result
+  cannot be kept in the session, as without the panel. The run's trace is already saved.
 """
 
 from __future__ import annotations
@@ -46,7 +52,11 @@ STAGES = {"routing": "Reading the question (routing call)",
 NO_FORECAST_YET = "no forecast retrieved so far"
 NO_FORECAST_DONE = "no forecast runs were retrieved"
 NO_FORECAST_FAILED = "no forecast runs were retrieved before the run failed"
-_NEVER_KEPT = (KeyboardInterrupt, SystemExit, GeneratorExit)
+
+
+def is_streamlit_request(exc: BaseException) -> bool:
+    """Streamlit's rerun or stop request: a ``BaseException``, not an ``Exception``, whose class Streamlit defines."""
+    return not isinstance(exc, Exception) and type(exc).__module__.partition(".")[0] == "streamlit"
 
 
 def _md(text: str) -> str:
@@ -79,10 +89,10 @@ class LiveProgress:
         """Keep a rerun or stop request raised by a Streamlit command in the block; let everything else through."""
         try:
             yield
-        except (Exception, *_NEVER_KEPT):
-            raise
-        except BaseException as request:  # Streamlit's rerun or stop request: honoured by ``resume``
-            self.deferred = self.deferred or request
+        except BaseException as exc:
+            if not is_streamlit_request(exc):
+                raise
+            self.deferred = self.deferred or exc  # honoured by ``resume`` once the result is stored
 
     # -- the callback ------------------------------------------------------------------------------------------------
     def __call__(self, ev: Progress) -> None:
@@ -158,6 +168,17 @@ class LiveProgress:
                 self._draw(EARLY_DATA_FAILED)
             except Exception:  # the outcome above stands; the run's own error is what propagates
                 self.data_slot.empty()
+
+    def store(self, key: str, value: Any) -> bool:
+        """Keep ``value`` in session state for the page. Writing session state is itself a Streamlit yield point, so a
+        request still pending is raised there, before the write is made. A rerun request is consumed when raised: it
+        is kept and the write made again. A stop request stays raised at every yield point, so after one nothing more
+        can be kept (False), as without the panel; the run's trace is already saved."""
+        for _ in range(2):
+            with self._kept():
+                st.session_state[key] = value
+                return True
+        return False
 
     def resume(self) -> None:
         """A rerun or stop asked for during the run takes effect now, after the result is kept."""
