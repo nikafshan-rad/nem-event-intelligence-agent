@@ -137,6 +137,22 @@ Measured with gpt-5-mini over 58 complete real-API question runs ([`docs/live-ga
 - it takes 4–7 model calls, 10k–113k input and 6k–17k output tokens, and 1–4 minutes;
 - a refusal or clarification stops after one routing call, about USD 0.001.
 
+**While a Live investigation runs (D36),** the page shows progress. This shortens the blank wait; it does not shorten
+the run.
+- **The current stage and the elapsed time:** reading the question, choosing and running tools, writing the answer,
+  checking, repairing, final validation. The time is updated at each stage, not continuously.
+- **Early charts:** the existing price and demand charts, drawn as the tools return. They use only successful
+  results for the resolved region and cutoff, over the resolved window or part of it. They are labelled as
+  retrieved data from the pinned snapshot, not a validated model answer or a verified analytical result. Partial
+  coverage and data limitations are noted.
+- **No model text** is shown until the run is finalized.
+- **The outcome:**
+  - **a finished run:** the result is shown below as before;
+  - **a failure:** the charts stay, labelled as retrieved before the run failed, with no answer;
+  - **a budget stop:** its outcome is stated.
+
+A new investigation clears the earlier one at once.
+
 **Cost controls** (all enforced in code, before each call):
 - **Task-wide ledger** (`nem_agent/budget.py`): every model call reserves its worst case (input characters ÷ 2 at
   the input price, plus the stage's `max_output_tokens` at the output price) against a cap shared by all processes.

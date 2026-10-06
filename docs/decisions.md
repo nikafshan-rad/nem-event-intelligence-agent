@@ -1921,3 +1921,100 @@ validated model answers.
 - **Per-call enforcement:** the existing tests (`tests/provider/test_live_loop.py`, `tests/eval/test_live_check_dev2.py`)
   run unchanged.
 
+
+
+## D36. Standard Live: incremental progress and early data charts (2026-10-06)
+
+**Why:** a standard Live investigation showed one spinner until it ended.
+- **The wait:** in the two TAS1 runs of 2026-10-05, the page was blank for about 108 s (`tr-8b3de6e4d9e7`: 108.8 s;
+  `tr-c96b581ba88c`: 108.0 s).
+- **The data:** the price and demand tool results, which are the charts' only inputs, existed at 22.5 s and 20.4 s.
+
+**Decision (approved 2026-10-06; display only):**
+- **The callback:** `service.investigate` takes an optional `progress` callback (`nem_agent.progress`), for Live
+  only.
+  - **When it is told:** as each stage starts: routing; the resolved request; each tool-choosing turn; the tool
+    results after each turn and before synthesis; synthesis; the validator's check; the repair; the final
+    validation.
+  - **What it gets:** the resolved region, window and cutoff, and a snapshot of the tool records. Never model text.
+  - **Not affected:** Replay and the API, which pass no callback.
+- **A failing callback:** it is dropped after its first failure, and the trace records it once
+  (`progress:callback_failed`). The run goes on exactly as without it: no retry, and no repeated tool or model call.
+- **The page:** a status panel for standard Live.
+  - **The current stage and the elapsed time:** updated at each stage, not continuously.
+  - **Early charts:** the existing `frames`, `price_chart` and `demand_chart`, drawn as the tools return, from
+    successful results that match the resolved request (`ui_data.early_chart_records`):
+    - the same region;
+    - the same cutoff (none, or the same instant);
+    - a window inside the resolved window.
+  - **Their label:** retrieved data from the pinned snapshot, not a validated model answer or a verified analytical
+    result.
+  - **Their notes** (`ui_data.early_chart_notes`):
+    - the intervals of the resolved window that the drawn series hold, when not all;
+    - the intervals a cutoff left out;
+    - what the drawn results report missing;
+    - a chart retrieval that returned no data, or was made for another region, window or cutoff.
+  - **The demand chart's title** says only what is known at its stage when no forecast line is drawn:
+    - "no forecast retrieved so far" while tools may still run;
+    - "no forecast runs were retrieved" once the last tool has run, before synthesis;
+    - "... before the run failed" after a failure.
+
+    The finished page keeps its title, the default of `demand_chart(no_forecast=...)`.
+  - **No model text** before the run is finalized.
+- **The outcome:**
+  - **A result:** an answer, a fallback, a budget stop or a clarification. Its own provenance label becomes the
+    panel's label. The early charts go, and the finished result below draws its own as before.
+  - **A failure:** the panel says the run failed and that no answer was produced. The early charts stay, relabelled
+    as retrieved before the failure. The error propagates as before.
+- **A new investigation** clears the earlier result at once, its charts included, and the earlier result never
+  reappears after it.
+- **A click while a run is underway** (a Streamlit rerun or stop request) never cuts the investigation short.
+  - **The mechanism:** Streamlit raises such a request at the script's next yield point, which is a Streamlit command
+    or a session-state read or write.
+    - **The investigation** has no yield point, so it always completes.
+    - **The panel's updates and the result's storing** are yield points.
+    - **A model call in flight** is never interrupted. Panel updates happen only between calls: before a call's
+      reservation, or after its settlement.
+  - **How it is kept:** only Streamlit's own requests are kept. They are recognised as a `BaseException` that is
+    not an `Exception` and whose class Streamlit defines (`live_progress.is_streamlit_request`). No Streamlit
+    internals are imported.
+    - A kept request is held during the run (`LiveProgress._kept`) and raised once the result is stored (`resume`).
+    - **Errors** (`Exception`) go to the controller, which drops the callback and records it once.
+    - **Any other `BaseException`** propagates as it would without the panel: an interrupt, an exit, or one from
+      other code.
+  - **Storing the result** (`LiveProgress.store`): writing session state is itself a yield point, so a request still
+    pending is raised by the write, before the write is made.
+    - **A rerun request** is consumed when raised. It is kept and the write is made again.
+    - **A stop request** stays raised at every yield point, so the result cannot be kept in the session.
+  - **Measured with Streamlit 1.64 and the fake transport** (`test_a_click_during_a_live_run`): a request was queued
+    as a click queues one, mid-run or while the trace was written.
+    - **In every case:** the investigation completed once, all four reservations settled, the trace was saved before
+      the request was raised, and no model or tool call repeated.
+    - **A rerun:** the result was kept and shown.
+    - **A stop:** the result was not kept.
+    - **On `main` (`2e35845`), the same experiment:** the investigation also completed once with everything settled
+      and the trace saved. But no click's result was kept: the request was raised at the result's storing, before
+      the write. The panel therefore keeps a rerun click's result that `main` loses, and changes nothing for a stop.
+
+**Unchanged:**
+- model calls, prompts, settings, budgets and caps;
+- validation and the final report;
+- Replay, the API and the confirmed-request workflow;
+- the finished page.
+
+**Not claimed:** any reduction of total latency. This shortens the blank wait only.
+
+**Tests:** fake transport and scratch ledgers only (`tests/provider/test_live_progress.py`):
+- the stage order;
+- the chart data present before the synthesis call is sent;
+- an identical run without a callback, and with one that fails at any of four stages;
+- the repair stage, and a budget stop before synthesis;
+- the matching and coverage rules;
+- the page: the stages and the finished result; a failure after an earlier answer (the charts kept and labelled,
+  no model text, the earlier result cleared); a budget stop; Replay with no panel.
+- the panel's own logic, with a stand-in for Streamlit:
+  - an unrelated `BaseException` and an interrupt propagate, leaving no reservation open;
+  - the demand chart's title at each stage and after a failure;
+  - the finished page's title is unchanged.
+- Streamlit's own request classes are recognised and nothing else is (checked against the pinned classes);
+- a real click with the pinned Streamlit: a rerun or stop request, mid-run or at the end (above).
