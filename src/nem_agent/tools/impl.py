@@ -633,10 +633,17 @@ def get_generation_change(ctx: ToolContext, a: A.GenerationChangeArgs) -> ToolOu
                               region=a.region, valid_at_utc=_ts(last["interval_end_utc"]), interval_minutes=5,
                               source_row_ids=[last["row_id"]], source_urls=[last["source_url"]], tool_call_id=ctx.call_id,
                               label=f"{duid} SCADA MW (reading at start of interval)")
+        # D38: the label shown with the observation names the unit, the period and what the number is (it was the bare
+        # derivation, "ev0923 - ev0922", with the time of the period's end only)
         ch = ctx.registry.add(evidence_class="derived", metric="scada_change_mw", value=round(last["scada_mw"] - first["scada_mw"], 2),
                               unit="MW", region=a.region, valid_at_utc=_ts(last["interval_end_utc"]), interval_minutes=None,
                               source_row_ids=[first["row_id"], last["row_id"]], source_urls=[], tool_call_id=ctx.call_id,
-                              derivation=f"{e2.evidence_id} - {e1.evidence_id}")
+                              derivation=f"{e2.evidence_id} - {e1.evidence_id}",
+                              label=f"{duid}{'' if first['stationid'] in (None, duid) else ' (' + first['stationid'] + ')'} "
+                                    "SCADA MW change between the readings for the intervals ending "
+                                    f"{local_str(first['interval_end_utc'], a.region)} and "
+                                    f"{local_str(last['interval_end_utc'], a.region)}: the end reading minus the start "
+                                    "reading; it does not show when the change occurred or what caused it")
         units.append({"duid": duid, "station": first["stationid"], "dispatchtype": first["dispatchtype"],
                       "start": {"interval_end_utc": _ts(first["interval_end_utc"]), "mw": first["scada_mw"], "evidence_id": e1.evidence_id},
                       "end": {"interval_end_utc": _ts(last["interval_end_utc"]), "mw": last["scada_mw"], "evidence_id": e2.evidence_id},
@@ -645,7 +652,10 @@ def get_generation_change(ctx: ToolContext, a: A.GenerationChangeArgs) -> ToolOu
     view = {"region": a.region, "window_utc": [a.start_utc, a.end_utc], "as_of_utc": a.as_of_utc, "n_units_observed": len(by),
             "excluded_not_yet_available_at_as_of": excluded, "largest_changes": units,
             "caveat": "Descriptive SCADA observations only. A change in output does not by itself show an outage, "
-                      "a bidding decision or a cause of the price; SCADAVALUE is an instantaneous reading at interval start."}
+                      "a bidding decision or a cause of the price; SCADAVALUE is an instantaneous reading at interval start. "
+                      "Each change_mw is the end reading minus the start reading for the period: it does not show when "
+                      "within the period the output changed, or what caused it. min_mw_in_window and max_mw_in_window "
+                      "are the range of readings in the period, without their times."}
     return ToolOutput("ok", view, source_row_ids=[u["start"]["evidence_id"] for u in units])
 
 

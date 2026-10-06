@@ -153,6 +153,26 @@ the run.
 
 A new investigation clears the earlier one at once.
 
+**Reporting each part of the question (D38):** every Live synthesis, and the repair that continues it, gets one
+instruction after its synthesis prompt (`prompts/additions/requested_areas_v1.md`):
+- address each part of the question with a factual observation and the period it covers, or say in missing evidence
+  that the part was not answered;
+- keep observations out of the explanations.
+
+The effective synthesis and repair instructions therefore change, although the versioned prompt files keep their
+bytes. Reports keep the base version (`versions.prompt`, "prompts/v16"), and the base and the addition are recorded in
+`source_manifest.synthesis_instructions` and on each synthesis and repair call in the trace.
+
+Generation changes are labelled with their unit, station and the two readings' intervals: the end reading minus the
+start reading. Neither the label nor the tool's caveat claims when the change occurred or what caused it. The labels
+also change how Replay reports show these observations.
+
+**Limits:**
+- **Model judgement:** no structured request field names the areas a question asks about, so whether each part is
+  answered is the model's judgement; code does not check it.
+- **Full repairs:** a full repair rewrites the whole report and may still omit an observation.
+- **Untested:** the effect on reporting quality or latency has not been measured with a real model.
+
 **Cost controls** (all enforced in code, before each call):
 - **Task-wide ledger** (`nem_agent/budget.py`): every model call reserves its worst case (input characters ÷ 2 at
   the input price, plus the stage's `max_output_tokens` at the output price) against a cap shared by all processes.

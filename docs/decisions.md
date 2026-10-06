@@ -2018,3 +2018,80 @@ validated model answers.
   - the finished page's title is unchanged.
 - Streamlit's own request classes are recognised and nothing else is (checked against the pinned classes);
 - a real click with the pinned Streamlit: a rerun or stop request, mid-run or at the end (above).
+
+## D38. Reporting each part of the question; labelled generation changes (2026-10-06)
+
+**Why:** an offline diagnosis of the seven saved reports from the two trials of the paused, unmerged DONE variant (PR
+#92, D37). They covered both arms, on one TAS1 question asking how price, operational demand and generation moved. The tool outputs synthesis received were rebuilt from the
+recorded calls, and each was verified against its saved length and prefix.
+- **Price:** answered in all seven.
+- **Demand:** the level was given in all seven. Its movement (the window's maximum) was missing in three runs, all with
+  the setting off.
+- **Generation:** two reports never stated it as an observation; it appeared only as an explanation's support (one
+  OFF, one ON). In a third, a scoped repair rewrote the sentence without its values. These are shared reporting
+  failures, not specific to either arm.
+- **Labels:** every generation change was shown with the label "evB - evA" and the time of its period's end only.
+
+**Can code tell which parts a question asks about?** No, so this stays a prompt-level limitation:
+- the structured request fields (route contract v15) name a forecast run, a demand maximum with its measure, a forecast
+  operation and its scope, and an as-of cutoff;
+- the opt-in request plan (contract v16) names only forecast and demand-peak operations;
+- `requested_measures` matches demand-measure names in the question text.
+
+None names the quantities whose movement is asked about (price, demand or generation), and the routing architecture
+is not extended.
+
+**Decision (approved 2026-10-06; offline; separate from the DONE variant, which stays paused and off):**
+- **Generation-change label** (`get_generation_change`): each `scada_change_mw` item is labelled with its unit (and
+  station, when it differs), the local interval ends of the two readings, and what the number is: "the end reading
+  minus the start reading; it does not show when the change occurred or what caused it".
+- **The tool's caveat**, which the model reads, keeps its sentence and adds the same basis. It also adds that
+  `min_mw_in_window` and `max_mw_in_window` are the range of readings in the period, without their times. Values,
+  evidence and times are unchanged.
+- **One synthesis instruction, added by the controller** (`prompts/additions/requested_areas_v1.md`), after the
+  synthesis prompt of every Live synthesis, whatever the prompt version: v16 by default, v17 under the opt-in request
+  plan. Repair sees it in the same conversation. The section is "What the question asks": address each part of the
+  question with a factual observation from a tool result and the period it covers, or say in missing evidence that the
+  part was not answered; state observations in the summary, not only inside explanations.
+  - **The effective instructions change.** Synthesis and repair now read the base synthesis prompt plus this
+    addition, although the versioned prompt files keep their bytes.
+  - **Recorded:**
+    - `versions.prompt` keeps the base version ("prompts/v16");
+    - each report's `source_manifest.synthesis_instructions` gives the base, the addition (`requested_areas_v1`) and
+      the stages that read them (synthesis and repair);
+    - each synthesis and repair call in the trace carries the same record (`synthesis_instructions`).
+  - **Why the versioned prompt files are untouched:** `config.PROMPT_VERSION` stays "prompts/v16", and the v16 and v17
+    files keep their bytes. Frozen material pins them: the route-v15 live check hashes
+    `tests/provider/test_forecast_domain.py` and `tests/provider/test_forecast_request.py`. Those tests assert that
+    v16 is the default and that v16's synthesis prompt is byte-identical to v15's. So neither a new prompt version nor
+    an edit in place is possible without changing frozen material.
+- **Not done:**
+  - numeric explanation support is not promoted into observations;
+  - no tool is assumed to have been requested because it was used;
+  - there is no phrase rule, and no check claiming that each part is answered.
+
+**Default-path changes (every Live run; Replay where noted):**
+- the synthesis and repair instructions (the addition after the synthesis prompt);
+- the generation tool's caveat text, in the model's input when that tool runs. Its original sentence is kept, and two
+  sentences are added;
+- `source_manifest.synthesis_instructions` in every Live report, and `synthesis_instructions` on each synthesis and
+  repair call in the trace;
+- the label of every generation-change observation. This also changes how Replay reports show them.
+
+Tool records, the sequence of trace events, statuses, evidence values, `versions.prompt`, validation checks and
+severities, the model, efforts, token caps and budget guards are unchanged (checked offline against `c27aa77`).
+
+**Repair:**
+- **A scoped repair** cannot remove an observation it was not asked to change. An edit outside the failing items is
+  ignored and recorded (`repair:scoped` notes). It can rewrite a failing summary line without that line's values; the
+  observation then stays.
+- **A full repair** (when a violation names no item) returns a whole new draft, so its observations may differ. Both
+  drafts are kept in the trace, but no record flags a dropped observation. This is not changed here.
+
+**Limitations:**
+- **Model judgement:** whether each part of the question is answered remains the model's judgement. No structured
+  request field names the requested areas, and code does not verify it.
+- **Full repairs** may still omit observations.
+- **Untested:** this was not tested with a real model. Whether the model follows the instruction, and any effect on
+  reporting quality or latency, are unmeasured. The reporting omissions and the latency findings that motivated D37 and
+  D38 are not shown to be solved.
