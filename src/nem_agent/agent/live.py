@@ -241,6 +241,27 @@ def prompt(name: str, version: str | None = None) -> str:
     return (resources.files("nem_agent").joinpath(*v.split("/")) / f"{name}.md").read_text()
 
 
+# D38: instructions the controller adds after the synthesis prompt of every Live synthesis, whatever the prompt version.
+# The versioned prompt files stay as frozen and released, but the effective synthesis (and repair, which continues the
+# same conversation) instructions are the base prompt plus these additions: both are recorded on each synthesis and
+# repair call in the trace and in each report's source manifest (``synthesis_instructions``)
+PROMPT_ADDITIONS_DIR = "prompts/additions"
+SYNTHESIS_ADDITIONS = ("requested_areas_v1",)
+
+
+def synthesis_prompt(prompt_version: str) -> str:
+    """The synthesis instructions sent after the tool results: the version's synthesis prompt, then each addition."""
+    return "\n\n".join([prompt("synthesis", prompt_version),
+                        *(prompt(name, PROMPT_ADDITIONS_DIR) for name in SYNTHESIS_ADDITIONS)])
+
+
+def synthesis_instructions(prompt_version: str) -> dict[str, Any]:
+    """What the effective synthesis and repair instructions are made of: the base prompt version and the additions."""
+    return {"prompt_version": prompt_version, "base": f"{prompt_version}/synthesis.md",
+            "additions": [f"{PROMPT_ADDITIONS_DIR}/{name}.md" for name in SYNTHESIS_ADDITIONS],
+            "stages": ["synthesis", "repair"]}
+
+
 # ------------------------------------------------------------------------------------ model-facing schemas
 class _S(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -928,11 +949,14 @@ class LiveController:
         self.usage.add(resp)
         calls = [{"call_id": i.get("call_id"), "name": i.get("name"), "arguments": i.get("arguments")}
                  for i in resp.get("output", []) if i.get("type") == "function_call"]
+        # D38: the effective synthesis instructions, on every synthesis and repair call
+        made_of = ({"synthesis_instructions": synthesis_instructions(self.prompt_version)}
+                   if stage in ("synthesis", "repair") else {})
         trace.add("model", stage, model=self.model, response_id=resp.get("id"), function_calls=calls,
                   usage=resp.get("usage"), cost_usd=cost, cost_basis=COST_BASIS, max_output_tokens=max_out,
                   status=resp.get("status"), incomplete=resp.get("incomplete_details"),
                   duration_ms=round((time.monotonic() - t0) * 1000, 1),
-                  **diagnostics.settings(self.model, kwargs, max_out, resp))
+                  **diagnostics.settings(self.model, kwargs, max_out, resp), **made_of)
         if resp.get("status") not in (None, "completed") or resp.get("incomplete_details"):
             # described for diagnosis only, never parsed into an answer: the caller still rejects it (``_structured``)
             trace.add("model", f"{stage}:incomplete_output", **diagnostics.incomplete_output(resp))
@@ -1087,7 +1111,7 @@ class LiveController:
             # every tool result, the controller's own computations included, before the report is written (D36)
             self.notify(trace, "tool_results", res, records=tuple(self.d.records))
             self.notify(trace, "synthesis", res)
-            items.append({"role": "user", "content": prompt("synthesis", self.prompt_version)})
+            items.append({"role": "user", "content": synthesis_prompt(self.prompt_version)})
             draft, raw = self._structured(trace, "synthesis", synthesis_schema(res.intent),
                                           prompt("system", self.prompt_version), items)
             mrep = as_model_report(draft)
@@ -1841,7 +1865,8 @@ class LiveController:
             citations=cites, uncertainties=m.uncertainties if m else [], forecast_comparison=fcomp,
             missing_evidence=missing_evidence, results=self.d.results.reported() if self.d else [], answer=answers,
             source_manifest={"data_version": self.versions.data, "corpus_version": self.versions.corpus,
-                             "model": self.model, "usage": self.usage.as_dict(), "transcript": self.transcript},
+                             "model": self.model, "usage": self.usage.as_dict(), "transcript": self.transcript,
+                             "synthesis_instructions": synthesis_instructions(self.prompt_version)},
             status=status if status != "needs_clarification" else "needs_clarification",
             trace_id=self.d.trace.trace_id if self.d else "n/a", versions=self.versions,
             generator=f"live-model:{self.model}")

@@ -1062,12 +1062,15 @@ def _saved_fake(cid: str, plan: dict[str, Any] | None) -> FakeModel:
 
 
 def _comparable(res: Any) -> dict[str, Any]:
-    """The report without what differs by design: the trace id, the prompt version (v17 with the plan), the echo note
-    (controller metadata, labelled), and what the SYNTHETIC transport makes up for each run (its response and call ids,
-    numbered from a counter shared by the whole session, and the elapsed time)."""
+    """The report without what differs by design: the trace id, the prompt version (v17 with the plan, also named in the
+    synthesis instructions' record, D38), the echo note (controller metadata, labelled), and what the SYNTHETIC
+    transport makes up for each run (its response and call ids, numbered from a counter shared by the whole session,
+    and the elapsed time)."""
     rep = json.loads(res.report.model_dump_json())
     rep.pop("trace_id")
     rep["versions"].pop("prompt")
+    for k in ("prompt_version", "base"):
+        rep["source_manifest"]["synthesis_instructions"].pop(k)
     rep["source_manifest"]["usage"].pop("elapsed_s", None)
     rep["uncertainties"] = [u for u in rep["uncertainties"] if not u.startswith(ECHO_LABEL)]
     seen: dict[str, str] = {}
@@ -1098,6 +1101,10 @@ def test_equivalent_bound_resolutions_compute_verify_validate_and_render_the_sam
     assert [r.name for r in new.records] == [r.name for r in old.records]
     assert new.resolution.forecast_primary == old.resolution.forecast_primary
     assert (new.report.versions.prompt, old.report.versions.prompt) == ("prompts/v17", "prompts/v16")
+    # D38: each records its own base synthesis prompt and the same addition
+    made_of = [r.report.source_manifest["synthesis_instructions"] for r in (new, old)]
+    assert [m["base"] for m in made_of] == ["prompts/v17/synthesis.md", "prompts/v16/synthesis.md"]
+    assert made_of[0]["additions"] == made_of[1]["additions"] == ["prompts/additions/requested_areas_v1.md"]
     # the intentional new metadata: the contract label, the plan record and the echo note
     assert new.resolution.requests.contract == "v16" and new.resolution.requests.plan["primary"]
     assert "plan" in new.resolution.routing["requests"] and "plan" not in old.resolution.routing["requests"]
