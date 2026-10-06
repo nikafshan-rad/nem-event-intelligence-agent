@@ -2018,3 +2018,175 @@ validated model answers.
   - the finished page's title is unchanged.
 - Streamlit's own request classes are recognised and nothing else is (checked against the pinned classes);
 - a real click with the pinned Streamlit: a rerun or stop request, mid-run or at the end (above).
+
+
+## D37. Standard Live: a DONE reply for tool-selection turns, opt-in (2026-10-06)
+
+**Why:** in Standard Live, the last tool-selection turn usually makes no tool call. In both recorded TAS1 runs it wrote
+an unrequested prose answer, which is kept in the conversation and which synthesis then writes again as the report.
+
+| Run | That turn | Its output tokens (visible) | Synthesis | Total |
+| --- | --- | --- | --- | --- |
+| `tr-9406a96039fb` (2026-10-06) | 46.5 s | 4,589 (2,733) | 40.2 s | 117.0 s |
+| `tr-8b3de6e4d9e7` (2026-10-05) | 38.8 s | 4,024 (1,784) | 42.0 s | 108.8 s |
+
+- **What drives the time:** output tokens, at about 70–135 tokens per second. The question's length does not: the
+  routing input differed by 24 tokens.
+- **No prompt asks for this prose:** the system prompt says nothing about what to reply once the tools are done.
+
+**Decision (approved 2026-10-06; offline implementation, opt-in):**
+- **The setting:** `NEM_AGENT_LIVE_TOOL_TURN_DONE`, off by default.
+  - **On** (1, true, yes or on): the tool-selection turns' instructions are the system prompt followed by the prompt
+    variant `tool-turn-done/1` (`prompts/variants/tool_turn_done_v1.md`): "When further tools are needed, request
+    them. When no further tool is needed, reply DONE and nothing else; the report is written in the synthesis stage."
+  - **Off** (unset, 0, false, no or off): every request is exactly as before.
+  - **Any other value** is refused before any call.
+  - **Only the tool-selection turns** get the instruction. Synthesis and repair keep the system prompt alone, and the
+    shared conversation is unchanged.
+- **The turn stays.** The model can still request optional follow-up tools. This is not D35's early transition, which
+  skips the turn.
+- **DONE bypasses nothing.** It is a reply without tool calls, handled as any such reply:
+  - the required-tool reminder;
+  - correction turns;
+  - the notes for blocked, failed or unavailable calls;
+  - the model-call cap.
+
+  Synthesis receives every tool result.
+- **Another reply** (prose, an empty reply, "DONE.") is recorded (`model:tool_turn_reply`: the kind, the length, and an
+  excerpt of unexpected text) and kept in the conversation exactly as before. Nothing is truncated or salvaged to force
+  compliance.
+- **Recorded:**
+  - once per run, `model:tool_turn_variant`: the variant, the setting and the instruction;
+  - on every tool-selection call, `prompt_variant`.
+
+  With the setting off, none of this is recorded.
+- **Not affected:**
+  - **Replay** and the **experimental workflow:** the latter makes routing calls only, and its controller never gets
+    the variant;
+  - the **frozen runners:** routing only, each refusing any code but its frozen code.
+
+**Unchanged:**
+- the model, reasoning efforts, token caps, permissions, calculations, validation, repair and budgets;
+- the per-call worst-case reservation, which grows only with the instruction's length (about 150 characters) when on.
+
+**Not measured:** the effect on latency or on answer quality.
+- **The risk:** that prose currently reaches synthesis as an implicit first draft. Without it, synthesis may reason
+  longer, or the validator may find more to repair.
+- **How it will be checked:** a before-and-after trial with paid calls, which needs separate approval.
+
+**Tests:** fake transport and scratch ledgers only (`tests/provider/test_tool_turn_done.py`). Each scenario runs setting
+off and on, with the same scripted replies:
+- the same run, apart from the tool-selection instructions;
+- optional follow-up tools;
+- DONE with a required tool missing (the reminder), and DONE again after it;
+- a blocked and an unavailable call;
+- synthesis receiving every tool result;
+- a repair;
+- prose, an empty reply and "DONE." recorded and kept whole;
+- an unknown value refused before any call;
+- the default path unchanged;
+- Replay and the experimental workflow unaffected;
+- the frozen runners.
+
+### Amendment 1 (2026-10-06): evidence limits for synthesis, variant `tool-turn-done/2`
+
+**The trial of `tool-turn-done/1`** (owner-approved; four runs on `1b03845`, in the order OFF, ON, ON, OFF; one TAS1
+question; effort low):
+
+| Run | Final tool turn | Total | Status |
+| --- | --- | --- | --- |
+| 1 OFF | 45.0 s | 120.6 s | answered_with_caveats |
+| 2 ON | 7.4 s, DONE | 85.1 s | answered |
+| 3 ON | 6.2 s, DONE | 70.8 s | answered |
+| 4 OFF | 41.3 s | 99.2 s | answered_with_caveats |
+
+- **Latency:** lower on this question.
+- **Quality criteria:** not met by either ON run.
+  - Each reported "answered" while listing missing evidence.
+  - Each left the constraint limitation out of its uncertainties and missing evidence. It appeared only in what would
+    test an explanation.
+  - Each called the spike's demand elevated or relatively high: 1,147 MW, against a window maximum of 1,408 MW that
+    the same report stated.
+- **The cause is not established.** The OFF runs' prose drafts are not recorded in the traces, and two runs per arm
+  cannot settle it.
+
+**Decision (approved 2026-10-06; offline, opt-in):** synthesis gets the evidence limits without depending on the tool
+turn's prose draft. The variant is `tool-turn-done/2`, under the same setting (`NEM_AGENT_LIVE_TOOL_TURN_DONE`), and
+replaces `tool-turn-done/1`, which remains in the trial's code `1b03845`.
+
+- **An evidence-limits block** (`agent/evidence_limits.py`; one compact JSON message after the controller's other
+  computations, so repair sees it too). It is computed from the tool records only:
+  - **the window** investigated, and how it was given. It is explicitly requested when it is a window given with the
+    request, or the forecast period the question asks about as the resolver bound it. It is contextual when it is
+    the selected event's window, or the local day of the date or half-hour asked about.
+  - **each data tool's actual coverage.** This is the union of its successful calls' own periods, never a report's
+    wording. Coverage is labelled "whole window", "part of the window, including the event's peak interval" (or the
+    half-hour asked about), "part of the window", "outside the window" or, for an explicitly requested period,
+    "incomplete". A partial entry gives the covered period in UTC and local time and the tool's limit per call.
+  - **each tool's own caveats, gaps and failures,** as its records state them:
+    - caveat fields;
+    - the market-notice search outcome;
+    - as-of exclusions;
+    - intervals absent from the data held (from the tool's counts);
+    - `missing` entries and policy notes;
+    - failed, blocked or unavailable calls. A blocked call retried successfully is left out.
+  - **`status_shortfalls`**, below.
+- **Instructions, synthesis and repair**: `prompts/variants/synthesis_limits_v1.md` follows the synthesis prompt, and
+  one sentence (`repair_limits_v1.md`) follows the repair message. They cover:
+  - **coverage:** stating the covered period, never implying the whole window;
+  - **limitations:** disclosing one where it bears, tied to the part of the question or the explanation it limits;
+  - **missing evidence:** only what limits the answer or a statement. Further investigation goes in what would test
+    it, and missing evidence is never evidence against an explanation;
+  - **comparisons:** a stated, relevant basis, or the plain value;
+  - **explanations:** removing one that contradicts the observations, never reversing it without independent
+    evidence;
+  - **status.**
+
+  There is no fixed list of unavailable datasets, no statement that explanations cannot be tested, and no rule tied
+  to a phrase.
+- **The status, lowered only**: after validation and the fallback, so every check and the repair run exactly as
+  without the variant. "answered" becomes "answered_with_caveats" for a shortfall the records establish objectively:
+  - a required tool without a successful result;
+  - a requested computed result (D24/D27) that was not established or not verified;
+  - for an explicitly requested period, a required tool that did not cover it, or that its own counts show absent
+    data within it. Intervals withheld by the as-of cutoff are not counted.
+
+  The reasons are recorded in `validation.status_lowered`, in the trace (`model:status_lowered`) and in one
+  uncertainty. Nothing is raised.
+- **What is disclosed, never a shortfall:**
+  - in a contextual window, a narrower analysis or a gap in the data held. Analysing the part around the event can be
+    the right analysis, and whether a gap matters depends on the question;
+  - notices selected for the window but not held;
+  - optional tools' failures.
+- **What code enforces versus instructions:**
+  - **Code:** the block's content, and the status lowering for the shortfalls above.
+  - **Instructions only:** whether a limitation matters to the question or an explanation; missing versus further
+    investigation; comparison bases; contradictory explanations; any other status judgement. The block says so to the
+    model.
+- **Unchanged:**
+  - with the setting off, every request and report, verified with the fake transport against `1b03845` and
+    `c27aa77` (below);
+  - the validation checks and their severities;
+  - the model, reasoning efforts, token caps, permissions and budget guards;
+  - Replay and the experimental workflow.
+
+  There is no extra model call and no prose draft.
+
+**Offline checks** (fake transport, scratch ledgers):
+- **Tests:** `tests/provider/test_evidence_limits.py`, plus `test_tool_turn_done.py`, updated: the same run apart from
+  the block and the instructions.
+- **The setting-off path:** nine scripted scenarios (plain; optional follow-up; blocked and failed calls; repair; an
+  explicit window covered by half; a required tool unavailable; prose; a required tool missing; Replay). Each gives
+  byte-identical requests, records, reports and trace sequences with `1b03845`, `c27aa77` and this change.
+- **Replay of 305 saved reports through the status rule** (301 case records and the four trial runs, read-only):
+  - 0 lowered;
+  - 64 "answered" unchanged;
+  - 54 "answered" unknown, where a record lacks what a rule needs (typed results, whether the period was explicitly
+    requested, or complete tool counts), so no rule is assumed;
+  - 187 with another status, which the rule never changes.
+
+  The four trial runs are unchanged: their generation-change data covered 6 h or 12 h around the peak of a 24 h event
+  window, which is recorded as coverage, not a shortfall.
+
+**Not measured:** whether the model follows the instructions, and the variant's latency and answer quality. These need
+a separately approved paid trial.

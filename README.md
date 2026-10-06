@@ -153,6 +153,45 @@ the run.
 
 A new investigation clears the earlier one at once.
 
+**Tool-selection reply with evidence limits, opt-in (D37, amendment 1):** `NEM_AGENT_LIVE_TOOL_TURN_DONE=1` turns on
+the Standard Live variant `tool-turn-done/2`:
+- **Tool-selection turns:** one more instruction: "When further tools are needed, request them. When no further tool
+  is needed, reply DONE and nothing else; the report is written in the synthesis stage."
+- **Synthesis:** an evidence-limits block, computed by code from the tool records only:
+  - the window investigated, and whether the request explicitly asked for that period;
+  - what each data tool actually covered;
+  - each tool's own caveats, gaps and failures;
+  - the shortfalls the code has established.
+
+  Synthesis also gets rules for disclosing these limits (`prompts/variants/synthesis_limits_v1.md`). Repair keeps them
+  too, with one more sentence in its message.
+- **Status:** "answered" is lowered to "answered_with_caveats" only for a shortfall the records establish:
+  - a required tool without a result;
+  - a requested computed result that was not established or not verified;
+  - for a period the request explicitly gave, a required tool that did not cover it or that reports data absent
+    within it.
+
+  The reasons are recorded in the validation details, the trace and one uncertainty, and a status is never raised.
+  In the event's or the day's window, a narrower analysis or a gap in the data held is disclosed, never a shortfall.
+- **What is only an instruction** (code does not check it):
+  - tying each limitation to the part of the question or the explanation it limits;
+  - keeping further investigation out of missing evidence;
+  - not reading missing evidence as evidence against an explanation;
+  - a stated basis for words such as "elevated";
+  - removing explanations that contradict the observations.
+- **Why:** the first version (`tool-turn-done/1`, DONE alone) was trialled on 2026-10-06, four runs on one question.
+  The final tool turn took 6–7 s instead of 41–45 s, but both runs with it failed the quality criteria:
+  - each reported "answered";
+  - each left the constraint limitation out of its uncertainties and missing evidence;
+  - each called the spike's demand elevated or relatively high without a stated basis.
+
+  Whether removing the prose draft caused this is not established.
+- **Off (unset or 0, the default):** every request and report is exactly as before. Any other value is refused before
+  any call.
+- **Not affected:** Replay, the experimental workflow, the validation checks and their severities, the model,
+  reasoning efforts, token caps and budgets.
+- **Not measured:** whether the model follows the rules, and the variant's effect on latency and answer quality.
+
 **Cost controls** (all enforced in code, before each call):
 - **Task-wide ledger** (`nem_agent/budget.py`): every model call reserves its worst case (input characters ÷ 2 at
   the input price, plus the stage's `max_output_tokens` at the output price) against a cap shared by all processes.

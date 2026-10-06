@@ -87,12 +87,13 @@ def investigate(req: InvestigateRequest, *, store: Store | None = None, selectio
     registry = EvidenceRegistry()
     live = None
     if req.mode == "live":
-        from .agent.live import LiveController
+        from .agent.live import LiveController, tool_turn_done_variant
         from .agent.plan import prompt_version
 
         live = LiveController(None, registry, Versions(code=code_version(), data=store.data_version, corpus=corpus_version(),
                                                        prompt=prompt_version(), model=None, controller="live"),
-                              client=live_client, progress=progress)
+                              client=live_client, progress=progress,
+                              tool_turn_variant=tool_turn_done_variant())  # D37: off unless set; refused if unknown
         live.notify(trace, "routing")
         try:
             decision = live.route(req.question, trace)
@@ -135,6 +136,8 @@ def investigate(req: InvestigateRequest, *, store: Store | None = None, selectio
     notes = res.requests.notes if res.requests is not None and res.status == "ok" else []
     if notes:  # question wording that conflicts with a request field, which is applied: said with the answer (I-18)
         report = report.model_copy(update={"uncertainties": [*notes, *report.uncertainties]})
+    if live is not None:  # D37 amendment 1: under the variant only, after every check; unchanged without it
+        report = live.lower_status(report, res)
     latency = round((time.monotonic() - t0) * 1000, 1)
     trace.add("done", report.status, latency_ms=latency, usage=usage)
     if write_trace:
