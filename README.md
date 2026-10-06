@@ -153,6 +153,23 @@ the run.
 
 A new investigation clears the earlier one at once.
 
+**Tool-selection reply, opt-in (D37):** `NEM_AGENT_LIVE_TOOL_TURN_DONE=1` gives Standard Live's tool-selection turns
+one more instruction, the prompt variant `tool-turn-done/1`: "When further tools are needed, request them. When no
+further tool is needed, reply DONE and nothing else; the report is written in the synthesis stage."
+- **Why:** in two recorded TAS1 runs, the last tool-selection turn made no tool call but wrote 1,784 and 2,733 tokens
+  of unrequested prose (38.8 s and 46.5 s), which synthesis then wrote again as the report.
+- **The turn stays:** the model can still request optional follow-up tools.
+- **Everything else is unchanged.** DONE is a reply without tool calls, handled as any such reply:
+  - the required-tool reminder, corrections and failure notes;
+  - synthesis, which receives every tool result;
+  - repair, validation, budgets, the model, reasoning efforts and token caps.
+- **A reply other than DONE** is recorded in the trace and kept in the conversation as before. It is never truncated
+  or salvaged.
+- **Off (unset or 0, the default):** every request is exactly as before. Any other value is refused before any call.
+- **Not affected:** Replay and the experimental workflow.
+- **Recorded:** the trace records the variant and the setting.
+- **Not measured:** its effect on latency and on answer quality.
+
 **Cost controls** (all enforced in code, before each call):
 - **Task-wide ledger** (`nem_agent/budget.py`): every model call reserves its worst case (input characters ÷ 2 at
   the input price, plus the stage's `max_output_tokens` at the output price) against a cap shared by all processes.

@@ -87,12 +87,13 @@ def investigate(req: InvestigateRequest, *, store: Store | None = None, selectio
     registry = EvidenceRegistry()
     live = None
     if req.mode == "live":
-        from .agent.live import LiveController
+        from .agent.live import LiveController, tool_turn_done_variant
         from .agent.plan import prompt_version
 
         live = LiveController(None, registry, Versions(code=code_version(), data=store.data_version, corpus=corpus_version(),
                                                        prompt=prompt_version(), model=None, controller="live"),
-                              client=live_client, progress=progress)
+                              client=live_client, progress=progress,
+                              tool_turn_variant=tool_turn_done_variant())  # D37: off unless set; refused if unknown
         live.notify(trace, "routing")
         try:
             decision = live.route(req.question, trace)

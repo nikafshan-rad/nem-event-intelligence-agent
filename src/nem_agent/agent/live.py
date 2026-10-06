@@ -230,6 +230,37 @@ def route_reasoning_effort() -> str | None:
     return value
 
 
+# D37: an opt-in prompt variant for the tool-selection turns only. When no further tool is needed the model replies DONE
+# instead of writing the answer that synthesis then writes again. Off by default; an unrecognised value is refused.
+TOOL_TURN_DONE_ENV = "NEM_AGENT_LIVE_TOOL_TURN_DONE"
+TOOL_TURN_DONE_VARIANT = "tool-turn-done/1"
+TOOL_TURN_VARIANT_PROMPTS = {TOOL_TURN_DONE_VARIANT: ("tool_turn_done_v1", "prompts/variants")}
+_SETTING_ON, _SETTING_OFF = ("1", "true", "yes", "on"), ("0", "false", "no", "off")
+
+
+def tool_turn_done_variant() -> str | None:
+    """The tool-selection prompt variant in force, from ``NEM_AGENT_LIVE_TOOL_TURN_DONE``: ``TOOL_TURN_DONE_VARIANT``
+    when it is on (1, true, yes or on); None when it is unset or off (0, false, no or off), and the tool-selection turns
+    are exactly as before. Any other value is refused, before any reservation or call."""
+    value = os.environ.get(TOOL_TURN_DONE_ENV)
+    if value is None or value.strip().lower() in _SETTING_OFF:
+        return None
+    if value.strip().lower() in _SETTING_ON:
+        return TOOL_TURN_DONE_VARIANT
+    raise ValueError(f"{TOOL_TURN_DONE_ENV}={value!r} is not supported: set 1, true, yes or on to use the "
+                     f"{TOOL_TURN_DONE_VARIANT} prompt variant, or leave it unset (off)")
+
+
+def tool_turn_instructions(prompt_version: str, variant: str | None) -> str:
+    """The instructions of a tool-selection turn: the system prompt, followed by the variant's instruction when one is
+    in force. Synthesis and repair keep the system prompt alone."""
+    base = prompt("system", prompt_version)
+    if variant is None:
+        return base
+    name, where = TOOL_TURN_VARIANT_PROMPTS[variant]
+    return f"{base}\n\n{prompt(name, where)}"
+
+
 def _stop(exc: BudgetExceeded) -> dict[str, Any]:
     """What a budget refusal stopped (D34): the refused call's stage, and the refusal."""
     return {"cause": "budget", "stage": exc.stage, "detail": str(exc)}
@@ -710,6 +741,16 @@ def _trace_tool_output(trace: Any, call_id: str, rec: Any, payload: str) -> None
               output=payload[:6000], **extra)
 
 
+def _trace_tool_turn_reply(trace: Any, turn: int, calls: list[Any], text: str) -> None:
+    """What a tool-selection turn returned under the D37 variant: tool calls; DONE alone; nothing; or other text,
+    recorded with its length and an excerpt. Nothing is acted on here: the reply is handled as any reply is."""
+    said = text.strip()
+    kind = ("calls_and_text" if said else "calls") if calls else ("done" if said == "DONE" else "text" if said else "empty")
+    unexpected = kind in ("text", "calls_and_text")
+    trace.add("model", "tool_turn_reply", turn=turn, reply=kind, chars=len(said),
+              **({"excerpt": said[:300]} if unexpected else {}))
+
+
 def _trace_draft(trace: Any, stage: str, draft: BaseModel | None) -> None:
     """Keep the model's draft in the (local, redacted) trace so a rejected narrative can be inspected later."""
     if draft is not None:
@@ -856,7 +897,7 @@ TIED_RUNS = forecast_compare.TIED_RUNS
 class LiveController:
     def __init__(self, dispatcher: Dispatcher | None, registry: EvidenceRegistry, versions: Versions,
                  client: Transport | None = None, model: str | None = None, plan: bool | None = None,
-                 progress: ProgressCallback | None = None) -> None:
+                 progress: ProgressCallback | None = None, tool_turn_variant: str | None = None) -> None:
         self.d = dispatcher
         self.reg = registry
         self.versions = versions
@@ -872,6 +913,10 @@ class LiveController:
         self.request_plan = request_plan.enabled() if plan is None else plan
         # D36: an optional display callback, told each stage as it starts (never model text); None changes nothing
         self.progress = progress
+        # D37: the tool-selection turns' prompt variant (``tool_turn_done_variant``); None, the default, changes nothing
+        if tool_turn_variant is not None and tool_turn_variant not in TOOL_TURN_VARIANT_PROMPTS:
+            raise ValueError(f"unknown tool-selection prompt variant {tool_turn_variant!r}")
+        self.tool_turn_variant = tool_turn_variant
 
     @property
     def prompt_version(self) -> str:
@@ -928,11 +973,12 @@ class LiveController:
         self.usage.add(resp)
         calls = [{"call_id": i.get("call_id"), "name": i.get("name"), "arguments": i.get("arguments")}
                  for i in resp.get("output", []) if i.get("type") == "function_call"]
+        variant = {"prompt_variant": self.tool_turn_variant} if stage == "tools" and self.tool_turn_variant else {}
         trace.add("model", stage, model=self.model, response_id=resp.get("id"), function_calls=calls,
                   usage=resp.get("usage"), cost_usd=cost, cost_basis=COST_BASIS, max_output_tokens=max_out,
                   status=resp.get("status"), incomplete=resp.get("incomplete_details"),
                   duration_ms=round((time.monotonic() - t0) * 1000, 1),
-                  **diagnostics.settings(self.model, kwargs, max_out, resp))
+                  **diagnostics.settings(self.model, kwargs, max_out, resp), **variant)
         if resp.get("status") not in (None, "completed") or resp.get("incomplete_details"):
             # described for diagnosis only, never parsed into an answer: the caller still rejects it (``_structured``)
             trace.add("model", f"{stage}:incomplete_output", **diagnostics.incomplete_output(resp))
@@ -1033,6 +1079,11 @@ class LiveController:
         nudged = False
         turn = 0  # tool-choosing model turns, for display only (D36)
         stopped: list[str] = []
+        # D37: the tool-selection turns' instructions; with no variant, the system prompt exactly as before
+        tool_instructions = tool_turn_instructions(self.prompt_version, self.tool_turn_variant)
+        if self.tool_turn_variant:
+            trace.add("model", "tool_turn_variant", variant=self.tool_turn_variant, setting=TOOL_TURN_DONE_ENV,
+                      instruction=tool_instructions[len(prompt("system", self.prompt_version)):].strip())
         try:
             while True:
                 if self.usage.model_calls >= config.MAX_MODEL_CALLS - RESERVED_CALLS:
@@ -1042,10 +1093,13 @@ class LiveController:
                     break
                 turn += 1
                 self.notify(trace, "tools", res, turn=turn)
-                resp = self._call(trace, "tools", instructions=prompt("system", self.prompt_version), input=items,
+                resp = self._call(trace, "tools", instructions=tool_instructions, input=items,
                                   tools=tools,
                                   tool_choice="auto", parallel_tool_calls=True)
                 calls = [i for i in resp.get("output", []) if i.get("type") == "function_call"]
+                if self.tool_turn_variant:
+                    _trace_tool_turn_reply(trace, turn, calls, _texts(resp))
+                # the reply is kept in the conversation as before, DONE or not: nothing is truncated or salvaged
                 items += [x for x in (_replayable(i) for i in resp.get("output", [])) if x]
                 for c in calls:
                     rec = self.d.call(c["name"], c.get("arguments") or "{}", call_id=c["call_id"], origin="model")
