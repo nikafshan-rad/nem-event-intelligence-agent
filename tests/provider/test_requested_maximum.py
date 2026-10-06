@@ -45,6 +45,9 @@ V6 = ROOT / "artifacts" / "live" / "L3-holdout-v6"
 MAX_ROW = "DISPATCHIS:PUBLIC_DISPATCHIS_202607290755_0000000529809198:L91"  # TOTALDEMAND 1367.32 MW, ending 21:55Z
 MAX_END = "2026-07-28T21:55:00Z"
 DAY = ["2026-07-28T14:00:00Z", "2026-07-29T14:00:00Z"]  # 29 July 2026 in Hobart (AEST)
+# the comparative routing-only evaluation of route contracts v15 and v16: its directory and its record directories,
+# excluded from the inventory below by exact name only
+COMPARE_ROUTE_V15_V16 = ("compare_route_v15_v16", "CMP-route-v15-v16", "CMP-route-v15-v16-run")
 
 
 def _z04() -> dict:
@@ -91,14 +94,15 @@ def test_no_other_question_in_the_repository_asks_for_a_maximum():
         # the I-18 paraphrase matrix and its records, the Live check of the v12 routing extraction, and the development
         # model comparison's run and review records (it reran that check's cases), and the Live acceptance check of
         # computed maxima (D24, D25) and its records, the routing-only Live check of route contract v13 (D26), the
-        # end-to-end Live acceptance check of v13 request resolution and its records, and the routing-only Live check
-        # of route contract v15 (its demand-maximum regression control, F07)
+        # end-to-end Live acceptance check of v13 request resolution and its records, the routing-only Live check
+        # of route contract v15 (its demand-maximum regression control, F07), and the comparative routing-only
+        # evaluation of route contracts v15 and v16 (its held-out and development maxima) and its records
         if "traces" in f.parts or any(part.startswith(("livecheck_i15_17", "LC-i15-17", "structured_requests",
                                                        "livecheck_routing_v12", "LC-route-v12", "MC-dev",
                                                        "livecheck_maxima", "LC-maxima", "livecheck_route_v13",
                                                        "LC-route-v13", "livecheck_e2e_v13", "LC-e2e-v13",
                                                        "livecheck_route_v15", "LC-route-v15"))
-                                      for part in f.parts):
+                                      or part in COMPARE_ROUTE_V15_V16 for part in f.parts):
             continue
         try:
             d = json.loads(f.read_text())
