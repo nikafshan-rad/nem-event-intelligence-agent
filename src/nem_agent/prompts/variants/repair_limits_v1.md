@@ -1,0 +1,1 @@
+The evidence-limit rules given with the synthesis instructions still apply: keep each covered period and limitation the draft disclosed unless a listed problem is in it, and add no comparison without its basis.

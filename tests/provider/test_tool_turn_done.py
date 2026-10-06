@@ -2,10 +2,13 @@
 ledgers only (conftest): nothing leaves the process.
 
 With ``NEM_AGENT_LIVE_TOOL_TURN_DONE`` on, the tool-selection turns' instructions gain one instruction: request further
-tools when needed, otherwise reply DONE and nothing else. Everything else is the controller's existing behaviour:
+tools when needed, otherwise reply DONE and nothing else. Amendment 1 (variant 2) adds the evidence limits for
+synthesis and repair and the status lowering (tests/provider/test_evidence_limits.py). Everything else is the
+controller's existing behaviour:
 
-- the same model replies give the same tool calls, reminders, corrections, failure notes, synthesis input, repair and
-  report, setting on or off: DONE is a reply without tool calls, handled as any such reply;
+- the same model replies give the same tool calls, reminders, corrections, failure notes, synthesis input (apart from
+  the evidence-limits block and instructions), repair and report, setting on or off: DONE is a reply without tool
+  calls, handled as any such reply;
 - the turn stays, so the model can still ask for optional follow-up evidence;
 - a reply other than DONE is recorded and kept in the conversation as before, never truncated or salvaged;
 - with the setting off or unset, every request is exactly as before; Replay and the experimental workflow ignore it.
@@ -23,8 +26,10 @@ from typing import Any
 import pytest
 
 from nem_agent.agent.live import (
+    EVIDENCE_LIMITS_HEADING,
     TOOL_TURN_DONE_ENV,
     TOOL_TURN_DONE_VARIANT,
+    VARIANT_PARTS,
     prompt,
     tool_turn_done_variant,
     tool_turn_instructions,
@@ -39,7 +44,9 @@ ROOT = Path(__file__).resolve().parents[2]
 QUESTION = "What happened around the SA1 price spike on 2026-07-31?"
 SYSTEM = prompt("system", "prompts/v16")
 VARIANT_TEXT = prompt("tool_turn_done_v1", "prompts/variants").strip()
-PROSE = ("The price peaked at the interval shown in the price timeline, demand rose in the morning and generation "
+SYNTHESIS_LIMITS = prompt("synthesis_limits_v1", "prompts/variants")
+REPAIR_LIMITS = prompt("repair_limits_v1", "prompts/variants").strip()
+PROSE =("The price peaked at the interval shown in the price timeline, demand rose in the morning and generation "
          "shifted between units; a fuller account follows. ") * 8
 
 
@@ -79,11 +86,27 @@ def _ids(text: str) -> str:
     return re.sub(r'"(call|resp|fc)_\d+"', lambda m: f'"{m.group(1)}_N"', text)
 
 
+def without_limits(items: Any) -> Any:
+    """A request's input without what amendment 1 adds: the evidence-limits block and the instructions after the
+    synthesis prompt and the repair message. What remains must be what the setting-off run sent."""
+    if not isinstance(items, list):
+        return items
+    out = []
+    for it in items:
+        if isinstance(it, dict) and isinstance(it.get("content"), str):
+            if it["content"].startswith(EVIDENCE_LIMITS_HEADING):
+                continue
+            it = {**it, "content": it["content"].replace(f"\n\n{SYNTHESIS_LIMITS}", "").replace(f"\n{REPAIR_LIMITS}", "")}
+        out.append(it)
+    return out
+
+
 def _outcome(fake: FakeModel, res: Any) -> tuple[Any, ...]:
     """What the controller did and produced: the model calls, the tool calls, the inputs it sent after the first tool
-    turn, and the report, without the ids the fake numbers from a counter shared by every test."""
+    turn (apart from amendment 1's additions), and the report, without the ids the fake numbers from a counter shared
+    by every test."""
     records = [(r.name, r.origin, json.dumps(r.args, sort_keys=True, default=str), r.status) for r in res.records]
-    inputs = [_ids(json.dumps(kw.get("input"), sort_keys=True, default=str)) for kw in fake.requests]
+    inputs = [_ids(json.dumps(without_limits(kw.get("input")), sort_keys=True, default=str)) for kw in fake.requests]
     rep = res.report.model_dump(mode="json")
     for k in ("trace_id", "source_manifest"):
         rep.pop(k)
@@ -148,16 +171,26 @@ def test_with_the_setting_off_every_request_is_as_before(ev, monkeypatch):
         assert _tool_instructions(fake) == {SYSTEM} and _other_instructions(fake) == {SYSTEM}
         assert not [e for e in res.trace.events if e["name"].startswith("tool_turn")]
         assert not [e for e in res.trace.events if "prompt_variant" in e]
+        # amendment 1: no evidence limits, the synthesis prompt alone, no status lowering
+        sent = [it for kw in fake.requests for it in kw.get("input") or [] if isinstance(it, dict)]
+        assert not [it for it in sent if str(it.get("content", "")).startswith(EVIDENCE_LIMITS_HEADING)]
+        assert prompt("synthesis", "prompts/v16") in [it.get("content") for it in sent]
+        assert not [it for it in sent if SYNTHESIS_LIMITS.strip() in str(it.get("content", ""))]
+        assert not [e for e in res.trace.events if e["name"] in ("evidence_limits", "status_lowered")]
+        assert "status_lowered" not in res.report.validation
 
 
-def test_on_it_changes_the_tool_turns_instructions_only_and_is_recorded(ev, monkeypatch):
+def test_on_it_changes_the_tool_turns_instructions_adds_the_limits_and_is_recorded(ev, monkeypatch):
     off_fake, off, on_fake, on = _both(ev, monkeypatch, [_required_turn(ev), "DONE"])
     assert _tool_instructions(on_fake) == {f"{SYSTEM}\n\n{VARIANT_TEXT}\n"}
-    assert _other_instructions(on_fake) == _other_instructions(off_fake) == {SYSTEM}  # synthesis, repair: unchanged
-    assert _outcome(off_fake, off) == _outcome(on_fake, on)  # the same replies, the same run
+    assert _other_instructions(on_fake) == _other_instructions(off_fake) == {SYSTEM}  # synthesis, repair: same instructions
+    assert _outcome(off_fake, off) == _outcome(on_fake, on)  # the same replies, the same run, apart from the limits
+    synthesis = next(kw for kw, k in zip(on_fake.requests, _kinds(on_fake), strict=True) if k == "ModelReport")
+    assert synthesis["input"][-1]["content"] == f"{prompt('synthesis', 'prompts/v16')}\n\n{SYNTHESIS_LIMITS}"
+    assert [it for it in synthesis["input"] if str(it.get("content", "")).startswith(EVIDENCE_LIMITS_HEADING)]
     variant = [e for e in on.trace.events if e["name"] == "tool_turn_variant"]
-    assert [(e["variant"], e["setting"], e["instruction"]) for e in variant] == [
-        (TOOL_TURN_DONE_VARIANT, TOOL_TURN_DONE_ENV, VARIANT_TEXT)]
+    assert [(e["variant"], e["setting"], e["instruction"], tuple(e["parts"])) for e in variant] == [
+        (TOOL_TURN_DONE_VARIANT, TOOL_TURN_DONE_ENV, VARIANT_TEXT, VARIANT_PARTS)]
     tool_calls = [e for e in on.trace.events if e["kind"] == "model" and e["name"] == "tools"]
     assert tool_calls and all(e["prompt_variant"] == TOOL_TURN_DONE_VARIANT for e in tool_calls)
     replies = [(e["turn"], e["reply"]) for e in on.trace.events if e["name"] == "tool_turn_reply"]
@@ -228,6 +261,9 @@ def test_a_repair_runs_as_before(ev, monkeypatch):
     off_fake, off, on_fake, on = _both(ev, monkeypatch, [_required_turn(ev), "DONE"], report_fn=bad, repair_fn=patch)
     assert on.report.validation["repair_attempted"] is True and _kinds(on_fake)[-1] == "RepairPatch"
     assert _outcome(off_fake, off) == _outcome(on_fake, on)
+    # amendment 1: the repair turn keeps the evidence-limit rules; without the setting, the message is as before
+    assert on_fake.requests[-1]["input"][-1]["content"].endswith(f"\n{REPAIR_LIMITS}")
+    assert REPAIR_LIMITS not in off_fake.requests[-1]["input"][-1]["content"]
 
 
 # -- a reply other than DONE ----------------------------------------------------------------------------------------
