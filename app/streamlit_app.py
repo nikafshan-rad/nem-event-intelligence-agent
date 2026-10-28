@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 from pathlib import Path
@@ -266,6 +267,9 @@ with area:
         st.caption(f"trace id {rep['trace_id']} · generator {rep['generator']} · versions {rep['versions']}")
     with st.expander("Validation details"):
         st.json(v, expanded=False)
+    report_json = json.dumps(rep, indent=2)
+    st.download_button("Download report (JSON)", data=report_json,
+                       file_name=f"investigation_{rep['trace_id']}.json", mime="application/json")
     with st.expander("Held-out evaluation report"):
         p = paths.artifacts_dir() / "eval" / "report.md"
         st.markdown(p.read_text() if p.exists() else "Run `make eval` to generate the report.")
