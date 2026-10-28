@@ -171,12 +171,23 @@ def parse_period(text: str) -> tuple[str, str] | None:
     return (a, b) if a and b else None
 
 
+_FOLD_RE = re.compile(r"\(([01])\)$")
+
+
 def _at(day: str, hhmm: str, region: str) -> datetime:
     d = date.fromisoformat(day)
+    fold = 0
+    fm = _FOLD_RE.search(hhmm)
+    if fm:
+        fold = int(fm.group(1))
+        hhmm = hhmm[:fm.start()]
     if hhmm == "24:00":
         d, hhmm = d + timedelta(days=1), "00:00"
     h, m = (int(x) for x in hhmm.split(":"))
-    return datetime.combine(d, time(h, m), tzinfo=region_zone(region)).astimezone(UTC)
+    dt = datetime.combine(d, time(h, m), tzinfo=region_zone(region))
+    if fold:
+        dt = dt.replace(fold=1)
+    return dt.astimezone(UTC)
 
 
 def _hhmm(t: datetime, region: str, day: str) -> str:
@@ -184,6 +195,89 @@ def _hhmm(t: datetime, region: str, day: str) -> str:
     if loc.date() == date.fromisoformat(day) + timedelta(days=1) and (loc.hour, loc.minute) == (0, 0):
         return "24:00"
     return loc.strftime("%H:%M")
+
+
+def _dst_check(day: str, hhmm: str, region: str) -> Literal["ok", "nonexistent", "ambiguous"]:
+    """Whether a local clock time on a given day is unambiguous, nonexistent (spring-forward gap), or ambiguous
+    (fall-back overlap).  Already-disambiguated times (fold marker) and midnight are always 'ok'."""
+    if hhmm == "24:00" or _FOLD_RE.search(hhmm):
+        return "ok"
+    d = date.fromisoformat(day)
+    h, m = (int(x) for x in hhmm.split(":"))
+    tz = region_zone(region)
+    dt0 = datetime.combine(d, time(h, m), tzinfo=tz)
+    dt1 = dt0.replace(fold=1)
+    if dt0.utcoffset() == dt1.utcoffset():
+        return "ok"
+    utc0 = dt0.astimezone(UTC)
+    if (utc0.astimezone(tz).hour, utc0.astimezone(tz).minute) == (h, m):
+        return "ambiguous"
+    return "nonexistent"
+
+
+def _dst_ambiguous_labels(dt0: datetime, dt1: datetime, hhmm: str) -> tuple[str, str, str, str]:
+    """(label_first, label_second, utc_first, utc_second) for a pair of fold-0/fold-1 datetimes."""
+    off0, off1 = dt0.strftime("%z"), dt1.strftime("%z")
+    tz0, tz1 = dt0.strftime("%Z"), dt1.strftime("%Z")
+    utc0 = dt0.astimezone(UTC).strftime("%H:%M UTC")
+    utc1 = dt1.astimezone(UTC).strftime("%H:%M UTC")
+    return (f"{hhmm} {tz0} (UTC{off0}) — first occurrence, {utc0}",
+            f"{hhmm} {tz1} (UTC{off1}) — second occurrence, {utc1}",
+            utc0, utc1)
+
+
+def _dst_half_hour_issue(day: str, hhmm: str, region: str) -> Issue | None:
+    """An Issue if the half-hour end time is nonexistent or ambiguous due to DST; None if valid."""
+    status = _dst_check(day, hhmm, region)
+    if status == "ok":
+        return None
+    tz = region_zone(region)
+    d = date.fromisoformat(day)
+    h, m = (int(x) for x in hhmm.split(":"))
+    dt0 = datetime.combine(d, time(h, m), tzinfo=tz)
+    if status == "ambiguous":
+        dt1 = dt0.replace(fold=1)
+        lbl0, lbl1, utc0, utc1 = _dst_ambiguous_labels(dt0, dt1, hhmm)
+        return Issue(
+            "half_hour_end",
+            f"{hhmm} on {day} in {REGION_TZ[region]} is ambiguous: it occurs twice during the "
+            f"daylight-saving fall-back ({utc0} and {utc1}). Which occurrence?",
+            (Choice(f"{hhmm}(0)", lbl0), Choice(f"{hhmm}(1)", lbl1)),
+        )
+    back = dt0.astimezone(UTC).astimezone(tz)
+    return Issue(
+        "half_hour_end",
+        f"{hhmm} on {day} in {REGION_TZ[region]} does not exist (the clock skips it during the "
+        f"daylight-saving spring-forward). Give a time that exists on that day.",
+        (),
+        f"e.g. {back.strftime('%H:%M')} (the first valid time after the gap)",
+    )
+
+
+def _dst_period_issue(day: str, start: str, end: str, region: str) -> Issue | None:
+    """An Issue if either boundary of an explicit period is nonexistent or ambiguous; None if both are valid."""
+    tz = region_zone(region)
+    for hhmm in (start, end):
+        status = _dst_check(day, hhmm, region)
+        if status == "nonexistent":
+            return Issue("period", f"{hhmm} on {day} in {REGION_TZ[region]} does not exist (daylight-saving "
+                                   "spring-forward gap). Give a period whose boundaries exist on that day.",
+                         (), "e.g. 17:00-21:00")
+        if status == "ambiguous":
+            d = date.fromisoformat(day)
+            h, m = (int(x) for x in hhmm.split(":"))
+            dt0 = datetime.combine(d, time(h, m), tzinfo=tz)
+            dt1 = dt0.replace(fold=1)
+            lbl0, lbl1, _, _ = _dst_ambiguous_labels(dt0, dt1, hhmm)
+            other = end if hhmm == start else start
+            return Issue(
+                "period",
+                f"The period boundary {hhmm} on {day} in {REGION_TZ[region]} is ambiguous: it occurs twice "
+                f"during the daylight-saving fall-back. Which occurrence?",
+                (Choice(f"{hhmm}(0)-{other}" if hhmm == start else f"{start}-{hhmm}(0)", lbl0),
+                 Choice(f"{hhmm}(1)-{other}" if hhmm == start else f"{start}-{hhmm}(1)", lbl1)),
+            )
+    return None
 
 
 def event_for(sel: Selection, region: str | None, day: str | None) -> EventSelection | None:
@@ -396,6 +490,14 @@ def issues(d: Draft, sel: Selection) -> list[Issue]:
         if d.scope_kind == "explicit" and not (d.start_time and d.end_time):
             return [Issue("period", (d.blocked.get("period", "") + " Give the start and end times, in the region's "
                                      "local time.").strip(), (), "e.g. 17:00-21:00")]
+    if d.scope_kind == "half_hour" and d.half_hour_end and d.date and d.region:
+        dst = _dst_half_hour_issue(d.date, d.half_hour_end, d.region)
+        if dst:
+            return [dst]
+    if d.scope_kind == "explicit" and d.start_time and d.end_time and d.date and d.region:
+        dst = _dst_period_issue(d.date, d.start_time, d.end_time, d.region)
+        if dst:
+            return [dst]
     b = bounds(d, sel)
     assert b is not None
     lo, hi = b
@@ -486,13 +588,21 @@ def apply(d: Draft, field_: str, value: Any, sel: Selection) -> Draft:
         if value != "explicit":
             n.start_time = n.end_time = None
     elif field_ == "half_hour_end":
-        if parse_clock(value) != value:
+        raw = _FOLD_RE.sub("", value)
+        if parse_clock(raw) != raw:
             raise ValueError(f"not a clock time: {value!r}")
         n.scope_kind, n.half_hour_end = "half_hour", value
         n.sources["scope_kind"] = "you"
     elif field_ == "period":
-        a, b = value
-        if parse_clock(a) != a or parse_clock(b) != b:
+        if isinstance(value, str):
+            parts = value.split("-", 1)
+            if len(parts) != 2:
+                raise ValueError(f"not a period: {value!r}")
+            a, b = parts
+        else:
+            a, b = value
+        raw_a, raw_b = _FOLD_RE.sub("", a), _FOLD_RE.sub("", b)
+        if parse_clock(raw_a) != raw_a or parse_clock(raw_b) != raw_b:
             raise ValueError(f"not a period: {value!r}")
         n.scope_kind, n.start_time, n.end_time = "explicit", a, b
         n.sources["scope_kind"] = "you"
