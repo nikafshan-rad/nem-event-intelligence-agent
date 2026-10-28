@@ -318,6 +318,73 @@ Code, not the model, does everything else:
 A draft that fails gets exactly one repair turn. If that fails, the user sees validated tool facts only, labelled as
 such. A separate small experiment (G8) fits a linear quantile *forecasting* model; it is not a language model.
 
+### Docker
+
+```bash
+docker compose up              # first run builds data, then starts API (:8000) + UI (:8501)
+docker compose up --build      # rebuild after code changes
+```
+
+**First run downloads public data from the internet.** The container fetches AEMO dispatch, demand
+and forecast archives from NEMWeb (~80 MB), NASA POWER weather data (~5 MB), AEMO market notices,
+and the `minishlab/potion-retrieval-32M` embedding model from HuggingFace Hub (~125 MB). These are
+public sources; no API key or GitHub authentication is needed. Subsequent starts reuse built data
+persisted in Docker volumes.
+
+The downloaded publisher bytes have **not** been verified against the released pinned-byte hashes
+in this repository's GitHub releases. NASA POWER API responses include volatile metadata, so their
+raw SHA-256 will differ from the pins even when the weather values are identical; `content_sha256`
+is checked instead. If an AEMO source has rolled off NEMWeb's 'Current' folder and is not yet in
+an Archive bundle, the build will fail for that source.
+
+**Replay mode** (the default, no API key) runs the offline investigation for the primary event
+using pre-built data. **Live mode** calls the OpenAI API and incurs cost:
+
+```bash
+OPENAI_API_KEY=sk-... docker compose up
+```
+
+Other entry points:
+
+```bash
+docker compose run --rm nem-agent demo     # replay the primary event
+docker compose run --rm nem-agent test     # run the full test suite
+docker compose run --rm nem-agent build    # build data + index only
+docker compose run --rm nem-agent shell    # interactive shell inside the container
+```
+
+**Pinned-byte Replay (tested in CI; requires repository read access).** The CI smoke job
+restores approved publisher bytes from the GitHub release bundle, builds the store and index
+inside the container with zero publisher contact, and verifies `data_version` and
+`corpus_version` against the released baseline. A local user with read access to this
+repository can do the same:
+
+```bash
+# On the host (not inside the container):
+gh release download pinned-bytes-bundle-2026-09-28 \
+  --pattern 'approved-bytes-pinned-bytes-bundle-2026-09-28.tar.gz' --dir /tmp/bundle
+mkdir -p /tmp/pinned-store
+tar xzf /tmp/bundle/approved-bytes-pinned-bytes-bundle-2026-09-28.tar.gz -C /tmp/pinned-store
+
+# Restore into the container volume, then build (token stays on the host):
+docker compose run --rm -v /tmp/pinned-store:/pinned-store:ro \
+  nem-agent python -m nem_agent.cli restore-pinned --strict --local-dir /pinned-store
+docker compose run --rm nem-agent build
+docker compose run --rm nem-agent demo
+```
+
+This local-user workflow has **not** been tested end-to-end outside CI (UNVERIFIED).
+Without repository access, `docker compose up` falls back to live publisher downloads
+(the default path above), which may produce different data and corpus versions.
+
+**Index / model mismatch:** the document index and embedding model are a matched pair. If the
+`nem-index` volume persists from a previous run but `nem-models` is empty (e.g. the models volume
+was added after the first build), retrieval will fail with `LocalEntryNotFoundError`. To recover,
+remove only the index and models volumes — **not** the raw-data or store volumes — then restart so
+`build-index` re-downloads the model and rebuilds the index. The exact volume names depend on the
+Compose project name; use `docker volume ls` to identify them and `docker volume rm` to remove the
+two. This recovery procedure has not been tested end-to-end (UNVERIFIED).
+
 ## Architecture
 
 ```mermaid
