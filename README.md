@@ -353,6 +353,30 @@ docker compose run --rm nem-agent build    # build data + index only
 docker compose run --rm nem-agent shell    # interactive shell inside the container
 ```
 
+**Pinned-byte Replay (tested in CI; requires repository read access).** The CI smoke job
+restores approved publisher bytes from the GitHub release bundle, builds the store and index
+inside the container with zero publisher contact, and verifies `data_version` and
+`corpus_version` against the released baseline. A local user with read access to this
+repository can do the same:
+
+```bash
+# On the host (not inside the container):
+gh release download pinned-bytes-bundle-2026-09-28 \
+  --pattern 'approved-bytes-pinned-bytes-bundle-2026-09-28.tar.gz' --dir /tmp/bundle
+mkdir -p /tmp/pinned-store
+tar xzf /tmp/bundle/approved-bytes-pinned-bytes-bundle-2026-09-28.tar.gz -C /tmp/pinned-store
+
+# Restore into the container volume, then build (token stays on the host):
+docker compose run --rm -v /tmp/pinned-store:/pinned-store:ro \
+  nem-agent python -m nem_agent.cli restore-pinned --strict --local-dir /pinned-store
+docker compose run --rm nem-agent build
+docker compose run --rm nem-agent demo
+```
+
+This local-user workflow has **not** been tested end-to-end outside CI (UNVERIFIED).
+Without repository access, `docker compose up` falls back to live publisher downloads
+(the default path above), which may produce different data and corpus versions.
+
 **Index / model mismatch:** the document index and embedding model are a matched pair. If the
 `nem-index` volume persists from a previous run but `nem-models` is empty (e.g. the models volume
 was added after the first build), retrieval will fail with `LocalEntryNotFoundError`. To recover,
