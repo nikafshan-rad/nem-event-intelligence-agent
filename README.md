@@ -318,6 +318,49 @@ Code, not the model, does everything else:
 A draft that fails gets exactly one repair turn. If that fails, the user sees validated tool facts only, labelled as
 such. A separate small experiment (G8) fits a linear quantile *forecasting* model; it is not a language model.
 
+### Docker
+
+```bash
+docker compose up              # first run builds data, then starts API (:8000) + UI (:8501)
+docker compose up --build      # rebuild after code changes
+```
+
+**First run downloads public data from the internet.** The container fetches AEMO dispatch, demand
+and forecast archives from NEMWeb (~80 MB), NASA POWER weather data (~5 MB), AEMO market notices,
+and the `minishlab/potion-retrieval-32M` embedding model from HuggingFace Hub (~125 MB). These are
+public sources; no API key or GitHub authentication is needed. Subsequent starts reuse built data
+persisted in Docker volumes.
+
+The downloaded publisher bytes have **not** been verified against the released pinned-byte hashes
+in this repository's GitHub releases. NASA POWER API responses include volatile metadata, so their
+raw SHA-256 will differ from the pins even when the weather values are identical; `content_sha256`
+is checked instead. If an AEMO source has rolled off NEMWeb's 'Current' folder and is not yet in
+an Archive bundle, the build will fail for that source.
+
+**Replay mode** (the default, no API key) runs the offline investigation for the primary event
+using pre-built data. **Live mode** calls the OpenAI API and incurs cost:
+
+```bash
+OPENAI_API_KEY=sk-... docker compose up
+```
+
+Other entry points:
+
+```bash
+docker compose run --rm nem-agent demo     # replay the primary event
+docker compose run --rm nem-agent test     # run the full test suite
+docker compose run --rm nem-agent build    # build data + index only
+docker compose run --rm nem-agent shell    # interactive shell inside the container
+```
+
+**Index / model mismatch:** the document index and embedding model are a matched pair. If the
+`nem-index` volume persists from a previous run but `nem-models` is empty (e.g. the models volume
+was added after the first build), retrieval will fail with `LocalEntryNotFoundError`. To recover,
+remove only the index and models volumes — **not** the raw-data or store volumes — then restart so
+`build-index` re-downloads the model and rebuilds the index. The exact volume names depend on the
+Compose project name; use `docker volume ls` to identify them and `docker volume rm` to remove the
+two. This recovery procedure has not been tested end-to-end (UNVERIFIED).
+
 ## Architecture
 
 ```mermaid

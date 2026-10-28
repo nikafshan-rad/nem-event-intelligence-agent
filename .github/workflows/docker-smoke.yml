@@ -1,0 +1,95 @@
+name: docker-smoke
+
+on:
+  push:
+    paths:
+      - Dockerfile
+      - docker-compose.yml
+      - docker-entrypoint.sh
+      - .dockerignore
+      - .github/workflows/docker-smoke.yml
+  pull_request:
+    paths:
+      - Dockerfile
+      - docker-compose.yml
+      - docker-entrypoint.sh
+      - .dockerignore
+      - .github/workflows/docker-smoke.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate compose config
+        run: docker compose config
+
+      - name: Build image
+        run: docker compose build
+
+      - name: Fresh-volume Replay demo
+        id: demo
+        run: |
+          docker compose run --rm -T nem-agent demo 2>&1 | tee demo.log
+        timeout-minutes: 20
+
+      - name: Start services (API + UI)
+        if: steps.demo.outcome == 'success'
+        run: |
+          docker compose up -d
+          echo "Waiting for services to start..."
+          sleep 10
+
+      - name: Health check — API
+        if: steps.demo.outcome == 'success'
+        run: |
+          for i in 1 2 3 4 5; do
+            if curl -sf http://localhost:8000/health; then
+              echo "API healthy"
+              exit 0
+            fi
+            echo "Attempt $i: API not ready, waiting 5s..."
+            sleep 5
+          done
+          echo "API health check failed"
+          docker compose logs nem-agent
+          exit 1
+
+      - name: Health check — UI
+        if: steps.demo.outcome == 'success'
+        run: |
+          for i in 1 2 3 4 5; do
+            if curl -sf http://localhost:8501/_stcore/health; then
+              echo "UI healthy"
+              exit 0
+            fi
+            echo "Attempt $i: UI not ready, waiting 5s..."
+            sleep 5
+          done
+          echo "UI health check failed"
+          docker compose logs nem-agent
+          exit 1
+
+      - name: Upload demo log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-demo-log
+          path: demo.log
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker compose down -v --remove-orphans 2>/dev/null || true
+          docker system prune -f 2>/dev/null || true

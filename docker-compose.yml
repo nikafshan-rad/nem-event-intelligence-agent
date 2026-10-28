@@ -1,0 +1,22 @@
+services:
+  nem-agent:
+    build: .
+    ports:
+      - "8000:8000"
+      - "8501:8501"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - NEM_AGENT_MODEL=${NEM_AGENT_MODEL:-gpt-5-mini}
+      - NEM_AGENT_SESSION_BUDGET_USD=${NEM_AGENT_SESSION_BUDGET_USD:-0.50}
+    volumes:
+      - nem-data:/app/data/raw
+      - nem-store:/app/data/store
+      - nem-index:/app/data/index
+      - nem-models:/app/data/models
+    restart: unless-stopped
+
+volumes:
+  nem-data:
+  nem-store:
+  nem-index:
+  nem-models:
