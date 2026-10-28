@@ -1,5 +1,15 @@
 name: docker-smoke
 
+# Docker packaging smoke test. Builds the image, restores the approved pinned bytes from the GitHub
+# release bundle (without passing any token into the container), builds the data store and index
+# inside the container, verifies data_version and corpus_version match the released baseline, and
+# runs the Replay demo. No secrets, no Live mode, no paid API calls.
+#
+# This is a packaging validation, not a reproducibility gate: the container builds from the same
+# pinned bytes as CI, but the embedding model downloads fresh from HuggingFace, and differences in
+# floating-point or library versions could in principle change the index. The version check catches
+# any such divergence.
+
 on:
   push:
     paths:
@@ -23,6 +33,16 @@ concurrency:
   group: docker-smoke-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # Released baseline versions (verified 2026-09-27, from make restore-pinned + make data + make index).
+  # Update these only when a new pinned-bytes bundle is released and the baseline is re-verified.
+  EXPECTED_DATA_VERSION: "8c14c217f5570d32"
+  EXPECTED_CORPUS_VERSION: "221b6ea0f21e006d"
+  # Bundle coordinates (from data/pinned_store.json).
+  BUNDLE_RELEASE: "pinned-bytes-bundle-2026-09-28"
+  BUNDLE_ASSET: "approved-bytes-pinned-bytes-bundle-2026-09-28.tar.gz"
+  BUNDLE_SHA256: "547b3a1e6ece230bc89286dc0a9b097a86b1e28bed3bfa7bba770508bb5dd2e4"
+
 jobs:
   smoke:
     runs-on: ubuntu-latest
@@ -36,11 +56,50 @@ jobs:
       - name: Build image
         run: docker compose build
 
-      - name: Fresh-volume Replay demo
+      - name: Download approved-bytes bundle (host only — token never enters the container)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "$BUNDLE_RELEASE" \
+            --repo "${{ github.repository }}" \
+            --pattern "$BUNDLE_ASSET" \
+            --dir "$RUNNER_TEMP/bundle"
+
+          echo "Verifying bundle SHA-256..."
+          ACTUAL=$(sha256sum "$RUNNER_TEMP/bundle/$BUNDLE_ASSET" | cut -d' ' -f1)
+          if [ "$ACTUAL" != "$BUNDLE_SHA256" ]; then
+            echo "::error ::Bundle SHA-256 mismatch: expected $BUNDLE_SHA256, got $ACTUAL"
+            exit 1
+          fi
+          echo "Bundle verified: $ACTUAL"
+
+          mkdir -p "$RUNNER_TEMP/pinned-store"
+          tar xzf "$RUNNER_TEMP/bundle/$BUNDLE_ASSET" -C "$RUNNER_TEMP/pinned-store"
+          NOBJ=$(find "$RUNNER_TEMP/pinned-store" -maxdepth 1 -type f | wc -l)
+          echo "Extracted $NOBJ objects"
+
+      - name: Restore pinned bytes into container volume
+        run: |
+          docker compose run --rm -T \
+            -v "$RUNNER_TEMP/pinned-store:/pinned-store:ro" \
+            nem-agent \
+            python -m nem_agent.cli restore-pinned --strict --local-dir /pinned-store
+
+      - name: Build data store and document index
+        run: |
+          docker compose run --rm -T nem-agent build 2>&1 | tee build.log
+        timeout-minutes: 15
+
+      - name: Verify no publisher downloads
+        run: |
+          docker compose run --rm -T nem-agent \
+            python -m nem_agent.cli publisher-downloads --expect-none
+
+      - name: Replay demo
         id: demo
         run: |
           docker compose run --rm -T nem-agent demo 2>&1 | tee demo.log
-        timeout-minutes: 20
+        timeout-minutes: 10
 
       - name: Start services (API + UI)
         if: steps.demo.outcome == 'success'
@@ -49,20 +108,37 @@ jobs:
           echo "Waiting for services to start..."
           sleep 10
 
-      - name: Health check — API
+      - name: Verify versions and source completeness
         if: steps.demo.outcome == 'success'
         run: |
-          for i in 1 2 3 4 5; do
-            if curl -sf http://localhost:8000/health; then
-              echo "API healthy"
-              exit 0
-            fi
-            echo "Attempt $i: API not ready, waiting 5s..."
-            sleep 5
-          done
-          echo "API health check failed"
-          docker compose logs nem-agent
-          exit 1
+          HEALTH=$(curl -sf http://localhost:8000/health)
+          echo "$HEALTH" | python3 -c "
+          import json, sys, os
+          h = json.load(sys.stdin)
+          print(json.dumps(h, indent=2))
+          errors = []
+          exp_data = os.environ['EXPECTED_DATA_VERSION']
+          exp_corpus = os.environ['EXPECTED_CORPUS_VERSION']
+          got_data = h.get('data_version', '(missing)')
+          got_corpus = h.get('corpus_version', '(missing)')
+          if got_data != exp_data:
+              errors.append(f'data_version: expected {exp_data}, got {got_data}')
+          if got_corpus != exp_corpus:
+              errors.append(f'corpus_version: expected {exp_corpus}, got {got_corpus}')
+          sources = h.get('sources', {})
+          revised = sources.get('revised_in_use_pending_review', 0)
+          unavail = sources.get('unavailable_excluded', 0)
+          if revised > 0:
+              errors.append(f'{revised} revised source(s) in use pending review')
+          if unavail > 0:
+              errors.append(f'{unavail} unavailable source(s) excluded')
+          for e in errors:
+              print(f'::error ::{e}', file=sys.stderr)
+          if errors:
+              print(f'FAIL: {len(errors)} check(s) failed', file=sys.stderr)
+              sys.exit(1)
+          print('All version and source checks passed')
+          "
 
       - name: Health check — UI
         if: steps.demo.outcome == 'success'
@@ -79,12 +155,14 @@ jobs:
           docker compose logs nem-agent
           exit 1
 
-      - name: Upload demo log
+      - name: Upload logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: docker-demo-log
-          path: demo.log
+          name: docker-smoke-logs
+          path: |
+            demo.log
+            build.log
           if-no-files-found: ignore
           retention-days: 14
 
