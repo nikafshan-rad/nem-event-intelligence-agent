@@ -94,6 +94,21 @@ def report_schema() -> dict[str, Any]:
     return InvestigationReport.model_json_schema()
 
 
+@app.get("/report/{trace_id}/export")
+def export_report(trace_id: str) -> dict[str, Any]:
+    """Return the full InvestigationReport for a completed investigation, suitable for machine consumption.
+
+    Reports live in a bounded in-memory cache (≤200 entries, oldest evicted first) and are lost when the
+    server restarts.  For durable storage, persist the response externally.
+    """
+    if not _TRACE_RE.match(trace_id):
+        raise HTTPException(status_code=404, detail="invalid trace id format")
+    rep = _REPORTS.get(trace_id)
+    if rep is None:
+        raise HTTPException(status_code=404, detail="unknown trace id; run POST /investigate first")
+    return rep
+
+
 @app.get("/evidence/{row_id:path}")
 def evidence(row_id: str) -> dict[str, Any]:
     from .store import Store, trace_row
